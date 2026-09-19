@@ -4,7 +4,7 @@
 
 이 문서는 제안을 사용자 승인으로 간주하지 않기 위한 결정 장부다. `Pending`은 미결정, `Confirmed`는 사용자의 명시적 결정 완료, `Deferred`는 해당 단계에서 다루지 않음을 뜻한다. 현재 아래 추천안은 승인되지 않았다. 원문 10절의 남녀부·3계층·독립 AI 예측·T-60·전체 예측 종류·외부 Market 후행 비교·개인용 MVP는 계속 기준으로 삼는다.
 
-자료에 적힌 API·시즌 수·경기 수·일정·성능·약관 설명은 제공 문서의 과거 관측 보고이며 이번 작업에서 재검증하지 않았다. 일정과 성능 숫자를 승인 조건이나 납기 약속으로 사용하지 않는다. 결정 후 변경되는 설계와 작업은 [architecture.md](./architecture.md), [plan.md](./plan.md)에 함께 반영한다.
+자료에 적힌 API·시즌 수·경기 수·일정·성능·약관 설명은 제공 문서의 과거 관측 보고이며 이번 작업에서 재검증하지 않았다. 일정과 성능 숫자를 승인 조건이나 납기 약속으로 사용하지 않는다. 이번 인터뷰에서는 이 결정 장부만 갱신한다. 변경되는 설계와 작업의 architecture.md/plan.md 동기화는 별도 세션에서 수행한다.
 
 ## UC-001 — MVP 전체 범위와 단계적 제공
 
@@ -20,7 +20,7 @@
 
 **결정 영향:** 기획의 출시 범위, architecture 모델 capabilities, 화면 준비 시점, plan의 critical path와 완료 판정.
 
-**현재 상태:** Pending. **사용자 결정:** 미기입.
+**현재 상태:** Confirmed. **사용자 결정:** A (2026-09-19) — 원문 전체 MVP를 한 번에 제공한다. 선수/세트 feature, 네 가지 예측, Multi-AI, 자동 평가, Web UI 등 정의된 전체 사용자 흐름을 첫 MVP에 포함한다.
 
 ## UC-002 — 데이터 이용 범위와 실제 소스 커버리지
 
@@ -36,7 +36,7 @@
 
 **결정 필요:** 승인 근거, 소스/시즌/종류별 수집 범위, 실패/누락 수용 조건, bulk 요청 정책, player_set/랠리 보류 여부. 확인되지 않은 수치는 0으로 대체하지 않는다.
 
-**결정 영향:** Collector 활성화, raw 보관, 실제 fixture, backfill 완료 기준, source_coverage·feature capabilities. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** Collector 활성화, raw 보관, 실제 fixture, backfill 완료 기준, source_coverage·feature capabilities. **현재 상태:** Confirmed. **사용자 결정:** A (2026-09-19) — 이용 가능 범위를 확인한 뒤 KOVO 데이터를 직접 수집한다. 실제 대량 수집 전 이용 조건·요청량·coverage를 확인하며 미확인 값은 0으로 대체하지 않는다.
 
 ## UC-003 — 실행 환경·저장 방식·기술 스택
 
@@ -52,7 +52,7 @@
 
 **결정 필요:** 호스트/예산, 네트워크 접근 방식, DB와 원문 저장, 백업 보관 기간·RPO/RTO, 운영 인증·알림 채널. 런타임 정확한 버전은 구현 시작 시 검증해 잠근다.
 
-**결정 영향:** 프로젝트 scaffold, 배포·CI, 스케줄러, SQL migration, 운영 비용과 접근 보안. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** 프로젝트 scaffold, 배포·CI, 스케줄러, SQL migration, 운영 비용과 접근 보안. **현재 상태:** Confirmed. **사용자 결정:** A (2026-09-19) — 상시 호스트에서 Python/FastAPI + PostgreSQL + React/TypeScript 기반 모듈형 모놀리스로 운영한다.
 
 ## UC-004 — 통계 기준선과 공통 확률 출력
 
@@ -68,7 +68,7 @@
 
 **결정 필요:** 기준선 후보·6범주 schema, 모델 단계·학습 구간·hyperparameter 선택, 성능 평가법, AI confidence의 참고 표기. 검토의 Elo 수치는 재현 목표 후보이며 보장 합격값이 아니다.
 
-**결정 영향:** provider contract, feature 설계, Market 지원 범위, model registry, 평가/대시보드 지표. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** provider contract, feature 설계, Market 지원 범위, model registry, 평가/대시보드 지표. **현재 상태:** Confirmed. **사용자 결정:** A (2026-09-19) — Elo 승패에서 6개 세트 결과 분포, 이후 공동 점수 분포로 확장하는 공통 확률 구조를 사용한다. 최종 MVP에서는 네 종류 예측을 모두 제공한다.
 
 ## UC-005 — 외부 Market 계약
 
@@ -84,7 +84,7 @@
 
 **결정 필요:** 공급원/연결 방식·권한, source_event 매핑, line 단위/기간/부호, odds 형식, quote·수신 시각, max_age, 정산·push·void·몰수·재편성, 부분경기/quarter line 지원 여부.
 
-**결정 영향:** market schema, 후행 확률 계산, snapshot eligibility, 시장 기준선 cohort·화면 결측 사유. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** market schema, 후행 확률 계산, snapshot eligibility, 시장 기준선 cohort·화면 결측 사유. **현재 상태:** Confirmed. **사용자 결정:** C (2026-09-19) — 실제 외부 Market schema가 확보되기 전까지 Market 비교 데이터는 missing 처리한다. 기능·contract/interface·합성 fixture는 MVP 범위에 유지한다.
 
 ## UC-006 — AI 역할·Provider·비용·버전 정책
 
@@ -100,7 +100,7 @@
 
 **결정 필요:** provider/model ID, 날짜 고정 버전 가능 여부, alias 대체 규칙, 월/일 비용 한도·변형 수, timeout/token cap, 응답 원문 보관, prompt 변경 시 동시 비교 기간. 예산 초과는 `budget_skipped`로 남기고 baseline은 계속한다.
 
-**결정 영향:** adapter 구현·secret 설정·model registry·cohort·대시보드 비용/실패, live 전향 비교. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** adapter 구현·secret 설정·model registry·cohort·대시보드 비용/실패, live 전향 비교. **현재 상태:** Confirmed. **사용자 결정:** A (2026-09-19) — GPT/Claude/Gemini의 독립 예측을 유지하고 소수의 고정 모델·프롬프트로 시작한다. 실제 모델 ID·호출 수·예산은 구현 시 명시적으로 고정한다.
 
 ## UC-007 — T-60 실행·늦은 완료·최종 결과 정정
 
@@ -116,7 +116,7 @@
 
 **결정 필요:** 허용 오차·retry/response deadline, 실제 시작 미확인 시 처리, 연기/재편성 새 snapshot 정책, provisional→final 안정화 간격, 정정 재동기화 기간과 성능 갱신 기준. 권고는 원문 예측 불변 + append-only void/supersede 이벤트, 정정 결과별 새 evaluation이다.
 
-**결정 영향:** scheduler, 시계/재시작 검증, 평가 적격성, history 상태와 dashboard 분모. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** scheduler, 시계/재시작 검증, 평가 적격성, history 상태와 dashboard 분모. **현재 상태:** Confirmed. **사용자 결정:** A (2026-09-19) — T-60 엄격 실행과 짧은 grace를 사용한다. 정확한 grace/retry/deadline 수치는 구현 단계에서 확정하며 경기 시작 후 완료 응답은 유효한 사전 예측으로 인정하지 않는다.
 
 ## UC-008 — UI 시안 선택
 
@@ -130,7 +130,7 @@
 
 **추천:** 초기 주 화면은 A, B/C의 경기 상세·비교 표현을 일관된 디자인으로 통합하는 방향. 실제 시안을 보고 사용자가 주 탐색 방식과 밀도를 선택한다. 자동으로 세 스타일을 섞지 않는다.
 
-**결정 영향:** 화면 정보 구조·탐색·반응형 우선순위, frontend 구현·접근성/시각 검증. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** 화면 정보 구조·탐색·반응형 우선순위, frontend 구현·접근성/시각 검증. **현재 상태:** Confirmed. **사용자 결정:** B (2026-09-19) — sample2의 경기 분석 중심 UI를 주 방향으로 채택한다. 개별 경기에서 통계 모델과 GPT/Claude/Gemini 예측·확률·근거·Market 관계를 깊게 확인하며 운영/장기 성능은 하위 또는 별도 화면으로 제공한다.
 
 ## UC-009 — 대회 범위·구단 연속성·과거 가용시점 가정
 
@@ -146,7 +146,7 @@
 
 **결정 필요:** 허용 대회, 구단 인수 시 Elo 이월/추가 회귀, 시즌별 규칙/경기장 매핑, historical availability policy, roster/정정 시각을 모르는 자료의 제외 기준.
 
-**결정 영향:** identity resolver·Elo 이월·source coverage·백테스트 split·성능 cohort·필터. **현재 상태:** Pending. **사용자 결정:** 미기입.
+**결정 영향:** identity resolver·Elo 이월·source coverage·백테스트 split·성능 cohort·필터. **현재 상태:** Confirmed. **사용자 결정:** A (2026-09-19) — 정규리그 우선, PO/챔프는 별도 cohort로 관리한다. 남녀부를 분리하고 검증된 franchise mapping을 사용하며 과거 재구성 데이터는 reconstruction, 당시 시점 자료가 있는 구간은 strict cohort로 관리한다.
 
 ## UC-010 — 공개 서비스 전환 기준
 
@@ -163,4 +163,4 @@
 
 ## 결정 기록 방법
 
-각 항목의 상태를 변경할 때 선택 옵션·추가 조건·결정 날짜·사용자 근거를 기록한다. 답이 없는 항목은 추천안으로 자동 확정하지 않는다. 관련 architecture/plan의 gate를 같은 변경에서 갱신한다. UC-001~009가 Pending이어도 문서/합성 fixture/계약 조사처럼 결정에 의존하지 않는 준비는 가능하며, 외부 수집·유료 호출·운영 배포 등의 의존 작업은 해당 승인과 실제 접근 조건을 충족해야 시작한다.
+각 항목의 상태를 변경할 때 선택 옵션·추가 조건·결정 날짜·사용자 근거를 기록한다. 답이 없는 항목은 추천안으로 자동 확정하지 않는다. 관련 architecture/plan의 gate 동기화는 별도 세션에서 수행한다. UC-001~009가 Pending이어도 문서/합성 fixture/계약 조사처럼 결정에 의존하지 않는 준비는 가능하며, 외부 수집·유료 호출·운영 배포 등의 의존 작업은 해당 승인과 실제 접근 조건을 충족해야 시작한다.
