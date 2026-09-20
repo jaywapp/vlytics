@@ -61,7 +61,7 @@ flowchart TD
 
 ## 담당 모델 기준
 
-현재 세션에서 실제 호출 가능한 Codex 모델을 기준으로 배정한다. `gpt-6-astra`는 시점·평가·모델링·복잡한 UX 통합에, `gpt-5.6-sol`은 계약이 정해진 구현·조사·검증에 사용한다. Claude는 일반 역할 지침에 등장하지만 이 세션에 해당 런타임을 호출할 도구가 없어 실행 가능한 기본 담당으로 지정하지 않는다. 별도 환경에서 Claude로 이관할 때는 사용 가능한 정확한 모델을 확인한 뒤 담당을 갱신한다. 이 표의 모델은 개발 담당이며 제품에서 호출할 GPT/Claude/Gemini model ID(OP-003)와 다르다.
+사용자 요청에 따라 모든 작업의 개발 담당 모델을 `gpt-5.6-sol`로 통일한다. 기존 Astra 배정은 필수 의존성이 아니며, 기획·설계·계약과 검증 기준을 바탕으로 Sol이 작업을 수행한다. 추론 수준은 작업별로 유지한다. 일반 구성·조회 UI는 Medium, 시점·불변 저장·평가·복잡한 통합은 High, TASK-010 공동 점수 모델은 Extra High를 사용한다. 어려운 작업은 수식·계약 검토, 구현, 손계산 fixture·통합 검증 순서로 나누고 검증 실패를 해결한 뒤 완료 처리한다. 기존 Validation과 인수 조건을 그대로 적용한다. 이 표의 모델은 개발 담당이며 제품에서 호출할 GPT/Claude/Gemini model ID(OP-003)와 다르다.
 
 각 작업은 산출물 검증 후 완료로 변경한다. 실패·미확인·외부 대기 상태는 근거와 함께 기록하고 건너뛰어 완료로 처리하지 않는다.
 
@@ -95,7 +95,7 @@ flowchart TD
 
 **Validation:** OP-002·003·004별 값·출처·결정일·검증 방법이 존재한다. 예시 설정은 가짜 키만 사용하고 실제 secret은 외부 저장소에서 주입한다. grace가 경기 시작을 넘을 수 없는 검증을 정의한다.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 운영 비용과 시점 공정성의 영향을 함께 검토해야 한다.
 
@@ -131,7 +131,7 @@ flowchart TD
 
 **Validation:** migration up/재적용 실패 방지, PK/source 중복, 실제 서비스 역할 UPDATE·DELETE 거부, 허용된 job 상태 갱신을 DB 통합 테스트로 증명한다.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 시점·정정·동시성 제약이 이후 모든 모듈의 신뢰도를 결정한다.
 
@@ -185,7 +185,7 @@ flowchart TD
 
 **Validation:** cutoff 직전/직후·정정 revision·현재 누적 기록·대상 경기 출전자 주입을 검사한다. 분모 0·짧은 시즌·결측을 손계산 fixture와 대조. reconstruction과 strict/live 입력 policy 분리.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 가용시각과 경기시간 차이, 통계 분모가 데이터 누수에 직결된다.
 
@@ -221,7 +221,7 @@ flowchart TD
 
 **Validation:** p 경계·대칭·6개 확률 합=1, 승패 일치. 순차 holdout에서 RPS·Calibration·세트스코어 적중률과 n 보고.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 모델 가정과 분포 일관성을 해석하고 검증해야 한다.
 
@@ -239,7 +239,7 @@ flowchart TD
 
 **Validation:** 질량 합·불가능한 스코어 거부·세트 주변분포 일치·듀스 꼬리 처리·점수 핸디캡/총점 판정 손계산 검증. 남녀 holdout의 분포 품질·제약·표본 수 보고.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** Extra High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** Extra High
 
 **Reason:** 공동 확률·배구 종료 규칙·수치오차를 함께 설계하는 가장 복잡한 모델 작업이다.
 
@@ -275,7 +275,7 @@ flowchart TD
 
 **Validation:** fake clock으로 0/다수 경기·동시 claim·lease 만료·timeout 늦은 응답·재편성 검증. 이후 데이터 유입 없음, 대표 성공 unique, 경기 시작 후 완료는 평가 제외, 각 예측 hash 불변.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 동시성·시간·외부 호출의 중복 비용과 결과 적격성을 통합해야 한다.
 
@@ -293,7 +293,7 @@ flowchart TD
 
 **Validation:** 손계산 데이터로 모든 지표·n0/n1·0/1 확률·push/void 분모 검증. 결과 정정 후 이전 평가 보존, 재실행 중복 없음. 각 모델 단독 n과 paired n 구별, 시장 없는 경기의 AI/stat 비교 유지.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 평가 분모·코호트 오염이 제품의 핵심 위험이다.
 
@@ -329,7 +329,7 @@ flowchart TD
 
 **Validation:** 모바일/데스크톱, 키보드, loading/empty/error, 실패 Provider, 긴 이름·텍스트를 실제 API fixture로 검증. 시점·확률·모델 버전이 서버와 일치하고 합성 자료가 실제 데이터로 오인되지 않음.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 채택된 UX 의도와 다중 모델 상태를 접근 가능한 화면으로 옮긴다.
 
@@ -401,7 +401,7 @@ flowchart TD
 
 **Validation:** FR-01~12별 증거 표, 네 예측 계산과 Market missing 계약 모두 통과. UPDATE/DELETE 거부, 기준시각 누수 0건, 중복 성공 0건, 실패 coverage 기록. backend 검사와 frontend production build·브라우저 접근성/반응형 확인.
 
-**Agent:** Codex · **Model:** `gpt-6-astra` · **Reasoning Level:** High
+**Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 모듈 단위 성공과 실제 사용자 흐름의 차이를 통합 검증한다.
 
