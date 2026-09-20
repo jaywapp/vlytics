@@ -1,10 +1,14 @@
 # 기술 설계
 
-작성일: 2026-09-19 · 상태: 구현 준비안, 사용자 결정 전
+작성일: 2026-09-19 · 갱신일: 2026-09-20 · 상태: UC-001~009 확정 결정 반영
 
 ## 설계 기준과 결정 경계
 
-[원문](../ideas/vlytics.md) 10절의 확정 사항을 우선한다. [검토 의견](../ideas/vlytics-claude-feedback.md)은 설계 근거와 제안이며 승인된 범위 변경이 아니다. 특히 화면·Market·점수 모델의 후순위화, AI 보정자 전환, T-10분 재시도는 [사용자 결정](./user-confirm.md)의 Pending 항목이다. 원문 MVP 전체 기능을 삭제하지 않는다.
+[원문](../ideas/vlytics.md) 10절과 2026-09-19 [사용자 결정](./user-confirm.md)의 Confirmed 선택을 적용한다. [검토 의견](../ideas/vlytics-claude-feedback.md)의 대안보다 사용자의 최종 선택이 우선한다. UC-001~009는 결정 완료이며 UC-010 공개 전환만 Deferred다. 이미 선택한 범위를 다시 승인받는 게이트를 두지 않는다.
+
+첫 MVP에 남녀부 수집·팀/선수/세트 feature, Elo·6범주 세트 모델·공동 점수 모델, 승패/세트스코어/핸디캡/O-U, 독립 Multi-AI, 불변 snapshot, 자동 평가, Prediction History·Performance Dashboard와 경기 분석 중심 Web을 모두 포함한다(UC-001 A, UC-004 A). 모델의 단계적 구현은 개발 의존 순서이며 축소 MVP를 먼저 출시한다는 뜻이 아니다. Market 기능·계약·합성 fixture도 첫 MVP에 포함하지만 실제 외부 schema가 없으면 실데이터 비교는 `missing`으로 제공한다(UC-005 C).
+
+상시 모놀리스 스택(UC-003 A), 허용 범위 확인 후 KOVO 직접 수집(UC-002 A), 소수 고정 모델의 독립 AI(UC-006 A), 엄격 T-60과 짧은 grace(UC-007 A), sample2 경기 중심 UI(UC-008 B), 정규리그 우선·PO/챔프 분리와 reconstruction/strict 구분(UC-009 A)을 적용한다. 호스트·정확한 모델 ID·예산·grace 값은 구현 단계 설정 작업이며 마지막 절의 운영 활성화 게이트로 관리한다.
 
 검토 의견의 API 경로, 22시즌 4,460경기, Elo 63.6%, 2026-27 개막일, 구단 코드 변경과 이용조건은 **제공 문서의 2026-09-19 관측 보고**다. 이번 준비 작업에서 외부 재조회·원자료 재계산하지 않았다. 구현 전 계약 조사로 검증하며 특정 건수·성능을 합격값으로 하드코딩하지 않는다.
 
@@ -33,11 +37,11 @@ flowchart LR
   Q --> W[Vlytics Web]
 ```
 
-확정된 논리 계층은 V-Mirror → V-Engine → Web이다. 추천 물리 구조는 단일 배포의 모듈형 모놀리스다. API와 worker를 같은 이미지에서 서로 다른 프로세스로 실행하고 한 PostgreSQL 안의 `mirror`, `engine`, `market`, `ops` 스키마로 소유권을 나눈다. 프로세스 실패 격리는 유지하지만 서비스 간 네트워크·분산 트랜잭션을 초기부터 도입하지 않는다. 이는 UC-003 승인 전까지 추천안이다.
+확정된 논리 계층은 V-Mirror → V-Engine → Web이며 물리 구조는 상시 호스트의 단일 배포 모듈형 모놀리스다(UC-003 A). API와 worker를 같은 이미지에서 서로 다른 프로세스로 실행하고 한 PostgreSQL 안의 `mirror`, `engine`, `market`, `ops` 스키마로 소유권을 나눈다. 프로세스 실패 격리는 유지하지만 서비스 간 네트워크·분산 트랜잭션을 초기부터 도입하지 않는다.
 
 ## 기술 스택과 선택 이유
 
-| 영역 | 추천안 | 이유·제약 |
+| 영역 | 적용 스택·구성 | 이유·제약 |
 |---|---|---|
 | 분석/서버 | Python + FastAPI, 데이터 검증 모델 | 통계 계산과 Provider 어댑터를 한 언어로 연결, OpenAPI 계약 생성 |
 | 저장 | PostgreSQL, SQL 마이그레이션 | FK·트랜잭션·스키마 권한·작업 lease·불변 제약을 일관되게 적용 |
@@ -64,7 +68,7 @@ flowchart LR
 
 ## 예상 디렉터리 구조
 
-아래는 UC-003 채택 시 생성할 구조다. 현재는 문서와 UI 시안만 만든다.
+아래는 확정된 UC-003에 따라 구현 단계에서 생성할 구조다. 이번 준비 산출물은 문서와 UI 시안이며 제품 구현과 구분한다.
 
 ```text
 backend/
@@ -137,9 +141,13 @@ docs/prepare/
 
 ## 예측 분포와 계산 계약
 
-UC-004 승인 대상인 추천 공통 계약이다. Elo 단독은 승패만 지원하므로 미지원 target을 `unsupported`로 표시하고 6범주 분포를 임의 생성하지 않는다. 세트 모델 및 점수 모델을 추가해야 원문의 전체 예측 범위를 충족한다.
+UC-004 A에 따라 Elo 승패 → 6범주 세트 결과 → 공동 점수 분포 순서로 공통 계약을 구현한다. Elo 단독 baseline은 승패만 지원하므로 미지원 target을 `unsupported`로 표시하고 6범주 분포를 임의 생성하지 않는다. 첫 MVP 완료 시 세트 모델과 공동 점수 모델까지 구현·검증하여 네 종류 예측을 모두 제공한다. 개발 중간 단계의 `unsupported`를 전체 MVP 완료로 인정하지 않는다.
 
-`PredictionOutputV1`은 `capabilities`, `home_win_probability?`, `set_score_probabilities?`, `joint_score_distribution_ref?`, `rationale`, `risk_factors`, `confidence_note?`를 갖는다. 확률은 유한수 `[0,1]`, 6개 합은 `abs(sum-1) <= 1e-6`을 검증한다. 허용 오차 내 반올림 보정만 정해진 규칙으로 수행하고 원문·보정 여부를 보존한다. 범위 위반/누락은 실패이며 자동으로 균등 분포로 바꾸지 않는다. 승패와 세트분포가 모두 있으면 일치 여부를 검증하고 화면의 값은 세트분포에서 계산한다. confidence는 보정된 확률처럼 사용하지 않는다.
+`PredictionOutputV1`은 `capabilities`, `home_win_probability?`, `set_score_probabilities?`, `joint_score_distribution_ref?`, `target_provenance`, `rationale`, `risk_factors`, `confidence_note?`를 갖는다. 확률은 유한수 `[0,1]`, 6개 합은 `abs(sum-1) <= 1e-6`을 검증한다. 허용 오차 내 반올림 보정만 정해진 규칙으로 수행하고 원문·보정 여부를 보존한다. 범위 위반/누락은 실패이며 자동으로 균등 분포로 바꾸지 않는다. 승패와 세트분포가 모두 있으면 일치 여부를 검증하고 화면의 값은 세트분포에서 계산한다. confidence는 보정된 확률처럼 사용하지 않는다.
+
+제품 전체는 네 target을 지원해야 하지만 Elo 등 비교용 baseline까지 모든 target을 지원할 의무는 없다. target별 provenance는 `producer_variant_id`, `distribution_version`, `derivation_method`, `input_snapshot_id`로 기록한다. 순수 AI 점수 target을 제공하려면 AI가 출력한 schema 검증 가능한 공동 확률 질량 또는 사전 정의된 typed 분포 parameter를 서버가 검증해 불변 분포로 저장해야 한다. `joint_score_distribution_ref`는 서버가 생성하는 내부 ID이며 같은 snapshot/variant의 검증된 분포만 참조한다. AI가 임의 URL·타 모델 분포 ID를 출력하게 하지 않는다. 공동분포의 확률 합, 점수 support와 세트별 규칙, 6범주 주변분포 일치를 확인한 뒤에만 point capability를 부여한다.
+
+AI가 6범주만 출력한 경우 승패·세트 target은 독립 AI 결과다. 점수 target을 계산할 때 통계 conditional score model을 결합한다면 `P_AI(s) × P_stat(home_points, away_points | s)`의 파생 **hybrid** 변형으로 별도 저장하고 AI variant와 통계 conditional model 버전을 모두 기록한다. 이를 순수 AI의 독립 점수 예측으로 표기하거나 평가하지 않는다. 모든 활성 독립 AI는 같은 feature에서 자체 예측을 생성하며 통계 예측을 입력받는 보정자로 바뀌지 않는다. MVP 완료 검증에서는 통계 공동 점수 변형 등 실제로 네 target을 제공하는 변형을 확인하고, 라인 부재에 따른 `missing`과 분포 기능 부재에 따른 `unsupported`를 구별한다.
 
 홈 관점 세트 결과 키는 `3:0, 3:1, 3:2, 2:3, 1:3, 0:3`이다. `p_s`가 각 결과 확률, `H_s/A_s`가 홈/원정 세트 수일 때:
 
@@ -166,7 +174,7 @@ MarketEvaluator.evaluate(prediction_id, market_snapshot_id, contract_version) ->
 ResultEvaluator.evaluate(prediction_id, result_revision_id, policy_version) -> Evaluation
 ```
 
-`PredictionContextV1`은 snapshot ID/hash, cutoff, 남녀/대회 구분, 팀/선수 feature와 결측 상태, feature version을 포함한다. Market 필드/배당/다른 모델 예측은 독립 실험군 입력에서 제외한다. 통계 모델 결과를 입력받는 보정 실험군은 UC-006 승인 이후 별도 `experiment_group=calibrator`로만 추가한다. Provider별 직렬화 차이는 허용하되 의미상 같은 입력과 prompt/hash를 보존한다. 도구·검색은 기본 비활성화한다.
+`PredictionContextV1`은 snapshot ID/hash, cutoff, 남녀/대회 구분, 팀/선수 feature와 결측 상태, feature version을 포함한다. Market 필드/배당/다른 모델 예측은 독립 실험군 입력에서 제외한다. UC-006 A에 따라 GPT/Claude/Gemini 교체·동시 실행 어댑터를 구현하고 소수의 고정 모델·프롬프트를 활성화한다. 통계 예측을 입력받는 보정자나 비정형 정보 실험군은 이번 MVP 선택에 포함되지 않는다. Provider별 직렬화 차이는 허용하되 의미상 같은 입력과 prompt/hash를 보존한다. 도구·검색은 기본 비활성화한다.
 
 Provider 결과에는 requested/resolved 모델 ID, version, 요청/응답 해시, 비공개 원문, temperature/seed(지원 시), token usage, latency, provider request ID, safety refusal/validation failure가 추적 가능해야 한다. 날짜 고정 모델 ID가 없으면 `version_unverified`로 cohort를 구분하고 silent alias 변경을 같은 버전으로 합산하지 않는다.
 
@@ -176,17 +184,21 @@ Provider 결과에는 requested/resolved 모델 ID, version, 요청/응답 해�
 |---|---|
 | `GET /api/v1/matches?date=&division=&stage=` | KST 날짜를 서버에서 UTC 구간으로 변환, 일정 revision·지연·coverage 반환 |
 | `GET /api/v1/matches/{id}` | 일정/결과 revision, 예측별 입력 cutoff·생성 시각·모델·상태·Market 가용성 |
-| `GET /api/v1/predictions?cursor=&division=&variant=&from=&to=` | 안정된 cursor, total eligible/failed 구분, 응답에 schema version |
+| `GET /api/v1/predictions?cursor=&from=&to=&division=&team_id=&provider=&model=&prediction_type=&prompt_version=&variant=` | 기간·남녀부·팀·Provider·Model·예측 종류·Prompt Version 필터, 안정된 cursor, eligible/failed 분리, schema version 반환 |
 | `GET /api/v1/predictions/{id}` | 보존된 결과/근거/lineage 요약·상태 이벤트; 원문과 키는 반환하지 않음 |
 | `GET /api/v1/performance?cohort=&division=&stage=&variants=` | 평가 cohort, 공통 경기 수, 제외 사유, metrics/CI/calibration, 결과 revision 기준 |
 | `GET /api/v1/operations` | jobs·실패·최근 동기화·clock skew·coverage·누락 예측 |
 | `POST /api/v1/jobs/{id}/retry` | 운영자 인증, idempotency key 필수, cutoff/마감 검증; 과거 예측 교체 불가 |
 
-오류는 `{code, message, retryable, correlation_id}`로 통일하고 비밀정보/Provider 원문을 노출하지 않는다. 인증 실패 401/403, 잘못된 계약 422, 중복 충돌 409, upstream 일시 실패 503을 구분한다. UI의 타이밍·집계 정책은 서버 응답으로 결정한다.
+오류는 `{code, message, retryable, correlation_id}`로 통일하고 비밀정보/Provider 원문을 노출하지 않는다. 인증 실패 401/403, 잘못된 계약 422, 중복 충돌 409, upstream 일시 실패 503을 구분한다. UI의 타이밍·집계 정책은 서버 응답으로 결정한다. prediction 필터의 model은 실제 variant에 기록된 모델 ID, team은 홈/원정 어느 쪽이든 일치, prediction_type은 승패/세트스코어/handicap/total을 사용하며 필터 간에는 AND를 적용한다.
+
+### 경기 분석 중심 Web
+
+UC-008 B의 [sample2](./samples/sample2/index.html)를 구현 기준으로 삼는다. 오늘 경기 목록에서 경기를 선택하면 동일 snapshot의 통계·GPT/Claude/Gemini 예측, 확률·근거·위험요인과 Market 관계를 한 경기 상세에서 비교한다. 경기 상세에는 입력 cutoff와 완료 시각, 모델/프롬프트 버전, 명단 가용성, eligible/diagnostic 상태를 제공한다. Market은 값이 없으면 missing 이유를 보여주며 합성 예시 값을 실제 값으로 채우지 않는다. 운영 현황과 장기 성능은 하위 또는 별도 화면으로 제공하고 History의 전체 필터를 API와 일치시킨다. sample1/3의 스타일을 자동 통합하지 않는다.
 
 ## Market 계약
 
-UC-005에서 실제 외부 적재자와 계약을 확정한다. 기존 DB가 없으면 합성 fixture로 어댑터를 검증할 수 있으나 시장 비교의 실제 완료로 간주하지 않는다.
+UC-005 C에 따라 실제 외부 schema를 확보하기 전에는 Market 비교를 `missing` 처리한다. 첫 MVP에서 Market contract/interface, 합성 fixture, 후행 확률 계산·정산과 missing/stale 표시까지 구현·검증한다. 외부 실자료의 부재는 이 합의된 MVP의 완료를 막지 않지만 시장 비교 성능이 검증됐다는 뜻은 아니다. 실연결 활성화 시 외부 적재자 schema와 내부 계약의 매핑·권한·정산·시각 기준을 검증한다(OP-005).
 
 각 라인은 `market_type=moneyline/handicap/total`, `unit=match/sets/points`, `period=full_match/set_n`, `selection`, `line`(정밀 decimal), `decimal_odds`, `settlement_rule_version`, `quoted_at`, `observed_at`, `source`를 포함한다. 홈/원정 방향과 handicap 부호, 양쪽 odds가 같은 계약/시점인지 검증한다. 지원 초기안은 full_match와 단일 정수/반점 라인이며 quarter line·부분 경기·몰수/중단·재개 특례는 명시적으로 지원하거나 `unsupported` 처리한다.
 
@@ -196,7 +208,7 @@ T-60 cutoff 이하의 quote/observation 중 최신의 유효 snapshot만 고정�
 
 ## 스케줄·상태 관리
 
-일정 수와 요일을 고정하지 않는다. UTC clock을 쓰고 일정 polling, 결과 polling, 원천 요청 간격은 UC-002/003 승인 정책에서 설정한다.
+일정 수와 요일을 고정하지 않는다. UTC clock을 쓰고 일정 polling, 결과 polling, 원천 요청 간격은 UC-002/003의 확정 방향 안에서 실제 소스 조건과 호스트를 조사해 구현 설정으로 고정한다.
 
 | 대상 | 상태/전이 | 불변 조건 |
 |---|---|---|
@@ -208,13 +220,13 @@ T-60 cutoff 이하의 quote/observation 중 최신의 유효 snapshot만 고정�
 
 job key는 `(match_id, schedule_revision_id, stage, variant_id)`이며 feature 작업은 variant 없이 같은 snapshot을 공유한다. 등록/lease 취득은 DB 트랜잭션으로 원자화하고 worker가 죽으면 lease 만료 후 재시도한다. 외부 AI 호출은 exactly-once를 보장할 수 없으므로 provider idempotency가 있으면 사용하고, 없으면 중복 비용을 로그에 남기되 결과 insert unique 제약으로 대표 prediction을 하나만 채택한다. 성공한 Provider를 다른 Provider 실패 때문에 재호출하지 않는다.
 
-T-60은 확정된 목표 실행 시각이다. CPU/네트워크 지연으로 `started_at`과 `generated_at`은 cutoff와 다를 수 있다. 시간 허용 오차와 최종 retry deadline은 UC-007 Pending이다. 추천은 snapshot cutoff를 T-60으로 유지하고 제한된 grace로 `on_time`/`late_pregame` cohort를 나누는 안이다. T-10 제안은 승인 전 운영 기본값으로 적용하지 않는다. strict 시각 정책을 선택하면 해당 허용 오차를 넘는 시도는 diagnostics만 보존한다.
+UC-007 A에 따라 T-60 엄격 실행과 짧은 grace를 적용한다. 입력 cutoff는 T-60으로 고정하고 `started_at`과 `generated_at`은 실제 시각을 보존한다. OP-004 구현 작업에서 `start_tolerance_seconds`, `completion_grace_seconds`, retry 간격/횟수와 최종 deadline을 명시적으로 고정한다. deadline은 cutoff+짧은 completion grace와 예정 시작 중 더 이른 시각을 넘지 않으며 실제 시작 시각 검증도 별도로 적용한다. 설정이 없으면 운영 예측 worker 활성화를 거부하고 fake clock 검증만 허용한다. 허용 오차/grace 밖의 시도는 경기 전이라도 diagnostics로만 보존하고 주 성능 cohort에서 제외한다. T-10까지의 확장 재시도와 경기 직전까지 유연한 재시도는 채택하지 않았다.
 
 모든 정책에서 실제 시작 시각 이후 완료된 응답은 `late_rejected`, 주 성능 cohort 제외다. 요청이 경기 전에 시작됐어도 예외가 아니다. 실제 시작 시각이 미확인인 동안 예정 시작을 보수적 상한으로 쓰고, 이후 확인된 실제 시작이 더 빠르면 lifecycle 이벤트로 적격성을 철회한다. 나중에 시작한 사실을 근거로 사전 deadline을 임의 연장하지 않는다.
 
 연기/시간 변경은 새 schedule revision을 생성한다. 기존 queued job을 취소하고 기존 예측에는 `voided` 또는 `superseded` 이벤트를 추가한다. 새 T-60이 미래이면 새 snapshot/job을 만들고, 이미 지났으면 누락/late 정책에 따라 처리하되 과거 입력을 만들어낸 것처럼 backdate하지 않는다. 경기 취소·중단·재개는 Market 계약과 평가 규칙에 따라 void/보류하고 재편성 매핑을 명시한다. 메타데이터만 정정한 경우 재예측 여부는 revision diff 정책으로 구분한다.
 
-결과 동기화는 provisional 결과 검증 후 finality 정책에 따라 확정한다. 안정화 간격·정정 재조회 기간은 UC-007에서 결정한다. 결과 정정은 새 evaluation을 생성해 동일 cohort에 반영하고, dashboard에는 반영 기준 시각·정정 건수를 보여준다.
+결과 동기화는 provisional 결과 검증 후 finality 정책에 따라 확정한다. 안정화 간격·정정 재조회 기간은 OP-004 구현 설정으로 기록하고 결과 동기화 활성화 전에 fake clock 및 정정 fixture로 검증한다. 결과 정정은 새 evaluation을 생성해 동일 cohort에 반영하고, dashboard에는 반영 기준 시각·정정 건수를 보여준다.
 
 ## 평가·실험 설계
 
@@ -234,7 +246,7 @@ T-60은 확정된 목표 실행 시각이다. CPU/네트워크 지연으로 `sta
 
 기준선 추천은 훈련 기간 홈 승률 고정 모델, 통계 baseline, 적격 Market 내재확률 3종이다. 홈 승률도 평가 기간 결과로 추정하면 누수이므로 훈련 기간/online update 규칙을 고정한다. 시장 자료 없는 경기는 시장 비교 분모에 넣지 않되 AI 대 통계 전체 비교에서 제외하지 않는다. Provider failure rate와 예정 예측 대비 coverage도 성능 옆에 제공한다.
 
-남녀, 정규/포스트시즌, feature/prompt/model version, availability policy, on_time/late, 결과 finality를 cohort key에 포함한다. 같은 경기·같은 cutoff/input 그룹만 짝비교한다. 순차 train/validation/test 분할과 walk-forward feature 계산을 사용하고 무작위 경기 분할을 하지 않는다. 피드백의 과거 기간과 점수는 재현 참고이며 성능 보장이나 공개 전환 수치가 아니다.
+UC-009 A에 따라 남녀를 분리하고 정규리그를 기본 조회·평가 대상으로 삼으며 PO/챔프는 별도 cohort로 관리한다. 검증된 franchise mapping과 과거 reconstruction/당시 시점 자료가 있는 strict cohort를 적용한다. 올스타/시범 등 기타 대회를 정규 성능에 섞지 않는다. feature/prompt/model version, availability policy, timing eligibility, 결과 finality도 cohort key에 포함한다. 짧은 grace를 넘는 diagnostics는 주 비교와 분리한다. 같은 경기·같은 cutoff/input 그룹만 짝비교한다. 순차 train/validation/test 분할과 walk-forward feature 계산을 사용하고 무작위 경기 분할을 하지 않는다. 피드백의 과거 기간과 점수는 재현 참고이며 성능 보장이나 공개 전환 수치가 아니다.
 
 ## 오류 처리·로그·설정
 
@@ -246,7 +258,7 @@ T-60은 확정된 목표 실행 시각이다. CPU/네트워크 지연으로 `sta
 
 ## 외부 의존·보안
 
-KOVO 비문서 API, 외부 Market 적재자, AI Provider, 상시 호스트와 시계 동기화가 외부 의존이다. UC-002 해결 전에는 제공 문서/합성 fixture와 허용 범위 확인을 진행하며 대량 수집을 실행하지 않는다. robots 404나 무인증 응답은 자동수집·재배포 허가의 증거가 아니다.
+KOVO 비문서 API, 외부 Market 적재자, AI Provider, 상시 호스트와 시계 동기화가 외부 의존이다. UC-002 A의 직접 수집 방식은 확정됐으며 실제 이용 가능 범위·요청량·coverage 확인(OP-001)이 대량 수집 실행의 선행 작업이다. 해당 근거가 준비되기 전에는 문서 조사와 합성 fixture 검증을 진행한다. robots 404나 무인증 응답은 자동수집·재배포 허가의 증거가 아니다.
 
 개인용이라도 API/운영 명령은 인증된 운영자만 접근한다. 기본은 loopback 또는 private network이고 public ingress는 별도 승인한다. DB 역할을 collector/engine/market_ingest/read_api/migration으로 나누고 V-Mirror 사실을 엔진이 수정할 수 없도록 한다. 비밀정보는 런타임 secret store/env에서 주입하되 `.env`, DB dump, raw JSON, Market 실자료, provider 원문은 저장소에 커밋하지 않는다. 공개 저장소 fixture는 합성 데이터만 사용한다. AI 응답/외부 문자열은 HTML로 직접 렌더링하지 않는다.
 
@@ -254,25 +266,45 @@ KOVO 비문서 API, 외부 Market 적재자, AI Provider, 상시 호스트와 �
 
 1. 계약: 합성 응답으로 source key, 필수 필드 누락, UTF-8/소수/빈 값, source code 선행 0, parser version 변경을 검사한다. 사용 허가된 샘플만 비공개 통합 fixture로 사용한다.
 2. 시점: cutoff 직전/직후 관측, 이후 정정, 과거 backfill을 as-of로 오인한 경우, 확정 전 결과/실제 출전 명단 누수를 검출한다.
-3. 수학: 6개 확률 합·대칭·승패 주변화, 세트/점수 handicap 부호, push, 총점만으로 point cover 미지원, 공동분포의 주변화/꼬리 질량을 검증한다.
+3. 수학: 6개 확률 합·대칭·승패 주변화, 세트/점수 handicap 부호, push, 총점만으로 point cover 미지원, 공동분포의 주변화/꼬리 질량을 검증한다. AI 분포 참조의 snapshot/variant 일치, hybrid provenance 분리와 첫 MVP의 네 target 기능 완성을 검사한다.
 4. 불변성: DB UPDATE/DELETE 거부, lifecycle event로 void/supersede, 결과 정정 뒤 이전 snapshot/hash 불변을 검사한다.
 5. 운영: 같은 job 동시 claim, lease 만료, AI timeout 후 늦은 응답, Provider 부분 실패, 연기/취소/앞당김, 재시작과 deadline 복구를 fake clock으로 검증한다.
 6. 평가: 손계산 가능한 synthetic cohort로 Brier/Log Loss/RPS, 공통 경기 교집합, missing/void 분모, 남녀 분리, corrected evaluation projection을 확인한다.
-7. 전체 흐름: 합성 시즌 일정 재생 → T-60 고정 → 통계/가짜 Provider → 독립 결과 저장 → Market 후행 → 최종/정정 평가 → Web 필터를 검증한다. 과거 AI 호출은 성능 평가로 보고하지 않는다.
+7. 전체 흐름: 합성 시즌 일정 재생 → T-60 고정 → 통계/가짜 Provider → 독립 결과 저장 → Market 후행 → 최종/정정 평가 → sample2 기반 경기 상세와 History 전체 필터를 검증한다. 공동 점수 모델·네 target·평가·Web까지 첫 MVP 수용 범위에 포함한다. 실제 Market이 없는 실행은 missing을 표시하되 합성 라인으로 후행 평가 기능을 검증한다. 과거 AI 호출은 성능 평가로 보고하지 않는다.
 8. 실제 운영 전: 선정 환경에서 clock/재시작/예산/백업 복구 drill, 승인된 소량 소스로 계약 점검, 실제 경기 전 dry run을 수행한다.
 
-CI는 lint/type check, unit/contract/integration test, frontend production build, migration 검사다. DB migration은 staging 백업/복구 검증 후 운영 적용한다. worker와 API는 같은 버전 이미지를 사용하고 schema 호환 순서를 지킨다. 백업 주기·RPO/RTO·보관 기간은 UC-003에서 승인하며 복구 테스트 없이 "백업 완료"로 판단하지 않는다.
+CI는 lint/type check, unit/contract/integration test, frontend production build, migration 검사다. DB migration은 staging 백업/복구 검증 후 운영 적용한다. worker와 API는 같은 버전 이미지를 사용하고 schema 호환 순서를 지킨다. 백업 주기·RPO/RTO·보관 기간은 확정된 UC-003 스택의 운영 설정 작업(OP-002)에서 정하며 복구 테스트 없이 "백업 완료"로 판단하지 않는다.
 
 ## 기술 위험과 구현 게이트
 
 | 위험 | 대응·게이트 |
 |---|---|
-| 수집 권한/범위 미확인 | UC-002; read-only 조사와 bulk execution 구분 |
-| 과거 관측 시각 부재 | UC-009; reconstruction 표기, live와 분리 |
-| 시장 단위·정산 불명 | UC-005; unsupported/missing을 결과로 표현 |
-| Elo만으로 전체 예측을 충족 못함 | UC-001/004; 세트/공동점수 모델 또는 명시적 단계 승인 |
-| 모델 alias/지식오염 | UC-006; 버전 cohort, 전향 평가 |
-| T-60과 T-10 정책 충돌 | UC-007; cutoff/완료 시각/late cohort 구분 |
+| 수집 권한/범위 미확인 | UC-002 A 확정; OP-001 검증 후 bulk 활성화 |
+| 과거 관측 시각 부재 | UC-009 A 확정; OP-006 mapping, reconstruction/strict/live 구분 |
+| 시장 단위·정산 불명 | UC-005 C 확정; 실비교 missing, 계약·계산·합성 fixture는 MVP 구현 |
+| Elo만으로 전체 예측을 충족 못함 | UC-001 A/004 A 확정; 세트·공동점수 모델까지 첫 MVP 완료 조건 |
+| 모델 alias/지식오염 | UC-006 A 확정; OP-003 실제 ID·예산 고정, 버전 cohort와 전향 평가 |
+| T-60 실행 지연 | UC-007 A 확정; OP-004 짧은 grace 검증, 초과 응답 diagnostics |
 | 공개 서비스 조건 미정 | UC-010 Deferred; 개인용 준비에 공개 승인 가정 금지 |
 
-구현 단계의 작업·의존·검증은 [plan.md](./plan.md)에 연결한다. Pending 영향 작업은 문서의 추천안을 확정 설정으로 옮기기 전에 해당 결정을 받아야 한다.
+구현 단계의 작업·의존·검증은 [plan.md](./plan.md)에 연결한다. UC-001~009 선택은 완료됐으므로 재확인할 필요가 없다. [user-confirm.md](./user-confirm.md)의 OP 항목은 구현 중 채워 검증할 운영값이다. 해당 실운영 활성화에만 게이트를 적용하며 scaffold·합성 fixture·계약·테스트 구현 전체를 막지 않는다.
+
+| 운영 항목·작업 | 구현 산출물 | 활성화 조건 |
+|---|---|---|
+| OP-001 · TASK-001 | KOVO 이용 근거, 시즌/종류 coverage, 요청 속도·source key | 대량 수집 전 확인; 미확인 값은 0으로 대체하지 않음 |
+| OP-002 · TASK-002 | 호스트·네트워크·인증·비용, raw 저장, 백업/RPO/RTO·알림 | 실제 배포 전 접근·복구 검증 |
+| OP-003 · TASK-002 | 모델 ID·prompt hash, 호출 수·일/월 예산, timeout/token cap | 실제 유료 호출 전 필수 설정과 예산 제한 검사 |
+| OP-004 · TASK-002 | start tolerance, 짧은 completion grace, retry/deadline, finality·정정 기간 | 운영 worker 전 fake clock·late completion·재편성 검증 |
+| OP-005 · TASK-016 | 외부 Market schema 매핑·권한·단위·정산·max_age | 실제 schema 제공 시 실연결; 부재 중 missing+합성 fixture로 MVP 검증 |
+| OP-006 · TASK-001/005 | 검증된 franchise 이월·회귀·규칙·경기장, historical availability policy | 백테스트/전향 cohort 전 버전 고정 |
+
+학습 구간·hyperparameter·분포 schema 버전은 모델 구현(TASK-008~010)에서 검증해 고정한다. 운영 설정은 선택된 아키텍처 안에서 구체화하고 결과를 설정 문서와 plan에 기록한다. 전체 범위 축소나 다른 스택·AI 역할·T-10 정책으로의 변경은 이번 결정에 포함되지 않는다.
+
+
+## 기술 참고 문서
+
+다음 공식 문서는 준비 작업 중 2026-09-19에 확인했다. 스택의 선택 근거는 사용자 결정 UC-003이며, 실제 지원 버전과 운영값은 구현 시 고정한다.
+
+- [FastAPI 배포](https://fastapi.tiangolo.com/deployment/): 서버 또는 관리형 서비스 등 실행 환경의 배포 구성을 정리한다.
+- [PostgreSQL 스키마](https://www.postgresql.org/docs/current/ddl-schemas.html): 한 DB의 논리 스키마와 권한으로 데이터 소유 영역을 나눈다. 스키마 자체를 권한 경계로 오인하지 않고 역할 권한을 설정한다.
+- [GitHub Actions schedule](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#schedule): 예약 workflow 지연 가능성을 고려하여 운영 T-60는 전용 영속 worker가 담당한다.
