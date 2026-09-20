@@ -1,0 +1,100 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-20T00:00:00+09:00",
+  "title": "Design System: Vlytics 경기 브리핑",
+  "extensions": {
+    "typographyMeta": {
+      "display": { "displayName": "화면 제목", "purpose": "화면의 최상위 제목." },
+      "headline": { "displayName": "경기 판독 문장", "purpose": "선택 경기의 핵심 판단과 불확실성." },
+      "title": { "displayName": "섹션 제목", "purpose": "모델 비교, 확률, 근거와 시점 구획." },
+      "body": { "displayName": "운영 본문", "purpose": "근거와 상태 설명." },
+      "label": { "displayName": "상태 레이블", "purpose": "작은 상태와 분류 정보." },
+      "numeric": { "displayName": "비교 숫자", "purpose": "확률, 시간, 지표와 Snapshot 식별자." }
+    },
+    "motion": [
+      { "name": "control-color", "value": "background-color 0.15s ease, color 0.15s ease", "purpose": "모션 감소를 요청하지 않은 환경에서 버튼과 링크의 색상 상태 전환." }
+    ],
+    "breakpoints": [
+      { "name": "stack-heading", "value": "1000px" },
+      { "name": "mobile-reading", "value": "700px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "선택 경기 버튼",
+      "kind": "button",
+      "refersTo": "match-button-active",
+      "description": "현재 읽고 있는 경기를 레일에서 선택한다.",
+      "html": "<button class=\"ds-match-button ds-active\" aria-pressed=\"true\"><small>여자부 · 19:00</small>한강 : 해오름</button>",
+      "css": ".ds-match-button { min-height: 44px; width: 240px; padding: 18px; text-align: left; border: 1px solid #ccd9e8; border-radius: 6px; background: #ffffff; color: #182d4b; font: 600 15px/1.6 'Segoe UI', 'Malgun Gothic', sans-serif; cursor: pointer; transition: background-color .15s ease, color .15s ease; } .ds-match-button small { display: block; margin-bottom: 8px; font-weight: 400; } .ds-match-button.ds-active { border-color: #2456a0; background: #2456a0; color: #ffffff; } .ds-match-button:hover { color: #2456a0; } .ds-match-button.ds-active:hover { color: #ffffff; } .ds-match-button:focus-visible { outline: 3px solid #2456a0; outline-offset: 4px; } .ds-match-button:active { opacity: .9; }"
+    },
+    {
+      "name": "예측 모델 선택",
+      "kind": "input",
+      "refersTo": "select",
+      "description": "동일 Snapshot에서 읽을 예측 모델을 바꾼다.",
+      "html": "<label class=\"ds-select-label\">예측 모델 <select class=\"ds-select\"><option>통계 세트 모델 · demo</option><option>GPT 독립 실험군 · demo</option></select></label>",
+      "css": ".ds-select-label { color: #182d4b; font: 400 15px/1.6 'Segoe UI', 'Malgun Gothic', sans-serif; } .ds-select { min-height: 44px; margin-left: 8px; padding: 8px 12px; border: 1px solid #ccd9e8; border-radius: 6px; background: #ffffff; color: #182d4b; font: inherit; } .ds-select:hover { color: #2456a0; } .ds-select:focus-visible { outline: 3px solid #2456a0; outline-offset: 4px; } .ds-select:disabled { cursor: not-allowed; opacity: .6; }"
+    },
+    {
+      "name": "입력 상태 배지",
+      "kind": "chip",
+      "refersTo": "status",
+      "description": "입력 고정과 명단 상태를 짧은 문구로 전달한다.",
+      "html": "<span class=\"ds-status\">입력 고정 · 명단 미확정</span>",
+      "css": ".ds-status { display: inline-block; padding: 3px 9px; border-radius: 5px; background: #e1ebf8; color: #182d4b; font: 600 12px/1.6 'Segoe UI', 'Malgun Gothic', sans-serif; }"
+    },
+    {
+      "name": "모델 비교 표",
+      "kind": "custom",
+      "description": "모델별 홈 승리 확률, 실행 상태와 Snapshot을 같은 행 구조로 비교한다.",
+      "html": "<div class=\"ds-table-wrap\"><table class=\"ds-table\"><caption>통계 · GPT · Claude · Gemini 비교</caption><thead><tr><th>모델</th><th>홈 승리</th><th>실행 상태</th></tr></thead><tbody><tr><th scope=\"row\">통계 세트 모델</th><td class=\"ds-num\">60%</td><td>저장 완료</td></tr></tbody></table></div>",
+      "css": ".ds-table-wrap { max-width: 100%; overflow-x: auto; } .ds-table { width: 100%; border-collapse: collapse; color: #182d4b; font: 400 14px/1.6 'Segoe UI', 'Malgun Gothic', sans-serif; text-align: left; } .ds-table caption { padding: 0 0 12px; color: #50647d; text-align: left; } .ds-table th { background: #e1ebf8; color: #50647d; font-weight: 600; } .ds-table th, .ds-table td { padding: 14px 12px; border-bottom: 1px solid #ccd9e8; white-space: nowrap; } .ds-num { font-family: Consolas, 'Malgun Gothic', monospace; font-variant-numeric: tabular-nums; }"
+    },
+    {
+      "name": "세트스코어 확률 분포",
+      "kind": "custom",
+      "description": "여섯 경기 결과의 확률을 수치와 막대로 함께 보여 준다.",
+      "html": "<div class=\"ds-bars\" role=\"img\" aria-label=\"홈팀 기준 세트스코어 확률: 3대0 18퍼센트, 3대1 25퍼센트\"><div class=\"ds-bar-item\"><b>18%</b><div class=\"ds-bar\" style=\"height:65px\"></div><span>3:0</span></div><div class=\"ds-bar-item\"><b>25%</b><div class=\"ds-bar\" style=\"height:90px\"></div><span>3:1</span></div></div>",
+      "css": ".ds-bars { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; align-items: end; height: 172px; margin-top: 24px; color: #182d4b; font-family: 'Segoe UI', 'Malgun Gothic', sans-serif; } .ds-bar-item { min-width: 0; text-align: center; } .ds-bar-item b { display: block; font: 600 13px/1.6 Consolas, 'Malgun Gothic', monospace; font-variant-numeric: tabular-nums; } .ds-bar { min-height: 4px; max-width: 44px; margin: 6px auto 8px; border-radius: 3px 3px 0 0; background: #2456a0; } .ds-bar-item span { font-size: 12px; }"
+    },
+    {
+      "name": "근거 공개 영역",
+      "kind": "custom",
+      "description": "Market 지원 범위와 Snapshot provenance를 필요할 때 펼친다.",
+      "html": "<details class=\"ds-details\"><summary>스냅샷과 모델 버전 확인</summary><p>fs-demo-w01 · Feature demo-v1 · Stat set-model / demo-v1</p></details>",
+      "css": ".ds-details { padding: 16px 0; border-bottom: 1px solid #ccd9e8; color: #182d4b; font: 400 15px/1.6 'Segoe UI', 'Malgun Gothic', sans-serif; } .ds-details summary { min-height: 36px; cursor: pointer; font-weight: 600; } .ds-details summary:hover { color: #2456a0; } .ds-details summary:focus-visible { outline: 3px solid #2456a0; outline-offset: 4px; } .ds-details summary:active { opacity: .9; } .ds-details p { max-width: 72ch; margin: 10px 0 0; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "차분한 경기 판독지",
+    "overview": "Vlytics는 한 경기의 확률에서 근거, 불확실성, 입력 출처까지 순서대로 읽는 운영 도구다. 넓고 옅은 청색 바탕 위에 짙은 남청색 정보와 선명한 청색 선택 상태를 배치해, 많은 수치가 있어도 판단의 흐름을 잃지 않게 한다.\n\n이 기록은 사용자가 선택한 UC-008 B, sample2 경기 분석 방향을 기준으로 한다. 현재 시각 근거는 정적 HTML/CSS/JavaScript 프로토타입이며, 제품 구현은 React/TypeScript로 옮기되 같은 정보 위계와 토큰을 유지한다. sample1의 운영 데스크와 sample3의 실험 워크벤치는 비교 이력이며 이 디자인 시스템에 색상이나 구성 규칙을 공급하지 않는다.\n\n별도 이미지 자산은 필요하지 않다. 이 화면의 핵심은 경기 데이터, 확률 분포, 상태, 근거와 provenance를 의미 구조로 보여 주는 것이며 장식 이미지가 판단을 돕지 않는다.",
+    "keyCharacteristics": [
+      "한 경기씩 깊게 읽는 좁은 경기 레일과 넓은 브리핑 본문",
+      "옅은 청색 면, 짙은 남청색 본문, 절제된 선명 청색 상호작용",
+      "확률·Snapshot·시간에 탭형 숫자를 적용한 감사 가능한 데이터 표현",
+      "명단 미확정, Market 미수신, 모델 실패를 숨기지 않는 상태 언어",
+      "700px 이하에서 세로 흐름으로 전환되는 모바일 우선 판독 구조"
+    ],
+    "rules": [
+      { "name": "한 화면 한 강조색", "body": "sample2의 판독 청색만 주 강조색으로 사용하며 sample1의 녹색이나 sample3의 보라색을 섞지 않는다.", "section": "colors" },
+      { "name": "상태는 색만으로 말하지 않는다", "body": "경고와 성공 여부는 항상 상태 문구와 함께 표시한다.", "section": "colors" },
+      { "name": "비교 숫자 정렬", "body": "행별 비교가 필요한 모든 수치는 탭형 숫자와 숫자 서체를 사용한다.", "section": "typography" },
+      { "name": "평면 판독", "body": "데이터의 계층은 그림자나 부유 효과가 아니라 면 색, 경계선, 간격과 제목 위계로 만든다.", "section": "elevation" }
+    ],
+    "dos": [
+      "한 경기의 선택, 핵심 판독, 모델 비교, 확률, 근거, 시점과 provenance 순서를 유지한다.",
+      "확률과 모델 상태를 동일 Snapshot 기준으로 비교하고 실패를 계산값으로 채우지 않는다.",
+      "다크 모드에서 문서에 기록된 역할별 다크 토큰을 사용한다.",
+      "모바일에서 경기 선택을 가로 스크롤로 바꾸고 본문은 한 열로 유지한다.",
+      "합성 데이터와 실제 운영 데이터를 명시적으로 구분한다."
+    ],
+    "donts": [
+      "sample1의 녹색이나 sample3의 보라색 팔레트를 sample2 방향에 섞지 않는다.",
+      "그림자, 장식 이미지, 그라데이션으로 데이터 위계를 대신하지 않는다.",
+      "색상만으로 성공, 실패, 미수신, 미확정 상태를 전달하지 않는다.",
+      "장기 성능 워크벤치나 운영 데스크의 정보 밀도를 경기 브리핑 첫 화면에 그대로 합치지 않는다.",
+      "정적 프로토타입의 합성 수치와 경기명을 실제 제품 데이터처럼 취급하지 않는다."
+    ]
+  }
+}
