@@ -115,6 +115,19 @@ restore report는 `artifacts/operations/`에 생성되며 Git에서 제외된다
 | Nginx/Docker image build | Docker CLI 부재로 미실행, 운영 활성화 NO-GO 유지 |
 
 병렬 Playwright 최초 실행은 기능 assertion이 아니라 trace artifact `ENOENT`로 8/9가 됐다. artifact 경합을 제거한 단일 worker 재실행에서 같은 9개가 모두 통과했다.
+## 2026-09-25 CI 합성 Compose 검증
+
+[GitHub Actions 실행](https://github.com/jaywapp/vlytics/actions/runs/36088207723)에서 다음을 통과했다.
+
+| 검사 | 결과 |
+| --- | --- |
+| Backend image와 Compose | 저장소 구조에 맞춘 image 빌드, PostgreSQL·migration·API·worker 기동 |
+| API 경계 | health 200, 익명 schedule 401, 합성 운영자 인증 schedule 200 |
+| Worker 재시작 | 외부 수집이 금지된 합성 job을 1회 격리하고 재시작 후 attempt 1건 유지 |
+| Migration과 복구 | 재실행 후 ledger 동일, custom dump를 격리 PostgreSQL 17.11에 복구해 checksum·job 기록 확인 |
+
+이 검사는 개발용 비활성 설정만 사용한다. 운영 host의 production Compose, frontend Nginx image, PITR, 실제 Provider·source 및 T-60 dry-run 검증은 남아 있다.
+
 ## 최종 Go/No-Go
 
 운영 패키지 자체는 reviewable하고 restore 가능하다. **실제 활성화는 NO-GO**다. OP-001~004, host NTP, external backup/PITR, alert 목적지, pinned backend/frontend/base images와 운영 host frontend build·compose·same-origin smoke가 모두 완료된 뒤 이 체크리스트를 새 날짜로 다시 실행한다. Market `missing`만은 UC-005 C에 따라 Go 판단을 막지 않는다.

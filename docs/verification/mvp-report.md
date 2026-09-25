@@ -83,6 +83,7 @@ Playwright 1.63.0과 Chromium headless로 다음을 production bundle에서 확�
 | --- | --- |
 | Backend full pytest + clean PostgreSQL 17.11 | 297 passed, 0 failed, 0 errors, 0 skipped, 0 xfailed |
 | CI PostgreSQL bootstrap 재검증 | 운영 init SQL을 격리 DB에 적용, bootstrap `NOLOGIN`·migrator `NOSUPERUSER` 확인 |
+| CI 합성 Compose smoke | backend 이미지 빌드, PostgreSQL·migration·API·worker 기동, 인증 401/200, 합성 source job 격리 후 worker 재시작 중복 0, migration 재실행, custom dump와 격리 복구 통과 ([CI 실행](https://github.com/jaywapp/vlytics/actions/runs/36088207723)) |
 | Backend replay registry 재확인 | 2 passed (위 297개의 부분집합) |
 | Ruff lint / format | 통과, 103 files formatted |
 | mypy | 통과, 73 source files |
@@ -97,6 +98,10 @@ Playwright 1.63.0과 Chromium headless로 다음을 production bundle에서 확�
 백엔드에는 Starlette가 사용하는 AnyIO alias의 upstream deprecation warning 1건이 남지만 기능 실패는 없다.
 
 ## 외부 운영 제한
+
+CI 스모크는 외부 호출을 끈 개발용 Compose에서 실행했다. production Compose의 frontend Nginx 이미지, 운영 host의 private ingress·backup/PITR·알림·시계 및 live T-60은 아직 검증하지 않았다.
+
+
 
 - OP-001: KOVO 접근 허용 범위·rate 정책이 미확정이다. live 수집·대량 backfill은 계속 차단하며 합성 수집기와 저장 계약만 검증했다.
 - OP-003: 실제 GPT·Claude·Gemini model ID, 유료 호출 권한·예산·secret이 확정되지 않았다. 공급자별 고정 HTTPS transport와 독립 adapter·계약·실패 격리는 offline HTTP mock으로 검증했으며 실제 유료 모델 호출이나 품질을 주장하지 않는다.

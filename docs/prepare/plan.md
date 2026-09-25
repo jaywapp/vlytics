@@ -8,7 +8,7 @@
 
 **첫 MVP는 전체 범위를 한 번에 제공한다.** 아래 작업 순서는 내부 개발 순서이며 MVP-0/MVP-1 분리 출시 승인이 아니다. 수집·Feature·Elo·세트/공동 점수 모델·독립 Multi-AI·네 예측·불변 저장·자동 평가·경기 중심 Web·기록/성능/운영 화면이 모두 완료되어야 한다. Market 계약과 합성 검증도 필수이며 실제 schema 전 `missing` 운영은 UC-005 C의 확정된 예외다. 점수 모델 미구현을 `unsupported`로 숨겨 MVP 완료로 간주하지 않는다.
 
-TASK-001~020의 코드·계약·UI·운영 패키지를 구현했다. 합성·offline 범위와 clean PostgreSQL 17 재생 검증은 완료했으며 결과는 `docs/verification/mvp-report.md`에 기록한다. OP-001~005의 실제 데이터 접근, 유료 Provider 호출, Market adapter, live T-60 dry-run과 Docker host smoke는 외부 값이 준비될 때까지 fail-closed 상태다.
+TASK-001~020의 코드·계약·UI·운영 패키지를 구현했다. 합성·offline 범위와 clean PostgreSQL 17 재생 검증은 완료했으며 결과는 `docs/verification/mvp-report.md`에 기록한다. CI의 합성 Compose 기동·worker 재시작·격리 복구는 검증했다. OP-001~005의 실제 데이터 접근, 유료 Provider 호출, Market adapter, live T-60 dry-run과 운영 host의 production Compose·frontend smoke는 외부 값이 준비될 때까지 fail-closed 상태다.
 
 ## 결정과 실행 의존
 
