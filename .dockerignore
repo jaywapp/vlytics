@@ -1,0 +1,12 @@
+**
+!backend/
+!backend/pyproject.toml
+!backend/uv.lock
+!backend/src/
+!backend/src/**
+!backend/migrations/
+!backend/migrations/**
+!config/
+!config/variants.toml
+!contracts/
+!contracts/**

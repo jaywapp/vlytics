@@ -4,14 +4,16 @@ FROM python:3.12.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/workspace/backend/.venv/bin:$PATH"
 
-WORKDIR /app
+WORKDIR /workspace/backend
 COPY --from=uv /uv /uvx /bin/
-COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-COPY src ./src
-COPY migrations ./migrations
+COPY backend/src ./src
+COPY backend/migrations ./migrations
+COPY config/variants.toml /workspace/config/variants.toml
+COPY contracts /workspace/contracts
 RUN uv sync --frozen --no-dev
 
 USER 65532:65532
