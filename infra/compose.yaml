@@ -23,7 +23,8 @@ services:
   migrate:
     image: vlytics-backend:local
     build:
-      context: ../backend
+      context: ..
+      dockerfile: backend/Dockerfile
     environment:
       VLYTICS_MIGRATION_DATABASE_URL: ${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL is required}
       VLYTICS_COLLECTOR_DATABASE_PASSWORD: ${COLLECTOR_DATABASE_PASSWORD:?COLLECTOR_DATABASE_PASSWORD is required}
@@ -38,9 +39,12 @@ services:
   api:
     image: vlytics-backend:local
     build:
-      context: ../backend
+      context: ..
+      dockerfile: backend/Dockerfile
     environment:
       VLYTICS_DATABASE_URL: ${READ_API_DATABASE_URL:?READ_API_DATABASE_URL is required}
+      VLYTICS_OPERATOR_AUTH_SECRET: ${VLYTICS_OPERATOR_AUTH_SECRET:-}
+      VLYTICS_READONLY_AUTH_SECRET: ${VLYTICS_READONLY_AUTH_SECRET:-}
       VLYTICS_OPERATIONAL_CONFIG_PATH: /app/config/example.toml
       VLYTICS_OPERATIONAL_SCHEMA_PATH: /app/contracts/config.schema.json
     command: ["vlytics-api"]
@@ -56,7 +60,8 @@ services:
   worker:
     image: vlytics-backend:local
     build:
-      context: ../backend
+      context: ..
+      dockerfile: backend/Dockerfile
     environment:
       VLYTICS_DATABASE_URL: ${ENGINE_DATABASE_URL:?ENGINE_DATABASE_URL is required}
       VLYTICS_OPERATIONAL_CONFIG_PATH: /app/config/example.toml

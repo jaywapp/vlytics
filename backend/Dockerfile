@@ -8,10 +8,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY --from=uv /uv /uvx /bin/
-COPY pyproject.toml uv.lock ./
+COPY backend/pyproject.toml backend/uv.lock ./
 RUN uv sync --frozen --no-dev --no-install-project
-COPY src ./src
-COPY migrations ./migrations
+COPY backend/src ./src
+COPY backend/migrations ./migrations
+COPY config/variants.toml ./config/variants.toml
 RUN uv sync --frozen --no-dev
 
 USER 65532:65532
