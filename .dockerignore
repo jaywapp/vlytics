@@ -8,3 +8,5 @@
 !backend/migrations/**
 !config/
 !config/variants.toml
+!contracts/
+!contracts/**

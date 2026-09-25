@@ -283,10 +283,7 @@ def build_production_worker(
         if isinstance(error, OperationalConfigError):
             raise
         raise OperationalConfigError("worker database preflight failed") from error
-    registry_path = Path(
-        environ.get("VLYTICS_VARIANT_REGISTRY_PATH")
-        or Path(__file__).resolve().parents[3] / "config" / "variants.toml"
-    )
+    registry_path = Path(__file__).resolve().parents[3] / "config" / "variants.toml"
     registry = load_variant_registry(registry_path)
     timing = SchedulerTiming.from_operational_config(operational_config)
     live_plan: LiveProviderPlan | None = None
