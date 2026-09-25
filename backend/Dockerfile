@@ -4,7 +4,8 @@ FROM python:3.12.14-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/app/.venv/bin:$PATH"
+    PATH="/app/.venv/bin:$PATH" \
+    VLYTICS_VARIANT_REGISTRY_PATH=/app/config/variants.toml
 
 WORKDIR /app
 COPY --from=uv /uv /uvx /bin/
