@@ -1,0 +1,61 @@
+[build-system]
+requires = ["hatchling==1.27.0"]
+build-backend = "hatchling.build"
+
+[project]
+name = "vlytics"
+version = "0.1.0"
+description = "Vlytics modular monolith backend"
+requires-python = ">=3.12,<3.14"
+dependencies = [
+  "fastapi==0.116.1",
+  "httpx==0.28.1",
+  "jsonschema==4.25.1",
+  "psycopg[binary]==3.2.10",
+  "pydantic-settings==2.10.1",
+  "sqlalchemy==2.0.43",
+  "uvicorn[standard]==0.35.0",
+]
+
+[project.scripts]
+vlytics-api = "vlytics.api.main:main"
+vlytics-migrate = "vlytics.storage.migrations:main"
+vlytics-worker = "vlytics.worker:main"
+
+[dependency-groups]
+dev = [
+  "mypy==1.17.1",
+  "pytest==8.4.2",
+  "pytest-asyncio==1.1.0",
+  "ruff==0.12.12",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/vlytics"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"migrations" = "vlytics_sql_migrations"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+packages = ["vlytics"]
+
+[tool.pytest.ini_options]
+addopts = "-q"
+testpaths = ["tests"]
+pythonpath = ["src"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.uv]
+package = true

@@ -1,0 +1,127 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vlytics.local/contracts/source/kovo-game-detail.v1.schema.json",
+  "title": "KOVO game detail response v1",
+  "type": "object",
+  "required": ["result", "payload"],
+  "properties": {
+    "result": {
+      "type": "object",
+      "required": ["status", "message"],
+      "properties": {
+        "status": { "type": "integer" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "payload": {
+      "type": "object",
+      "required": ["game", "player", "team", "ranking"],
+      "properties": {
+        "game": { "$ref": "#/definitions/game" },
+        "player": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/player" }
+        },
+        "team": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/team" }
+        },
+        "ranking": { "type": ["object", "null"] }
+      },
+      "additionalProperties": true
+    }
+  },
+  "definitions": {
+    "game": {
+      "type": "object",
+      "required": [
+        "seasonCode",
+        "leagueCode",
+        "gnum",
+        "gender",
+        "gdate",
+        "gstime",
+        "hcode",
+        "acode"
+      ],
+      "properties": {
+        "seasonCode": { "type": "string", "pattern": "^[0-9]{3}$" },
+        "leagueCode": { "type": "string", "pattern": "^[0-9]+$" },
+        "gnum": { "type": "integer", "minimum": 0 },
+        "gender": { "type": "string", "pattern": "^[0-9]+$" },
+        "gdate": { "type": "string", "minLength": 1 },
+        "gstime": { "type": "string", "minLength": 1 },
+        "getime": { "type": ["string", "null"] },
+        "hcode": { "type": "string", "minLength": 1 },
+        "acode": { "type": "string", "minLength": 1 },
+        "hspoint": { "type": ["integer", "null"] },
+        "aspoint": { "type": ["integer", "null"] },
+        "hs1point": { "type": ["integer", "null"] },
+        "hs2point": { "type": ["integer", "null"] },
+        "hs3point": { "type": ["integer", "null"] },
+        "hs4point": { "type": ["integer", "null"] },
+        "hs5point": { "type": ["integer", "null"] },
+        "as1point": { "type": ["integer", "null"] },
+        "as2point": { "type": ["integer", "null"] },
+        "as3point": { "type": ["integer", "null"] },
+        "as4point": { "type": ["integer", "null"] },
+        "as5point": { "type": ["integer", "null"] },
+        "s1Ptime": { "type": ["string", "null"] },
+        "s2Ptime": { "type": ["string", "null"] },
+        "s3Ptime": { "type": ["string", "null"] },
+        "s4Ptime": { "type": ["string", "null"] },
+        "s5Ptime": { "type": ["string", "null"] },
+        "sptime": { "type": ["string", "null"] },
+        "place": { "type": ["string", "null"] },
+        "city": { "type": ["string", "null"] },
+        "spectators": { "type": ["integer", "null"] },
+        "result": { "type": ["string", "null"] },
+        "gpart": { "type": ["string", "null"] },
+        "score": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "player": {
+      "type": "object",
+      "required": ["season", "gnum", "tcode", "pcode"],
+      "properties": {
+        "season": { "type": "string", "minLength": 1 },
+        "gpart": { "type": ["string", "null"] },
+        "gnum": { "type": "integer", "minimum": 0 },
+        "tcode": { "type": "string", "minLength": 1 },
+        "pcode": { "type": "string", "minLength": 1 },
+        "pname": { "type": ["string", "null"] },
+        "position": { "type": ["string", "null"] },
+        "ynCaptain": { "type": ["string", "null"] },
+        "ynS1": { "type": ["string", "null"] },
+        "ynS2": { "type": ["string", "null"] },
+        "ynS3": { "type": ["string", "null"] },
+        "ynS4": { "type": ["string", "null"] },
+        "ynS5": { "type": ["string", "null"] },
+        "point": { "type": ["integer", "null"] },
+        "warning": { "type": ["integer", "null"] },
+        "err": { "type": ["integer", "null"] },
+        "terr": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": true
+    },
+    "team": {
+      "type": "object",
+      "required": ["season", "gnum", "tcode"],
+      "properties": {
+        "season": { "type": "string", "minLength": 1 },
+        "gpart": { "type": ["string", "null"] },
+        "gnum": { "type": "integer", "minimum": 0 },
+        "tcode": { "type": "string", "minLength": 1 },
+        "tsname": { "type": ["string", "null"] },
+        "point": { "type": ["integer", "null"] },
+        "warning": { "type": ["integer", "null"] },
+        "err": { "type": ["integer", "null"] },
+        "terr": { "type": ["integer", "null"] }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

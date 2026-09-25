@@ -1,0 +1,73 @@
+name: vlytics
+
+services:
+  postgres:
+    image: postgres:17.11-alpine
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-vlytics}
+      POSTGRES_USER: vlytics_bootstrap_admin
+      POSTGRES_PASSWORD: ${MIGRATOR_DATABASE_PASSWORD:?MIGRATOR_DATABASE_PASSWORD is required}
+      MIGRATOR_DATABASE_PASSWORD: ${MIGRATOR_DATABASE_PASSWORD:?MIGRATOR_DATABASE_PASSWORD is required}
+      TZ: UTC
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./postgres-init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vlytics_migrator -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    image: vlytics-backend:local
+    build:
+      context: ../backend
+    environment:
+      VLYTICS_MIGRATION_DATABASE_URL: ${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL is required}
+      VLYTICS_COLLECTOR_DATABASE_PASSWORD: ${COLLECTOR_DATABASE_PASSWORD:?COLLECTOR_DATABASE_PASSWORD is required}
+      VLYTICS_ENGINE_DATABASE_PASSWORD: ${ENGINE_DATABASE_PASSWORD:?ENGINE_DATABASE_PASSWORD is required}
+      VLYTICS_MARKET_INGEST_DATABASE_PASSWORD: ${MARKET_INGEST_DATABASE_PASSWORD:?MARKET_INGEST_DATABASE_PASSWORD is required}
+      VLYTICS_READ_API_DATABASE_PASSWORD: ${READ_API_DATABASE_PASSWORD:?READ_API_DATABASE_PASSWORD is required}
+    command: ["vlytics-migrate"]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    image: vlytics-backend:local
+    build:
+      context: ../backend
+    environment:
+      VLYTICS_DATABASE_URL: ${READ_API_DATABASE_URL:?READ_API_DATABASE_URL is required}
+      VLYTICS_OPERATIONAL_CONFIG_PATH: /app/config/example.toml
+      VLYTICS_OPERATIONAL_SCHEMA_PATH: /app/contracts/config.schema.json
+    command: ["vlytics-api"]
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ../config/example.toml:/app/config/example.toml:ro
+      - ../contracts/config.schema.json:/app/contracts/config.schema.json:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    image: vlytics-backend:local
+    build:
+      context: ../backend
+    environment:
+      VLYTICS_DATABASE_URL: ${ENGINE_DATABASE_URL:?ENGINE_DATABASE_URL is required}
+      VLYTICS_OPERATIONAL_CONFIG_PATH: /app/config/example.toml
+      VLYTICS_OPERATIONAL_SCHEMA_PATH: /app/contracts/config.schema.json
+    command: ["vlytics-worker"]
+    volumes:
+      - ../config/example.toml:/app/config/example.toml:ro
+      - ../contracts/config.schema.json:/app/contracts/config.schema.json:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+volumes:
+  postgres-data:

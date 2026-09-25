@@ -1,0 +1,47 @@
+{
+  "result": {
+    "status": 200,
+    "message": "synthetic success"
+  },
+  "payload": [
+    {
+      "gcode": "001",
+      "seasonCode": "001",
+      "seasonName": "Synthetic 2000 Season",
+      "ryear": "2000",
+      "remark": null,
+      "leagues": [
+        {
+          "num": 201,
+          "leagueCode": "201",
+          "leagueName": "Synthetic Regular Season",
+          "rounds": null,
+          "cpart": null
+        }
+      ]
+    },
+    {
+      "gcode": "001",
+      "seasonCode": "999",
+      "seasonName": "Synthetic 2099 Season",
+      "ryear": "2099",
+      "remark": "fabricated contract fixture",
+      "leagues": [
+        {
+          "num": 202,
+          "leagueCode": "202",
+          "leagueName": "Synthetic Playoffs",
+          "rounds": null,
+          "cpart": null
+        },
+        {
+          "num": 203,
+          "leagueCode": "203",
+          "leagueName": "Synthetic Championship",
+          "rounds": null,
+          "cpart": null
+        }
+      ]
+    }
+  ]
+}

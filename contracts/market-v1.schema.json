@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vlytics:market-snapshot:1",
+  "title": "Vlytics MarketSnapshotV1",
+  "description": "An immutable external Market quote snapshot mapped to one internal match.",
+  "$comment": "Server semantic validation enforces source-event mapping, quoted <= observed <= received, exact two-way pairs, inverse signed handicaps, full-match support, integer/half-line support, and canonical SHA-256. Unsupported periods and quarter lines are preserved but never guessed or settled as supported.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "snapshot_id",
+    "match_id",
+    "source",
+    "source_event_id",
+    "quoted_at",
+    "observed_at",
+    "received_at",
+    "contract_version",
+    "markets",
+    "sha256"
+  ],
+  "properties": {
+    "schema_version": { "const": "market-v1" },
+    "snapshot_id": { "type": "string", "minLength": 1 },
+    "match_id": { "type": "string", "minLength": 1 },
+    "source": { "type": "string", "minLength": 1 },
+    "source_event_id": { "type": "string", "minLength": 1 },
+    "quoted_at": { "type": "string", "format": "date-time" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "received_at": { "type": "string", "format": "date-time" },
+    "contract_version": { "const": "market-v1" },
+    "markets": {
+      "type": "array",
+      "minItems": 2,
+      "items": { "$ref": "#/$defs/marketLine" }
+    },
+    "sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "decimal": { "type": "string", "pattern": "^-?(0|[1-9][0-9]*)(\\.[0-9]+)?$" },
+    "positiveDecimal": { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$" },
+    "marketLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "line_id",
+        "market_type",
+        "unit",
+        "period",
+        "selection",
+        "decimal_odds",
+        "settlement_rule_version",
+        "source",
+        "quoted_at",
+        "observed_at",
+        "received_at"
+      ],
+      "properties": {
+        "line_id": { "type": "string", "minLength": 1 },
+        "market_type": { "enum": ["moneyline", "handicap", "total"] },
+        "unit": { "enum": ["match", "sets", "points"] },
+        "period": { "enum": ["full_match", "set_1", "set_2", "set_3", "set_4", "set_5"] },
+        "selection": { "enum": ["home", "away", "over", "under"] },
+        "line": { "$ref": "#/$defs/decimal" },
+        "decimal_odds": { "$ref": "#/$defs/positiveDecimal" },
+        "settlement_rule_version": { "type": "string", "minLength": 1 },
+        "source": { "type": "string", "minLength": 1 },
+        "quoted_at": { "type": "string", "format": "date-time" },
+        "observed_at": { "type": "string", "format": "date-time" },
+        "received_at": { "type": "string", "format": "date-time" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "market_type": { "const": "moneyline" } }, "required": ["market_type"] },
+          "then": {
+            "properties": {
+              "unit": { "const": "match" },
+              "selection": { "enum": ["home", "away"] }
+            },
+            "not": { "required": ["line"] }
+          }
+        },
+        {
+          "if": { "properties": { "market_type": { "const": "handicap" } }, "required": ["market_type"] },
+          "then": {
+            "required": ["line"],
+            "properties": {
+              "unit": { "enum": ["sets", "points"] },
+              "selection": { "enum": ["home", "away"] }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "market_type": { "const": "total" } }, "required": ["market_type"] },
+          "then": {
+            "required": ["line"],
+            "properties": {
+              "unit": { "enum": ["sets", "points"] },
+              "selection": { "enum": ["over", "under"] }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

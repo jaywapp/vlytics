@@ -1,0 +1,78 @@
+{
+  "result": {
+    "status": 200,
+    "message": "synthetic success"
+  },
+  "payload": {
+    "content": [
+      {
+        "seasonCode": "999",
+        "seasonName": "Synthetic 2099 Season",
+        "leagueCode": "201",
+        "leagueName": "Synthetic Regular Season",
+        "gnum": 1,
+        "gender": "1",
+        "gdate": "2099-10-31",
+        "gstime": "19:00",
+        "getime": null,
+        "hcode": "M001",
+        "hname": "Synthetic Mountain",
+        "hsname": "Mountain",
+        "acode": "M002",
+        "aname": "Synthetic River",
+        "asname": "River",
+        "place": "Synthetic Arena A",
+        "city": "Synthetic City A",
+        "hspoint": null,
+        "aspoint": null,
+        "hs1point": null,
+        "as1point": null,
+        "result": null
+      },
+      {
+        "seasonCode": "999",
+        "seasonName": "Synthetic 2099 Season",
+        "leagueCode": "201",
+        "leagueName": "Synthetic Regular Season",
+        "gnum": 2,
+        "gender": "2",
+        "gdate": "2099-11-01",
+        "gstime": "16:00",
+        "getime": "18:03",
+        "hcode": "W001",
+        "hname": "Synthetic Forest",
+        "hsname": "Forest",
+        "acode": "W002",
+        "aname": "Synthetic Ocean",
+        "asname": "Ocean",
+        "place": "Synthetic Arena B",
+        "city": "Synthetic City B",
+        "hspoint": 75,
+        "aspoint": 60,
+        "hs1point": 25,
+        "hs2point": 25,
+        "hs3point": 25,
+        "hs4point": 0,
+        "hs5point": 0,
+        "as1point": 20,
+        "as2point": 21,
+        "as3point": 19,
+        "as4point": 0,
+        "as5point": 0,
+        "s1Ptime": "00:24",
+        "s2Ptime": "00:27",
+        "s3Ptime": "00:25",
+        "s4Ptime": "",
+        "s5Ptime": "",
+        "sptime": "01:16",
+        "result": "synthetic final"
+      }
+    ],
+    "page": {
+      "number": 0,
+      "size": 2,
+      "totalElements": 2,
+      "totalPages": 1
+    }
+  }
+}

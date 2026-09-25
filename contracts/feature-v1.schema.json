@@ -1,0 +1,365 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vlytics:feature-snapshot:1",
+  "title": "Vlytics Feature Snapshot V1",
+  "description": "Immutable, point-in-time feature snapshot. Unknown and unsupported values remain null with an explicit reason; they are never coerced to zero.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "feature_version",
+    "availability_policy",
+    "target_match_id",
+    "schedule_revision_id",
+    "cutoff_at",
+    "captured_at",
+    "lineup_status",
+    "team_features",
+    "matchup_features",
+    "players",
+    "lineage",
+    "sha256"
+  ],
+  "properties": {
+    "feature_version": { "const": "feature-v1" },
+    "availability_policy": {
+      "enum": [
+        "historical_reconstruction",
+        "historical_point_in_time",
+        "live_prospective"
+      ]
+    },
+    "target_match_id": { "$ref": "#/$defs/id" },
+    "schedule_revision_id": { "$ref": "#/$defs/id" },
+    "cutoff_at": { "type": "string", "format": "date-time" },
+    "captured_at": { "type": "string", "format": "date-time" },
+    "lineup_status": { "enum": ["known", "partial", "unknown"] },
+    "team_features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["home", "away"],
+      "properties": {
+        "home": { "$ref": "#/$defs/teamFeatures" },
+        "away": { "$ref": "#/$defs/teamFeatures" }
+      }
+    },
+    "matchup_features": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["head_to_head_home_win_rate"],
+      "properties": {
+        "head_to_head_home_win_rate": { "$ref": "#/$defs/featureValue" }
+      }
+    },
+    "players": {
+      "type": "object",
+      "additionalProperties": { "$ref": "#/$defs/playerFeatures" }
+    },
+    "lineage": { "$ref": "#/$defs/lineage" },
+    "sha256": { "$ref": "#/$defs/sha256" }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1 },
+    "sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "nullableNumber": {
+      "oneOf": [{ "type": "number" }, { "type": "null" }]
+    },
+    "stringArray": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 },
+      "uniqueItems": true
+    },
+    "shaArray": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/sha256" },
+      "uniqueItems": true
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "included_match_ids",
+        "schedule_revision_ids",
+        "result_revision_ids",
+        "raw_snapshot_sha256",
+        "roster_revision_ids",
+        "metric_schema_versions"
+      ],
+      "properties": {
+        "included_match_ids": { "$ref": "#/$defs/stringArray" },
+        "schedule_revision_ids": { "$ref": "#/$defs/stringArray" },
+        "result_revision_ids": { "$ref": "#/$defs/stringArray" },
+        "raw_snapshot_sha256": { "$ref": "#/$defs/shaArray" },
+        "roster_revision_ids": { "$ref": "#/$defs/stringArray" },
+        "metric_schema_versions": { "$ref": "#/$defs/stringArray" }
+      }
+    },
+    "missingReason": {
+      "enum": [
+        "no_prior_matches",
+        "insufficient_sample",
+        "missing_input",
+        "source_metric_unverified",
+        "cumulative_value_rejected",
+        "zero_denominator",
+        "lineup_unavailable"
+      ]
+    },
+    "featureValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "definition",
+        "status",
+        "value",
+        "numerator",
+        "denominator",
+        "sample_size",
+        "missing_reason",
+        "lineage"
+      ],
+      "properties": {
+        "definition": {
+          "enum": [
+            "recent_5_match_win_rate",
+            "recent_10_match_win_rate",
+            "recent_10_set_win_rate",
+            "season_win_rate",
+            "venue_split_win_rate",
+            "head_to_head_home_win_rate",
+            "attack_efficiency",
+            "serve_ace_rate",
+            "block_points_per_set",
+            "receive_efficiency",
+            "errors_per_set",
+            "attack_share_recent_5",
+            "attack_share_trend_3v3"
+          ]
+        },
+        "status": { "enum": ["available", "unknown"] },
+        "value": { "$ref": "#/$defs/nullableNumber" },
+        "numerator": { "$ref": "#/$defs/nullableNumber" },
+        "denominator": { "$ref": "#/$defs/nullableNumber" },
+        "sample_size": { "type": "integer", "minimum": 0 },
+        "missing_reason": {
+          "oneOf": [{ "$ref": "#/$defs/missingReason" }, { "type": "null" }]
+        },
+        "lineage": { "$ref": "#/$defs/lineage" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "status": { "const": "available" } } },
+          "then": {
+            "properties": {
+              "value": { "type": "number" },
+              "numerator": { "type": "number" },
+              "denominator": { "type": "number" },
+              "missing_reason": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "status": { "const": "unknown" } } },
+          "then": {
+            "properties": {
+              "value": { "type": "null" },
+              "numerator": { "type": "null" },
+              "denominator": { "type": "null" },
+              "missing_reason": { "$ref": "#/$defs/missingReason" }
+            }
+          }
+        }
+      ]
+    },
+    "teamFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "recent_5_match_win_rate",
+        "recent_10_match_win_rate",
+        "recent_10_set_win_rate",
+        "season_win_rate",
+        "venue_split_win_rate",
+        "attack_efficiency",
+        "serve_ace_rate",
+        "block_points_per_set",
+        "receive_efficiency",
+        "errors_per_set"
+      ],
+      "properties": {
+        "recent_5_match_win_rate": { "$ref": "#/$defs/featureValue" },
+        "recent_10_match_win_rate": { "$ref": "#/$defs/featureValue" },
+        "recent_10_set_win_rate": { "$ref": "#/$defs/featureValue" },
+        "season_win_rate": { "$ref": "#/$defs/featureValue" },
+        "venue_split_win_rate": { "$ref": "#/$defs/featureValue" },
+        "attack_efficiency": { "$ref": "#/$defs/featureValue" },
+        "serve_ace_rate": { "$ref": "#/$defs/featureValue" },
+        "block_points_per_set": { "$ref": "#/$defs/featureValue" },
+        "receive_efficiency": { "$ref": "#/$defs/featureValue" },
+        "errors_per_set": { "$ref": "#/$defs/featureValue" }
+      }
+    },
+    "playerFeatures": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["team_id", "side", "features"],
+      "properties": {
+        "team_id": { "$ref": "#/$defs/id" },
+        "side": { "enum": ["home", "away"] },
+        "features": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["attack_share_recent_5", "attack_share_trend_3v3"],
+          "properties": {
+            "attack_share_recent_5": { "$ref": "#/$defs/featureValue" },
+            "attack_share_trend_3v3": { "$ref": "#/$defs/featureValue" }
+          }
+        }
+      }
+    }
+  },
+  "x-vlytics-feature-definitions": [
+    {
+      "key": "recent_5_match_win_rate",
+      "scope": "team",
+      "formula": "wins / completed_matches",
+      "numerator": "wins",
+      "denominator": "completed_matches",
+      "window": "most recent 5 completed matches in the target season and competition before cutoff",
+      "min_samples": 3,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input"]
+    },
+    {
+      "key": "recent_10_match_win_rate",
+      "scope": "team",
+      "formula": "wins / completed_matches",
+      "numerator": "wins",
+      "denominator": "completed_matches",
+      "window": "most recent 10 completed matches in the target season and competition before cutoff",
+      "min_samples": 5,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input"]
+    },
+    {
+      "key": "recent_10_set_win_rate",
+      "scope": "team",
+      "formula": "sets_won / completed_sets",
+      "numerator": "sets_won",
+      "denominator": "completed_sets",
+      "window": "most recent 10 completed sets in the target season and competition before cutoff",
+      "min_samples": 5,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input"]
+    },
+    {
+      "key": "season_win_rate",
+      "scope": "team",
+      "formula": "wins / completed_matches",
+      "numerator": "wins",
+      "denominator": "completed_matches",
+      "window": "all completed matches in the target season and competition before cutoff",
+      "min_samples": 1,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input"]
+    },
+    {
+      "key": "venue_split_win_rate",
+      "scope": "team",
+      "formula": "wins / completed_matches_at_target_side",
+      "numerator": "wins",
+      "denominator": "completed_matches_at_target_side",
+      "window": "season-to-cutoff; home rows for target home and away rows for target away",
+      "min_samples": 2,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input"]
+    },
+    {
+      "key": "head_to_head_home_win_rate",
+      "scope": "matchup",
+      "formula": "target_home_team_wins / completed_head_to_head_matches",
+      "numerator": "target_home_team_wins",
+      "denominator": "completed_head_to_head_matches",
+      "window": "most recent 5 same-season and competition head-to-head matches before cutoff",
+      "min_samples": 2,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input"]
+    },
+    {
+      "key": "attack_efficiency",
+      "scope": "team",
+      "formula": "(attack_kills - attack_errors) / attack_attempts",
+      "numerator": "attack_kills - attack_errors",
+      "denominator": "attack_attempts",
+      "window": "all complete verified match-scoped team stat rows in season before cutoff",
+      "min_samples": 1,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input", "source_metric_unverified", "cumulative_value_rejected", "zero_denominator"]
+    },
+    {
+      "key": "serve_ace_rate",
+      "scope": "team",
+      "formula": "serve_aces / serve_attempts",
+      "numerator": "serve_aces",
+      "denominator": "serve_attempts",
+      "window": "all complete verified match-scoped team stat rows in season before cutoff",
+      "min_samples": 1,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input", "source_metric_unverified", "cumulative_value_rejected", "zero_denominator"]
+    },
+    {
+      "key": "block_points_per_set",
+      "scope": "team",
+      "formula": "block_points / completed_sets",
+      "numerator": "block_points",
+      "denominator": "completed_sets",
+      "window": "all complete verified match-scoped team stat rows in season before cutoff",
+      "min_samples": 1,
+      "unit": "points_per_set",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input", "source_metric_unverified", "cumulative_value_rejected", "zero_denominator"]
+    },
+    {
+      "key": "receive_efficiency",
+      "scope": "team",
+      "formula": "receive_successes / receive_attempts",
+      "numerator": "receive_successes",
+      "denominator": "receive_attempts",
+      "window": "all complete verified match-scoped team stat rows in season before cutoff",
+      "min_samples": 1,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input", "source_metric_unverified", "cumulative_value_rejected", "zero_denominator"]
+    },
+    {
+      "key": "errors_per_set",
+      "scope": "team",
+      "formula": "errors / completed_sets",
+      "numerator": "errors",
+      "denominator": "completed_sets",
+      "window": "all complete verified match-scoped team stat rows in season before cutoff",
+      "min_samples": 1,
+      "unit": "errors_per_set",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input", "source_metric_unverified", "cumulative_value_rejected", "zero_denominator"]
+    },
+    {
+      "key": "attack_share_recent_5",
+      "scope": "player",
+      "formula": "player_attack_attempts / team_attack_attempts",
+      "numerator": "player_attack_attempts",
+      "denominator": "team_attack_attempts",
+      "window": "most recent 5 roster-confirmed historical appearances before metric validation",
+      "min_samples": 2,
+      "unit": "ratio",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input", "source_metric_unverified", "cumulative_value_rejected", "zero_denominator", "lineup_unavailable"]
+    },
+    {
+      "key": "attack_share_trend_3v3",
+      "scope": "player",
+      "formula": "recent_3_attack_share - previous_3_attack_share",
+      "numerator": "difference of window shares",
+      "denominator": "one",
+      "window": "latest 3 versus previous 3 roster-confirmed appearances before metric validation",
+      "min_samples": 6,
+      "unit": "ratio_points",
+      "missing_reasons": ["no_prior_matches", "insufficient_sample", "missing_input", "source_metric_unverified", "cumulative_value_rejected", "zero_denominator", "lineup_unavailable"]
+    }
+  ]
+}

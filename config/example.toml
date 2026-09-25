@@ -1,0 +1,114 @@
+schema_version = "1.0"
+environment = "example"
+
+# This is a non-runnable example. Live workers must fail fast while this is false.
+live_operations_enabled = false
+
+[deployment]
+live_enabled = false
+host_class = "unconfigured"
+host_provider = "__REQUIRED__"
+host_region = "__REQUIRED__"
+monthly_cost_limit = 0
+cost_currency = "__REQUIRED__"
+network_access = "unconfigured"
+operator_auth_method = "unconfigured"
+# Environment variable name only. Never put the secret value in this file.
+operator_secret_env = "VLYTICS_OPERATOR_AUTH_SECRET"
+clock_sync_required = true
+
+[database]
+engine = "postgresql"
+connection_url_env = "VLYTICS_DATABASE_URL"
+raw_storage = "postgresql_private"
+
+[backup]
+enabled = false
+strategy = "__REQUIRED__"
+interval_hours = 0
+retention_days = 0
+rpo_minutes = 0
+rto_minutes = 0
+credential_env = "VLYTICS_BACKUP_CREDENTIAL"
+
+[alerting]
+enabled = false
+channel = "__REQUIRED__"
+destination_env = "VLYTICS_ALERT_DESTINATION"
+
+[ai]
+live_calls_enabled = false
+budget_currency = "__REQUIRED__"
+
+[ai.openai]
+enabled = false
+model_id = "__REQUIRED__"
+version_policy = "unconfigured"
+pinned_model_version = "__REQUIRED__"
+api_key_env = "VLYTICS_OPENAI_API_KEY"
+daily_budget_amount = 0
+monthly_budget_amount = 0
+max_calls_per_match = 0
+daily_call_limit = 0
+monthly_call_limit = 0
+max_input_tokens_per_call = 0
+max_output_tokens_per_call = 0
+
+[ai.anthropic]
+enabled = false
+model_id = "__REQUIRED__"
+version_policy = "unconfigured"
+pinned_model_version = "__REQUIRED__"
+api_key_env = "VLYTICS_ANTHROPIC_API_KEY"
+daily_budget_amount = 0
+monthly_budget_amount = 0
+max_calls_per_match = 0
+daily_call_limit = 0
+monthly_call_limit = 0
+max_input_tokens_per_call = 0
+max_output_tokens_per_call = 0
+
+[ai.google]
+enabled = false
+model_id = "__REQUIRED__"
+version_policy = "unconfigured"
+pinned_model_version = "__REQUIRED__"
+api_key_env = "VLYTICS_GOOGLE_API_KEY"
+daily_budget_amount = 0
+monthly_budget_amount = 0
+max_calls_per_match = 0
+daily_call_limit = 0
+monthly_call_limit = 0
+max_input_tokens_per_call = 0
+max_output_tokens_per_call = 0
+
+[timing]
+target_cutoff_minutes = 60
+initial_start_tolerance_seconds = 30
+completion_grace_seconds = 300
+request_timeout_seconds = 60
+max_attempts = 3
+retry_initial_delay_seconds = 5
+retry_backoff_multiplier = 2
+retry_max_delay_seconds = 30
+allow_t10_retry = false
+allow_completion_at_or_after_scheduled_start = false
+allow_completion_at_or_after_actual_start = false
+deadline_rule = "min(cutoff_at + completion_grace, scheduled_start_at, actual_start_at_if_known)"
+
+[results]
+poll_interval_seconds = 300
+provisional_stability_seconds = 1800
+correction_recheck_interval_seconds = 21600
+correction_recheck_window_hours = 168
+
+[source]
+# TASK-001 must replace these values before bulk collection is enabled.
+bulk_collection_enabled = false
+permission_policy = "__REQUIRED_BY_OP_001__"
+max_requests_per_minute = 0
+max_concurrency = 0
+
+[activation]
+dry_run_evidence_max_age_hours = 24
+dry_run_evidence_max_bytes = 16384

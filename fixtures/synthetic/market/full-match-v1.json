@@ -1,0 +1,24 @@
+{
+  "schema_version": "market-v1",
+  "snapshot_id": "10000000-0000-4000-8000-000000000001",
+  "match_id": "20000000-0000-4000-8000-000000000001",
+  "source": "synthetic-market",
+  "source_event_id": "synthetic-event-001",
+  "quoted_at": "2026-09-20T08:00:00+00:00",
+  "observed_at": "2026-09-20T08:00:05+00:00",
+  "received_at": "2026-09-20T08:00:10+00:00",
+  "contract_version": "market-v1",
+  "markets": [
+    {"line_id":"moneyline-home","market_type":"moneyline","unit":"match","period":"full_match","selection":"home","decimal_odds":"1.80","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"moneyline-away","market_type":"moneyline","unit":"match","period":"full_match","selection":"away","decimal_odds":"2.00","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"sets-home-minus-1.5","market_type":"handicap","unit":"sets","period":"full_match","selection":"home","line":"-1.5","decimal_odds":"1.90","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"sets-away-plus-1.5","market_type":"handicap","unit":"sets","period":"full_match","selection":"away","line":"1.5","decimal_odds":"1.90","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"points-home-minus-5","market_type":"handicap","unit":"points","period":"full_match","selection":"home","line":"-5","decimal_odds":"1.91","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"points-away-plus-5","market_type":"handicap","unit":"points","period":"full_match","selection":"away","line":"5","decimal_odds":"1.89","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"points-over-180","market_type":"total","unit":"points","period":"full_match","selection":"over","line":"180","decimal_odds":"1.92","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"points-under-180","market_type":"total","unit":"points","period":"full_match","selection":"under","line":"180","decimal_odds":"1.88","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"sets-over-4","market_type":"total","unit":"sets","period":"full_match","selection":"over","line":"4","decimal_odds":"1.93","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"},
+    {"line_id":"sets-under-4","market_type":"total","unit":"sets","period":"full_match","selection":"under","line":"4","decimal_odds":"1.87","settlement_rule_version":"full-match-v1","source":"synthetic-market","quoted_at":"2026-09-20T08:00:00+00:00","observed_at":"2026-09-20T08:00:05+00:00","received_at":"2026-09-20T08:00:10+00:00"}
+  ],
+  "sha256": "3dc8c1d387a335480e0048caf58093fdfe7f6f09e80cf37e5a11fea4fd562901"
+}

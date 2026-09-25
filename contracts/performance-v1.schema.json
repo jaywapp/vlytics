@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:vlytics:performance:1",
+  "title": "Vlytics PerformanceV1",
+  "description": "Server-owned, cohort-separated performance and common-match paired comparisons.",
+  "$comment": "Empty and one-item cohorts retain explicit sample sizes. Null metrics represent unavailable estimates, never zero-filled performance. Paired rows use the exact match/schedule/snapshot/cutoff intersection and exact result revision.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at",
+    "cohort_policy_version",
+    "metric_versions",
+    "cohorts",
+    "comparisons"
+  ],
+  "properties": {
+    "schema_version": { "const": "performance-v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "cohort_policy_version": { "const": "performance-cohort-v1" },
+    "metric_versions": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "binary",
+        "log_loss",
+        "log_loss_epsilon",
+        "set_rps",
+        "set_score_accuracy",
+        "calibration"
+      ],
+      "properties": {
+        "binary": { "const": "binary-home-win-v1" },
+        "log_loss": { "const": "binary-log-loss-epsilon-1e-12-v1" },
+        "log_loss_epsilon": { "const": 1e-12 },
+        "set_rps": { "const": "set-rps-five-boundaries-v1" },
+        "set_score_accuracy": { "const": "fractional-tied-maxima-v1" },
+        "calibration": { "const": "fixed-width-0.2-wilson-95-v1" }
+      }
+    },
+    "cohorts": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/cohortPerformance" }
+    },
+    "comparisons": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/comparison" }
+    }
+  },
+  "$defs": {
+    "nullableNumber": {
+      "anyOf": [
+        { "type": "number" },
+        { "type": "null" }
+      ]
+    },
+    "cohort": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "division",
+        "competition",
+        "stage",
+        "provider",
+        "model_version",
+        "prompt_version",
+        "feature_version",
+        "availability_policy",
+        "timing_eligibility",
+        "result_finality"
+      ],
+      "properties": {
+        "division": { "enum": ["men", "women"] },
+        "competition": { "type": "string", "minLength": 1 },
+        "stage": { "enum": ["regular", "playoff", "championship", "other"] },
+        "provider": { "type": "string", "minLength": 1 },
+        "model_version": { "type": "string", "minLength": 1 },
+        "prompt_version": { "type": "string", "minLength": 1 },
+        "feature_version": { "type": "string", "minLength": 1 },
+        "availability_policy": {
+          "enum": [
+            "historical_reconstruction",
+            "historical_point_in_time",
+            "live_prospective"
+          ]
+        },
+        "timing_eligibility": { "enum": ["on_time", "reconstructed", "diagnostic"] },
+        "result_finality": { "enum": ["provisional", "final", "corrected", "void"] }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "scheduled",
+        "predicted",
+        "result_available",
+        "evaluated",
+        "missing_predictions",
+        "missing_results",
+        "coverage",
+        "reasons"
+      ],
+      "properties": {
+        "scheduled": { "type": "integer", "minimum": 0 },
+        "predicted": { "type": "integer", "minimum": 0 },
+        "result_available": { "type": "integer", "minimum": 0 },
+        "evaluated": { "type": "integer", "minimum": 0 },
+        "missing_predictions": { "type": "integer", "minimum": 0 },
+        "missing_results": { "type": "integer", "minimum": 0 },
+        "coverage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "reasons": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "winner_n",
+        "set_n",
+        "brier",
+        "log_loss",
+        "winner_accuracy",
+        "set_rps",
+        "set_score_accuracy"
+      ],
+      "properties": {
+        "winner_n": { "type": "integer", "minimum": 0 },
+        "set_n": { "type": "integer", "minimum": 0 },
+        "brier": { "$ref": "#/$defs/nullableNumber" },
+        "log_loss": { "$ref": "#/$defs/nullableNumber" },
+        "winner_accuracy": { "$ref": "#/$defs/nullableNumber" },
+        "set_rps": { "$ref": "#/$defs/nullableNumber" },
+        "set_score_accuracy": { "$ref": "#/$defs/nullableNumber" }
+      }
+    },
+    "calibrationBin": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "lower_bound",
+        "upper_bound",
+        "includes_upper_bound",
+        "mean_probability",
+        "observed_rate",
+        "sample_size",
+        "uncertainty_lower",
+        "uncertainty_upper",
+        "interval_version"
+      ],
+      "properties": {
+        "lower_bound": { "type": "number", "minimum": 0, "maximum": 1 },
+        "upper_bound": { "type": "number", "minimum": 0, "maximum": 1 },
+        "includes_upper_bound": { "type": "boolean" },
+        "mean_probability": { "type": "number", "minimum": 0, "maximum": 1 },
+        "observed_rate": { "type": "number", "minimum": 0, "maximum": 1 },
+        "sample_size": { "type": "integer", "minimum": 1 },
+        "uncertainty_lower": { "type": "number", "minimum": 0, "maximum": 1 },
+        "uncertainty_upper": { "type": "number", "minimum": 0, "maximum": 1 },
+        "interval_version": { "const": "fixed-width-0.2-wilson-95-v1" }
+      }
+    },
+    "market": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accuracy", "denominator", "counts", "version"],
+      "properties": {
+        "accuracy": { "$ref": "#/$defs/nullableNumber" },
+        "denominator": { "type": "integer", "minimum": 0 },
+        "counts": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["win", "loss", "push", "void", "missing", "stale", "late", "unsupported"],
+          "properties": {
+            "win": { "type": "integer", "minimum": 0 },
+            "loss": { "type": "integer", "minimum": 0 },
+            "push": { "type": "integer", "minimum": 0 },
+            "void": { "type": "integer", "minimum": 0 },
+            "missing": { "type": "integer", "minimum": 0 },
+            "stale": { "type": "integer", "minimum": 0 },
+            "late": { "type": "integer", "minimum": 0 },
+            "unsupported": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "version": { "const": "wins-over-wins-plus-losses-v1" }
+      }
+    },
+    "cohortPerformance": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["cohort", "coverage", "metrics", "calibration", "market"],
+      "properties": {
+        "cohort": { "$ref": "#/$defs/cohort" },
+        "coverage": { "$ref": "#/$defs/coverage" },
+        "metrics": { "$ref": "#/$defs/metrics" },
+        "calibration": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/calibrationBin" }
+        },
+        "market": { "$ref": "#/$defs/market" }
+      }
+    },
+    "pairedMetric": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "metric",
+        "sample_size",
+        "mean_difference",
+        "standard_error",
+        "confidence_lower",
+        "confidence_upper",
+        "version"
+      ],
+      "properties": {
+        "metric": { "enum": ["brier", "log_loss"] },
+        "sample_size": { "type": "integer", "minimum": 0 },
+        "mean_difference": { "$ref": "#/$defs/nullableNumber" },
+        "standard_error": { "$ref": "#/$defs/nullableNumber" },
+        "confidence_lower": { "$ref": "#/$defs/nullableNumber" },
+        "confidence_upper": { "$ref": "#/$defs/nullableNumber" },
+        "version": { "const": "paired-common-match-normal-95-v1" }
+      }
+    },
+    "comparison": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "comparison_id",
+        "ai_cohort",
+        "baseline_cohort",
+        "ai_individual_n",
+        "baseline_individual_n",
+        "paired_n",
+        "brier",
+        "log_loss",
+        "excluded_reasons"
+      ],
+      "properties": {
+        "comparison_id": { "type": "string", "minLength": 1 },
+        "ai_cohort": { "$ref": "#/$defs/cohort" },
+        "baseline_cohort": { "$ref": "#/$defs/cohort" },
+        "ai_individual_n": { "type": "integer", "minimum": 0 },
+        "baseline_individual_n": { "type": "integer", "minimum": 0 },
+        "paired_n": { "type": "integer", "minimum": 0 },
+        "brier": { "$ref": "#/$defs/pairedMetric" },
+        "log_loss": { "$ref": "#/$defs/pairedMetric" },
+        "excluded_reasons": {
+          "type": "object",
+          "additionalProperties": { "type": "integer", "minimum": 0 }
+        }
+      }
+    }
+  }
+}
