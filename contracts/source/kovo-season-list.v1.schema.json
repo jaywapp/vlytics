@@ -1,0 +1,49 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vlytics.local/contracts/source/kovo-season-list.v1.schema.json",
+  "title": "KOVO season list response v1",
+  "type": "object",
+  "required": ["result", "payload"],
+  "properties": {
+    "result": {
+      "type": "object",
+      "required": ["status", "message"],
+      "properties": {
+        "status": { "type": "integer" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "payload": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["gcode", "seasonCode", "seasonName", "ryear", "leagues"],
+        "properties": {
+          "gcode": { "type": "string", "minLength": 1 },
+          "seasonCode": { "type": "string", "pattern": "^[0-9]{3}$" },
+          "seasonName": { "type": "string", "minLength": 1 },
+          "ryear": { "type": "string", "minLength": 4 },
+          "remark": { "type": ["string", "null"] },
+          "leagues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["leagueCode", "leagueName"],
+              "properties": {
+                "leagueCode": { "type": "string", "pattern": "^[0-9]+$" },
+                "leagueName": { "type": "string", "minLength": 1 },
+                "num": { "type": ["integer", "string", "null"] },
+                "rounds": {},
+                "cpart": {}
+              },
+              "additionalProperties": true
+            }
+          }
+        },
+        "additionalProperties": true
+      }
+    }
+  },
+  "additionalProperties": true
+}

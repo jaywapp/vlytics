@@ -1,0 +1,56 @@
+schema_version = "1"
+
+# OP-003 is unresolved. These entries are intentionally non-runnable until the
+# exact model versions, token caps, prices, and daily/monthly budgets are reviewed.
+[budget]
+resolved = false
+daily_amount = "0"
+monthly_amount = "0"
+
+[[variants]]
+id = "openai-gpt-independent-v1"
+provider = "openai"
+enabled = false
+op003_resolved = false
+requested_model_id = "__UNRESOLVED_OP_003__"
+pinned_model_version = "__UNRESOLVED_OP_003__"
+version_policy = "unconfigured"
+prompt_version = "independent-volleyball-v1"
+prompt_hash = "167c7845bf81d4da3dde37e5f53620d99428fa725b72713c578bb1ec41e219db"
+distribution_version = "ai-direct-set-v1"
+max_input_tokens = 0
+max_output_tokens = 0
+input_cost_per_million = "0"
+output_cost_per_million = "0"
+
+[[variants]]
+id = "anthropic-claude-independent-v1"
+provider = "anthropic"
+enabled = false
+op003_resolved = false
+requested_model_id = "__UNRESOLVED_OP_003__"
+pinned_model_version = "__UNRESOLVED_OP_003__"
+version_policy = "unconfigured"
+prompt_version = "independent-volleyball-v1"
+prompt_hash = "167c7845bf81d4da3dde37e5f53620d99428fa725b72713c578bb1ec41e219db"
+distribution_version = "ai-direct-set-v1"
+max_input_tokens = 0
+max_output_tokens = 0
+input_cost_per_million = "0"
+output_cost_per_million = "0"
+
+[[variants]]
+id = "google-gemini-independent-v1"
+provider = "google"
+enabled = false
+op003_resolved = false
+requested_model_id = "__UNRESOLVED_OP_003__"
+pinned_model_version = "__UNRESOLVED_OP_003__"
+version_policy = "unconfigured"
+prompt_version = "independent-volleyball-v1"
+prompt_hash = "167c7845bf81d4da3dde37e5f53620d99428fa725b72713c578bb1ec41e219db"
+distribution_version = "ai-direct-set-v1"
+max_input_tokens = 0
+max_output_tokens = 0
+input_cost_per_million = "0"
+output_cost_per_million = "0"

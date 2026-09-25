@@ -1,0 +1,105 @@
+{
+  "synthetic": true,
+  "scenarios": [
+    {
+      "name": "same source key with changed body",
+      "expectedAction": "append_revision",
+      "observations": [
+        {
+          "source": "kovo",
+          "endpoint": "game_detail",
+          "requestKey": {
+            "gcode": "001",
+            "seasonCode": "999",
+            "leagueCode": "201",
+            "gnum": 2
+          },
+          "observedAt": "2099-11-01T10:00:00Z",
+          "httpStatus": 200,
+          "retryAfterSeconds": null,
+          "bodySha256": "1111111111111111111111111111111111111111111111111111111111111111",
+          "payload": {
+            "result": {
+              "status": 200,
+              "message": "synthetic success"
+            },
+            "payload": {
+              "game": {
+                "seasonCode": "999",
+                "leagueCode": "201",
+                "gnum": 2,
+                "gender": "2",
+                "gdate": "2099-11-01",
+                "gstime": "16:00",
+                "hcode": "W001",
+                "acode": "W002",
+                "hspoint": 75,
+                "aspoint": 60
+              },
+              "player": [],
+              "team": [],
+              "ranking": {}
+            }
+          }
+        },
+        {
+          "source": "kovo",
+          "endpoint": "game_detail",
+          "requestKey": {
+            "gcode": "001",
+            "seasonCode": "999",
+            "leagueCode": "201",
+            "gnum": 2
+          },
+          "observedAt": "2099-11-02T10:00:00Z",
+          "httpStatus": 200,
+          "retryAfterSeconds": null,
+          "bodySha256": "2222222222222222222222222222222222222222222222222222222222222222",
+          "payload": {
+            "result": {
+              "status": 200,
+              "message": "synthetic corrected"
+            },
+            "payload": {
+              "game": {
+                "seasonCode": "999",
+                "leagueCode": "201",
+                "gnum": 2,
+                "gender": "2",
+                "gdate": "2099-11-01",
+                "gstime": "16:00",
+                "hcode": "W001",
+                "acode": "W002",
+                "hspoint": 77,
+                "aspoint": 60
+              },
+              "player": [],
+              "team": [],
+              "ranking": {}
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "rate limited with retry after",
+      "expectedAction": "retry_later",
+      "observations": [
+        {
+          "source": "kovo",
+          "endpoint": "game_schedule",
+          "requestKey": {
+            "gcode": "001",
+            "seasonCode": "999",
+            "leagueCode": "201"
+          },
+          "observedAt": "2099-11-03T00:00:00Z",
+          "httpStatus": 429,
+          "retryAfterSeconds": 30,
+          "bodySha256": null,
+          "payload": null
+        }
+      ]
+    }
+  ]
+}

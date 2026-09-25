@@ -1,0 +1,2843 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Vlytics API",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "system"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/schedule": {
+      "get": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Schedule",
+        "operationId": "schedule_api_v1_schedule_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "date",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date",
+              "title": "Date"
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "UTC",
+                "Asia/Seoul"
+              ],
+              "type": "string",
+              "default": "Asia/Seoul",
+              "title": "Timezone"
+            }
+          },
+          {
+            "name": "division",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "men",
+                    "women"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Division"
+            }
+          },
+          {
+            "name": "team",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team"
+            }
+          },
+          {
+            "name": "competition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Competition"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "prompt_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prompt Version"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScheduleResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/matches/{match_id}": {
+      "get": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Match Detail",
+        "operationId": "match_detail_api_v1_matches__match_id__get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "match_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "title": "Match Id"
+            }
+          },
+          {
+            "name": "timezone",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "enum": [
+                "UTC",
+                "Asia/Seoul"
+              ],
+              "type": "string",
+              "default": "Asia/Seoul",
+              "title": "Timezone"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MatchDetailResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Match not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/predictions": {
+      "get": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Prediction History",
+        "operationId": "prediction_history_api_v1_predictions_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "division",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "men",
+                    "women"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Division"
+            }
+          },
+          {
+            "name": "team",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Team"
+            }
+          },
+          {
+            "name": "competition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Competition"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "prediction_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prediction Type"
+            }
+          },
+          {
+            "name": "prompt_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prompt Version"
+            }
+          },
+          {
+            "name": "start_at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start At"
+            }
+          },
+          {
+            "name": "end_at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End At"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PredictionHistoryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/performance": {
+      "get": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Performance",
+        "operationId": "performance_api_v1_performance_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "division",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "men",
+                    "women"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Division"
+            }
+          },
+          {
+            "name": "competition",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Competition"
+            }
+          },
+          {
+            "name": "provider",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Provider"
+            }
+          },
+          {
+            "name": "model",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Model"
+            }
+          },
+          {
+            "name": "prediction_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prediction Type"
+            }
+          },
+          {
+            "name": "prompt_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Prompt Version"
+            }
+          },
+          {
+            "name": "stage",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Stage"
+            }
+          },
+          {
+            "name": "feature_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Feature Version"
+            }
+          },
+          {
+            "name": "availability_policy",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "historical_reconstruction",
+                    "historical_point_in_time",
+                    "live_prospective"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Availability Policy"
+            }
+          },
+          {
+            "name": "timing_eligibility",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "on_time",
+                    "reconstructed",
+                    "diagnostic"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Timing Eligibility"
+            }
+          },
+          {
+            "name": "result_finality",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "provisional",
+                    "final",
+                    "corrected",
+                    "void"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Result Finality"
+            }
+          },
+          {
+            "name": "evaluator_version",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Evaluator Version"
+            }
+          },
+          {
+            "name": "start_at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Start At"
+            }
+          },
+          {
+            "name": "end_at",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "End At"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PerformanceResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations": {
+      "get": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Operations",
+        "operationId": "operations_api_v1_operations_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "state",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "queued",
+                    "running",
+                    "retry_wait",
+                    "succeeded",
+                    "failed",
+                    "cancelled",
+                    "expired",
+                    "quarantined"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "State"
+            }
+          },
+          {
+            "name": "job_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Job Type"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 25,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 4096
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Cursor"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OperationsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/jobs/{job_id}/retry": {
+      "post": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Retry Job",
+        "operationId": "retry_job_api_v1_jobs__job_id__retry_post",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Job Id"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "title": "Idempotency-Key"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetryJobResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Job not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Retry conflict",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/operations/coverage": {
+      "get": {
+        "tags": [
+          "operator"
+        ],
+        "summary": "Coverage",
+        "operationId": "coverage_api_v1_operations_coverage_get",
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "data_kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Data Kind"
+            }
+          },
+          {
+            "name": "availability",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "available",
+                    "missing",
+                    "not_supported",
+                    "unverified"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Availability"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CoverageResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Authentication required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Operator role required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid request contract",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Read service unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/APIError"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "APIError": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          },
+          "correlation_id": {
+            "type": "string",
+            "title": "Correlation Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "retryable",
+          "correlation_id"
+        ],
+        "title": "APIError",
+        "description": "Safe error envelope shared by validation, authorization, and service failures."
+      },
+      "CalibrationBinSummary": {
+        "properties": {
+          "lower_bound": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Lower Bound"
+          },
+          "upper_bound": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Upper Bound"
+          },
+          "includes_upper_bound": {
+            "type": "boolean",
+            "title": "Includes Upper Bound"
+          },
+          "mean_probability": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Mean Probability"
+          },
+          "observed_rate": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Observed Rate"
+          },
+          "sample_size": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sample Size"
+          },
+          "uncertainty_lower": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Uncertainty Lower"
+          },
+          "uncertainty_upper": {
+            "type": "number",
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Uncertainty Upper"
+          },
+          "interval_version": {
+            "type": "string",
+            "const": "fixed-width-0.2-wilson-95-v1",
+            "title": "Interval Version",
+            "default": "fixed-width-0.2-wilson-95-v1"
+          }
+        },
+        "type": "object",
+        "required": [
+          "lower_bound",
+          "upper_bound",
+          "includes_upper_bound",
+          "mean_probability",
+          "observed_rate",
+          "sample_size",
+          "uncertainty_lower",
+          "uncertainty_upper"
+        ],
+        "title": "CalibrationBinSummary"
+      },
+      "CoverageData": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CoverageSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "CoverageData"
+      },
+      "CoverageResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/RevisionMetadata"
+          },
+          "data": {
+            "$ref": "#/components/schemas/CoverageData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "data"
+        ],
+        "title": "CoverageResponse"
+      },
+      "CoverageSummary": {
+        "properties": {
+          "data_kind": {
+            "type": "string",
+            "title": "Data Kind"
+          },
+          "availability": {
+            "type": "string",
+            "enum": [
+              "available",
+              "missing",
+              "not_supported",
+              "unverified"
+            ],
+            "title": "Availability"
+          },
+          "count": {
+            "type": "integer",
+            "title": "Count"
+          },
+          "latest_observed_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Latest Observed At"
+          },
+          "evidence_codes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evidence Codes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data_kind",
+          "availability",
+          "count",
+          "latest_observed_at",
+          "evidence_codes"
+        ],
+        "title": "CoverageSummary"
+      },
+      "HealthResponse": {
+        "properties": {
+          "status": {
+            "type": "string",
+            "const": "ok",
+            "title": "Status",
+            "default": "ok"
+          },
+          "service": {
+            "type": "string",
+            "const": "vlytics-api",
+            "title": "Service",
+            "default": "vlytics-api"
+          },
+          "version": {
+            "type": "string",
+            "title": "Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version"
+        ],
+        "title": "HealthResponse",
+        "description": "Public liveness response."
+      },
+      "MarketSummary": {
+        "properties": {
+          "availability": {
+            "type": "string",
+            "enum": [
+              "available",
+              "missing",
+              "not_supported",
+              "unverified"
+            ],
+            "title": "Availability"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Snapshot Id"
+          },
+          "quoted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quoted At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "availability"
+        ],
+        "title": "MarketSummary"
+      },
+      "MatchDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "competition": {
+            "type": "string",
+            "title": "Competition"
+          },
+          "division": {
+            "type": "string",
+            "enum": [
+              "men",
+              "women"
+            ],
+            "title": "Division"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "scheduled_start_at_utc": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled Start At Utc"
+          },
+          "scheduled_start_at_local": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled Start At Local"
+          },
+          "timezone": {
+            "type": "string",
+            "enum": [
+              "UTC",
+              "Asia/Seoul"
+            ],
+            "title": "Timezone"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "home_team": {
+            "$ref": "#/components/schemas/TeamSummary"
+          },
+          "away_team": {
+            "$ref": "#/components/schemas/TeamSummary"
+          },
+          "market": {
+            "$ref": "#/components/schemas/MarketSummary"
+          },
+          "provider_outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderOutcome"
+            },
+            "type": "array",
+            "title": "Provider Outcomes"
+          },
+          "actual_start_at_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actual Start At Utc"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Venue"
+          },
+          "result": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Result"
+          },
+          "feature_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Snapshot Id"
+          },
+          "feature_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Version"
+          },
+          "source_coverage": {
+            "additionalProperties": {
+              "type": "string",
+              "enum": [
+                "available",
+                "missing",
+                "not_supported",
+                "unverified"
+              ]
+            },
+            "type": "object",
+            "title": "Source Coverage"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "competition",
+          "division",
+          "stage",
+          "scheduled_start_at_utc",
+          "scheduled_start_at_local",
+          "timezone",
+          "status",
+          "home_team",
+          "away_team",
+          "market",
+          "provider_outcomes"
+        ],
+        "title": "MatchDetail"
+      },
+      "MatchDetailResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/RevisionMetadata"
+          },
+          "data": {
+            "$ref": "#/components/schemas/MatchDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "data"
+        ],
+        "title": "MatchDetailResponse"
+      },
+      "MatchSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "competition": {
+            "type": "string",
+            "title": "Competition"
+          },
+          "division": {
+            "type": "string",
+            "enum": [
+              "men",
+              "women"
+            ],
+            "title": "Division"
+          },
+          "stage": {
+            "type": "string",
+            "title": "Stage"
+          },
+          "scheduled_start_at_utc": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled Start At Utc"
+          },
+          "scheduled_start_at_local": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Scheduled Start At Local"
+          },
+          "timezone": {
+            "type": "string",
+            "enum": [
+              "UTC",
+              "Asia/Seoul"
+            ],
+            "title": "Timezone"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "home_team": {
+            "$ref": "#/components/schemas/TeamSummary"
+          },
+          "away_team": {
+            "$ref": "#/components/schemas/TeamSummary"
+          },
+          "market": {
+            "$ref": "#/components/schemas/MarketSummary"
+          },
+          "provider_outcomes": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderOutcome"
+            },
+            "type": "array",
+            "title": "Provider Outcomes"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "competition",
+          "division",
+          "stage",
+          "scheduled_start_at_utc",
+          "scheduled_start_at_local",
+          "timezone",
+          "status",
+          "home_team",
+          "away_team",
+          "market",
+          "provider_outcomes"
+        ],
+        "title": "MatchSummary"
+      },
+      "OperationSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "job_type": {
+            "type": "string",
+            "title": "Job Type"
+          },
+          "state": {
+            "type": "string",
+            "title": "State"
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due At"
+          },
+          "deadline_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline At"
+          },
+          "attempt_no": {
+            "type": "integer",
+            "title": "Attempt No"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          },
+          "retryable": {
+            "type": "boolean",
+            "title": "Retryable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "job_type",
+          "state",
+          "due_at",
+          "attempt_no",
+          "retryable"
+        ],
+        "title": "OperationSummary"
+      },
+      "OperationsData": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/OperationSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "budgets": {
+            "items": {
+              "$ref": "#/components/schemas/ProviderBudgetSummary"
+            },
+            "type": "array",
+            "title": "Budgets"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "OperationsData"
+      },
+      "OperationsResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/RevisionMetadata"
+          },
+          "data": {
+            "$ref": "#/components/schemas/OperationsData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "data"
+        ],
+        "title": "OperationsResponse"
+      },
+      "PairedComparisonSummary": {
+        "properties": {
+          "baseline_kind": {
+            "type": "string",
+            "enum": [
+              "home_rate",
+              "statistical",
+              "market"
+            ],
+            "title": "Baseline Kind"
+          },
+          "baseline_model_version": {
+            "type": "string",
+            "title": "Baseline Model Version"
+          },
+          "ai_individual_n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Ai Individual N"
+          },
+          "baseline_individual_n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Baseline Individual N"
+          },
+          "paired_n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Paired N"
+          },
+          "excluded_reasons": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": "object",
+            "title": "Excluded Reasons"
+          },
+          "brier": {
+            "$ref": "#/components/schemas/PairedMetricSummary"
+          },
+          "log_loss": {
+            "$ref": "#/components/schemas/PairedMetricSummary"
+          }
+        },
+        "type": "object",
+        "required": [
+          "baseline_kind",
+          "baseline_model_version",
+          "ai_individual_n",
+          "baseline_individual_n",
+          "paired_n",
+          "brier",
+          "log_loss"
+        ],
+        "title": "PairedComparisonSummary"
+      },
+      "PairedMetricSummary": {
+        "properties": {
+          "metric": {
+            "type": "string",
+            "enum": [
+              "brier",
+              "log_loss"
+            ],
+            "title": "Metric"
+          },
+          "sample_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sample Size"
+          },
+          "mean_difference": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean Difference"
+          },
+          "standard_error": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Standard Error"
+          },
+          "confidence_lower": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Lower"
+          },
+          "confidence_upper": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence Upper"
+          },
+          "version": {
+            "type": "string",
+            "const": "paired-common-match-normal-95-v1",
+            "title": "Version",
+            "default": "paired-common-match-normal-95-v1"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metric",
+          "sample_size",
+          "mean_difference",
+          "standard_error",
+          "confidence_lower",
+          "confidence_upper"
+        ],
+        "title": "PairedMetricSummary"
+      },
+      "PerformanceData": {
+        "properties": {
+          "cohort_policy_version": {
+            "type": "string",
+            "title": "Cohort Policy Version"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PerformanceRow"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "cohort_policy_version",
+          "items"
+        ],
+        "title": "PerformanceData"
+      },
+      "PerformanceMetrics": {
+        "properties": {
+          "winner_n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Winner N"
+          },
+          "set_n": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Set N"
+          },
+          "winner_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Winner Accuracy"
+          },
+          "brier": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Brier"
+          },
+          "log_loss": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Log Loss"
+          },
+          "set_rps": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set Rps"
+          },
+          "set_score_accuracy": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Set Score Accuracy"
+          }
+        },
+        "type": "object",
+        "required": [
+          "winner_n",
+          "set_n"
+        ],
+        "title": "PerformanceMetrics",
+        "description": "Server-owned aggregate metrics; unavailable estimates are explicit nulls."
+      },
+      "PerformanceResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/RevisionMetadata"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PerformanceData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "data"
+        ],
+        "title": "PerformanceResponse"
+      },
+      "PerformanceRow": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "prediction_type": {
+            "type": "string",
+            "title": "Prediction Type"
+          },
+          "division": {
+            "type": "string",
+            "enum": [
+              "men",
+              "women"
+            ],
+            "title": "Division"
+          },
+          "competition": {
+            "type": "string",
+            "title": "Competition"
+          },
+          "cohort": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object",
+            "title": "Cohort"
+          },
+          "sample_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Sample Size"
+          },
+          "failure_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Failure Count"
+          },
+          "excluded_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Excluded Count"
+          },
+          "corrected_evaluation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Corrected Evaluation Count"
+          },
+          "paired_sample_size": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Paired Sample Size"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/PerformanceMetrics"
+          },
+          "calibration": {
+            "items": {
+              "$ref": "#/components/schemas/CalibrationBinSummary"
+            },
+            "type": "array",
+            "title": "Calibration"
+          },
+          "comparisons": {
+            "items": {
+              "$ref": "#/components/schemas/PairedComparisonSummary"
+            },
+            "type": "array",
+            "title": "Comparisons"
+          },
+          "market_availability": {
+            "type": "string",
+            "enum": [
+              "available",
+              "missing",
+              "not_supported",
+              "unverified"
+            ],
+            "title": "Market Availability"
+          },
+          "evaluator_version": {
+            "type": "string",
+            "title": "Evaluator Version"
+          },
+          "cohort_policy_version": {
+            "type": "string",
+            "title": "Cohort Policy Version"
+          },
+          "evaluation_revision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evaluation Revision Ids"
+          },
+          "result_revision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Result Revision Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "model_version",
+          "prompt_version",
+          "prediction_type",
+          "division",
+          "competition",
+          "cohort",
+          "sample_size",
+          "failure_count",
+          "excluded_count",
+          "corrected_evaluation_count",
+          "paired_sample_size",
+          "metrics",
+          "market_availability",
+          "evaluator_version",
+          "cohort_policy_version"
+        ],
+        "title": "PerformanceRow"
+      },
+      "PredictionHistoryData": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PredictionHistoryItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "PredictionHistoryData"
+      },
+      "PredictionHistoryItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "match_id": {
+            "type": "string",
+            "title": "Match Id"
+          },
+          "competition": {
+            "type": "string",
+            "title": "Competition"
+          },
+          "division": {
+            "type": "string",
+            "enum": [
+              "men",
+              "women"
+            ],
+            "title": "Division"
+          },
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "prediction_type": {
+            "type": "string",
+            "title": "Prediction Type"
+          },
+          "requested_model": {
+            "type": "string",
+            "title": "Requested Model"
+          },
+          "resolved_model_id": {
+            "type": "string",
+            "title": "Resolved Model Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "type": "string",
+            "title": "Prompt Version"
+          },
+          "feature_version": {
+            "type": "string",
+            "title": "Feature Version"
+          },
+          "schedule_revision_id": {
+            "type": "string",
+            "title": "Schedule Revision Id"
+          },
+          "source_snapshot_id": {
+            "type": "string",
+            "title": "Source Snapshot Id"
+          },
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status"
+          },
+          "output": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Output"
+          },
+          "evaluation_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluation Revision Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "match_id",
+          "competition",
+          "division",
+          "provider",
+          "prediction_type",
+          "requested_model",
+          "resolved_model_id",
+          "prompt_version",
+          "feature_version",
+          "schedule_revision_id",
+          "source_snapshot_id",
+          "generated_at",
+          "status",
+          "output"
+        ],
+        "title": "PredictionHistoryItem"
+      },
+      "PredictionHistoryResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/RevisionMetadata"
+          },
+          "data": {
+            "$ref": "#/components/schemas/PredictionHistoryData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "data"
+        ],
+        "title": "PredictionHistoryResponse"
+      },
+      "ProviderBudgetSummary": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "currency": {
+            "type": "string",
+            "pattern": "^[A-Z]{3}$",
+            "title": "Currency"
+          },
+          "period": {
+            "type": "string",
+            "enum": [
+              "day",
+              "month"
+            ],
+            "title": "Period"
+          },
+          "period_start": {
+            "type": "string",
+            "format": "date",
+            "title": "Period Start"
+          },
+          "period_end": {
+            "type": "string",
+            "format": "date",
+            "title": "Period End"
+          },
+          "as_of": {
+            "type": "string",
+            "format": "date-time",
+            "title": "As Of"
+          },
+          "reserved_amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Reserved Amount"
+          },
+          "actual_amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Actual Amount"
+          },
+          "effective_amount": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Effective Amount"
+          },
+          "reservation_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Reservation Count"
+          },
+          "settled_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Settled Count"
+          },
+          "outstanding_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Outstanding Count"
+          },
+          "conservative_charge_count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Conservative Charge Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "currency",
+          "period",
+          "period_start",
+          "period_end",
+          "as_of",
+          "reserved_amount",
+          "actual_amount",
+          "effective_amount",
+          "reservation_count",
+          "settled_count",
+          "outstanding_count",
+          "conservative_charge_count"
+        ],
+        "title": "ProviderBudgetSummary"
+      },
+      "ProviderOutcome": {
+        "properties": {
+          "provider": {
+            "type": "string",
+            "title": "Provider"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "succeeded",
+              "failed",
+              "timed_out",
+              "budget_skipped",
+              "missing"
+            ],
+            "title": "Status"
+          },
+          "requested_model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Requested Model"
+          },
+          "resolved_model_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resolved Model Id"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version"
+          },
+          "prompt_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prompt Version"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "prediction_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prediction Revision Id"
+          },
+          "output": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Output"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "provider",
+          "status"
+        ],
+        "title": "ProviderOutcome"
+      },
+      "RetryJobData": {
+        "properties": {
+          "job_id": {
+            "type": "string",
+            "title": "Job Id"
+          },
+          "state": {
+            "type": "string",
+            "const": "retry_wait",
+            "title": "State"
+          },
+          "due_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Due At"
+          },
+          "deadline_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline At"
+          },
+          "idempotent_replay": {
+            "type": "boolean",
+            "title": "Idempotent Replay"
+          }
+        },
+        "type": "object",
+        "required": [
+          "job_id",
+          "state",
+          "due_at",
+          "idempotent_replay"
+        ],
+        "title": "RetryJobData"
+      },
+      "RetryJobResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/RevisionMetadata"
+          },
+          "data": {
+            "$ref": "#/components/schemas/RetryJobData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "data"
+        ],
+        "title": "RetryJobResponse"
+      },
+      "RevisionMetadata": {
+        "properties": {
+          "schema_version": {
+            "type": "string",
+            "const": "vlytics.operator.v1",
+            "title": "Schema Version",
+            "default": "vlytics.operator.v1"
+          },
+          "source_snapshot_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Snapshot Ids"
+          },
+          "schedule_revision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Schedule Revision Ids"
+          },
+          "prediction_revision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Prediction Revision Ids"
+          },
+          "evaluation_revision_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Evaluation Revision Ids"
+          },
+          "model_versions": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "type": "object",
+            "title": "Model Versions"
+          }
+        },
+        "type": "object",
+        "title": "RevisionMetadata",
+        "description": "Reproducibility identifiers attached to every protected response."
+      },
+      "ScheduleData": {
+        "properties": {
+          "date": {
+            "type": "string",
+            "format": "date",
+            "title": "Date"
+          },
+          "timezone": {
+            "type": "string",
+            "enum": [
+              "UTC",
+              "Asia/Seoul"
+            ],
+            "title": "Timezone"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/MatchSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "date",
+          "timezone",
+          "items"
+        ],
+        "title": "ScheduleData"
+      },
+      "ScheduleResponse": {
+        "properties": {
+          "metadata": {
+            "$ref": "#/components/schemas/RevisionMetadata"
+          },
+          "data": {
+            "$ref": "#/components/schemas/ScheduleData"
+          }
+        },
+        "type": "object",
+        "required": [
+          "metadata",
+          "data"
+        ],
+        "title": "ScheduleResponse"
+      },
+      "TeamSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "title": "Id"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "code",
+          "name"
+        ],
+        "title": "TeamSummary"
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  }
+}

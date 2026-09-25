@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vlytics.local/contracts/source/kovo-source-observations.v1.schema.json",
+  "title": "Synthetic KOVO source observation scenarios v1",
+  "type": "object",
+  "required": ["synthetic", "scenarios"],
+  "properties": {
+    "synthetic": { "const": true },
+    "scenarios": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "expectedAction", "observations"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "expectedAction": {
+            "enum": ["append_revision", "append_receipt_only", "retry_later", "quarantine"]
+          },
+          "observations": {
+            "type": "array",
+            "minItems": 1,
+            "items": { "$ref": "#/definitions/observation" }
+          }
+        },
+        "additionalProperties": false
+      }
+    }
+  },
+  "definitions": {
+    "observation": {
+      "type": "object",
+      "required": [
+        "source",
+        "endpoint",
+        "requestKey",
+        "observedAt",
+        "httpStatus",
+        "retryAfterSeconds",
+        "bodySha256",
+        "payload"
+      ],
+      "properties": {
+        "source": { "const": "kovo" },
+        "endpoint": {
+          "enum": ["season_list", "game_schedule", "game_detail"]
+        },
+        "requestKey": { "type": "object" },
+        "observedAt": { "type": "string", "format": "date-time" },
+        "httpStatus": { "type": "integer", "minimum": 100, "maximum": 599 },
+        "retryAfterSeconds": { "type": ["integer", "null"], "minimum": 0 },
+        "bodySha256": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "payload": { "type": ["object", "null"] }
+      },
+      "allOf": [
+        {
+          "oneOf": [
+            {
+              "properties": {
+                "endpoint": { "const": "season_list" },
+                "requestKey": {
+                  "type": "object",
+                  "required": ["gcode"],
+                  "properties": {
+                    "gcode": { "type": "string", "minLength": 1 }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            {
+              "properties": {
+                "endpoint": { "const": "game_schedule" },
+                "requestKey": {
+                  "type": "object",
+                  "required": ["gcode", "seasonCode", "leagueCode"],
+                  "properties": {
+                    "gcode": { "type": "string", "minLength": 1 },
+                    "seasonCode": { "type": "string", "pattern": "^[0-9]{3}$" },
+                    "leagueCode": { "type": "string", "pattern": "^[0-9]+$" }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            },
+            {
+              "properties": {
+                "endpoint": { "const": "game_detail" },
+                "requestKey": {
+                  "type": "object",
+                  "required": ["gcode", "seasonCode", "leagueCode", "gnum"],
+                  "properties": {
+                    "gcode": { "type": "string", "minLength": 1 },
+                    "seasonCode": { "type": "string", "pattern": "^[0-9]{3}$" },
+                    "leagueCode": { "type": "string", "pattern": "^[0-9]+$" },
+                    "gnum": { "type": "integer", "minimum": 0 }
+                  },
+                  "additionalProperties": false
+                }
+              }
+            }
+          ]
+        },
+        {
+          "if": {
+            "properties": {
+              "httpStatus": { "minimum": 200, "maximum": 299 }
+            },
+            "required": ["httpStatus"]
+          },
+          "then": {
+            "oneOf": [
+              {
+                "properties": {
+                  "endpoint": { "const": "season_list" },
+                  "payload": {
+                    "$ref": "https://vlytics.local/contracts/source/kovo-season-list.v1.schema.json"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "endpoint": { "const": "game_schedule" },
+                  "payload": {
+                    "$ref": "https://vlytics.local/contracts/source/kovo-game-schedule.v1.schema.json"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "endpoint": { "const": "game_detail" },
+                  "payload": {
+                    "$ref": "https://vlytics.local/contracts/source/kovo-game-detail.v1.schema.json"
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ],
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

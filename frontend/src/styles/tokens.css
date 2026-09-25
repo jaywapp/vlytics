@@ -1,0 +1,48 @@
+:root {
+  color-scheme: light dark;
+  --color-background: #edf2f8;
+  --color-surface: #ffffff;
+  --color-ink: #182d4b;
+  --color-muted: #50647d;
+  --color-line: #ccd9e8;
+  --color-accent: #2456a0;
+  --color-on-accent: #ffffff;
+  --color-wash: #e1ebf8;
+  --color-warning-text: #704619;
+  --color-warning-background: #f9ecd9;
+  --radius-chart: 3px 3px 0 0;
+  --radius-status: 5px;
+  --radius-control: 6px;
+  --radius-container: 12px;
+  --space-xs: 6px;
+  --space-sm: 8px;
+  --space-md: 12px;
+  --space-lg: 18px;
+  --space-xl: 24px;
+  --space-section: 32px;
+  --space-layout: 42px;
+  font-family: "Segoe UI", "Malgun Gothic", sans-serif;
+  font-size: 15px;
+  font-synthesis: none;
+  line-height: 1.6;
+}
+
+.numeric {
+  font-family: Consolas, "Malgun Gothic", monospace;
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #172023;
+    --color-surface: #202c30;
+    --color-ink: #eef4f5;
+    --color-muted: #b4c7cc;
+    --color-line: #43585e;
+    --color-accent: #9abffc;
+    --color-on-accent: #172023;
+    --color-wash: #2c4045;
+    --color-warning-text: #ffe0ad;
+    --color-warning-background: #4e3e27;
+  }
+}

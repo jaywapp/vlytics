@@ -1,0 +1,98 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://vlytics.local/contracts/source/kovo-game-schedule.v1.schema.json",
+  "title": "KOVO game schedule response v1",
+  "type": "object",
+  "required": ["result", "payload"],
+  "properties": {
+    "result": {
+      "type": "object",
+      "required": ["status", "message"],
+      "properties": {
+        "status": { "type": "integer" },
+        "message": { "type": "string" }
+      },
+      "additionalProperties": true
+    },
+    "payload": {
+      "type": "object",
+      "required": ["content", "page"],
+      "properties": {
+        "content": {
+          "type": "array",
+          "items": { "$ref": "#/definitions/game" }
+        },
+        "page": {
+          "type": "object",
+          "required": ["number", "size", "totalElements", "totalPages"],
+          "properties": {
+            "number": { "type": "integer", "minimum": 0 },
+            "size": { "type": "integer", "minimum": 0 },
+            "totalElements": { "type": "integer", "minimum": 0 },
+            "totalPages": { "type": "integer", "minimum": 0 }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "definitions": {
+    "game": {
+      "type": "object",
+      "required": [
+        "seasonCode",
+        "leagueCode",
+        "gnum",
+        "gender",
+        "gdate",
+        "gstime",
+        "hcode",
+        "acode"
+      ],
+      "properties": {
+        "seasonCode": { "type": "string", "pattern": "^[0-9]{3}$" },
+        "seasonName": { "type": ["string", "null"] },
+        "leagueCode": { "type": "string", "pattern": "^[0-9]+$" },
+        "leagueName": { "type": ["string", "null"] },
+        "gnum": { "type": "integer", "minimum": 0 },
+        "gender": { "type": "string", "pattern": "^[0-9]+$" },
+        "gdate": { "type": "string", "minLength": 1 },
+        "gstime": { "type": "string", "minLength": 1 },
+        "getime": { "type": ["string", "null"] },
+        "hcode": { "type": "string", "minLength": 1 },
+        "hname": { "type": ["string", "null"] },
+        "hsname": { "type": ["string", "null"] },
+        "acode": { "type": "string", "minLength": 1 },
+        "aname": { "type": ["string", "null"] },
+        "asname": { "type": ["string", "null"] },
+        "place": { "type": ["string", "null"] },
+        "city": { "type": ["string", "null"] },
+        "hspoint": { "type": ["integer", "null"] },
+        "aspoint": { "type": ["integer", "null"] },
+        "hs1point": { "type": ["integer", "null"] },
+        "hs2point": { "type": ["integer", "null"] },
+        "hs3point": { "type": ["integer", "null"] },
+        "hs4point": { "type": ["integer", "null"] },
+        "hs5point": { "type": ["integer", "null"] },
+        "as1point": { "type": ["integer", "null"] },
+        "as2point": { "type": ["integer", "null"] },
+        "as3point": { "type": ["integer", "null"] },
+        "as4point": { "type": ["integer", "null"] },
+        "as5point": { "type": ["integer", "null"] },
+        "s1Ptime": { "type": ["string", "null"] },
+        "s2Ptime": { "type": ["string", "null"] },
+        "s3Ptime": { "type": ["string", "null"] },
+        "s4Ptime": { "type": ["string", "null"] },
+        "s5Ptime": { "type": ["string", "null"] },
+        "sptime": { "type": ["string", "null"] },
+        "spectators": { "type": ["integer", "null"] },
+        "result": { "type": ["string", "null"] },
+        "gpart": { "type": ["string", "null"] },
+        "score": { "type": ["string", "null"] }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

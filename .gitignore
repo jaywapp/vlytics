@@ -1,0 +1,49 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+dist/
+build/
+*.egg-info/
+.coverage
+htmlcov/
+
+# Node
+node_modules/
+frontend/dist/
+frontend/tests/e2e/artifacts/
+*.tsbuildinfo
+
+# Editors and operating systems
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Local data, raw payloads, database dumps, and model responses
+data/
+raw/
+**/raw/
+private/
+artifacts/model-responses/
+artifacts/operations/
+**/model-responses/
+*.dump
+*.backup
+*.dump.sql
+*.sql.gz
+db-dumps/
+**/db-dumps/
+*.sqlite
+*.sqlite3
+*.db
