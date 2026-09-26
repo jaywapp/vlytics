@@ -137,9 +137,9 @@ services:
     security_opt:
       - no-new-privileges:true
     tmpfs:
-      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=32m
-      - /var/run:rw,noexec,nosuid,nodev,size=4m
-      - /tmp:rw,noexec,nosuid,nodev,size=16m
+      - /var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101
+      - /var/run:rw,noexec,nosuid,nodev,size=4m,uid=101,gid=101
+      - /tmp:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101
     networks:
       - private
     ports:

@@ -78,9 +78,9 @@ docker build --file "$repository_root/frontend/Dockerfile" \
 docker run --detach --name "$frontend_container" --init \
   --network "$project"_default --read-only --user 101:101 \
   --cap-drop ALL --security-opt no-new-privileges:true \
-  --tmpfs /var/cache/nginx:rw,noexec,nosuid,nodev,size=32m \
-  --tmpfs /var/run:rw,noexec,nosuid,nodev,size=4m \
-  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m \
+  --tmpfs /var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101 \
+  --tmpfs /var/run:rw,noexec,nosuid,nodev,size=4m,uid=101,gid=101 \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101 \
   --publish "127.0.0.1:$WEB_PORT:8080" "$frontend_image" > /dev/null
 frontend_url="http://127.0.0.1:$WEB_PORT"
 for attempt in $(seq 1 30); do
