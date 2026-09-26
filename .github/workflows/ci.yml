@@ -65,6 +65,24 @@ jobs:
           READ_API_DATABASE_URL: postgresql+psycopg://vlytics_read_api_login:compose-ci-read-api@postgres:5432/vlytics
           ENGINE_DATABASE_URL: postgresql+psycopg://vlytics_engine_login:compose-ci-engine@postgres:5432/vlytics
         run: docker compose -f ../infra/compose.yaml config --quiet
+      - name: Validate production Compose configuration
+        env:
+          VLYTICS_BACKEND_IMAGE: vlytics-backend:ci
+          VLYTICS_FRONTEND_IMAGE: vlytics-frontend:ci
+          MIGRATOR_DATABASE_PASSWORD: compose-ci-migrator
+          MIGRATOR_DATABASE_URL: postgresql+psycopg://vlytics_migrator:compose-ci-migrator@postgres:5432/vlytics
+          COLLECTOR_DATABASE_PASSWORD: compose-ci-collector
+          ENGINE_DATABASE_PASSWORD: compose-ci-engine
+          MARKET_INGEST_DATABASE_PASSWORD: compose-ci-market
+          READ_API_DATABASE_PASSWORD: compose-ci-read-api
+          READ_API_DATABASE_URL: postgresql+psycopg://vlytics_read_api_login:compose-ci-read-api@postgres:5432/vlytics
+          ENGINE_DATABASE_URL: postgresql+psycopg://vlytics_engine_login:compose-ci-engine@postgres:5432/vlytics
+          VLYTICS_OPERATOR_AUTH_SECRET: compose-ci-operator
+          VLYTICS_READONLY_AUTH_SECRET: compose-ci-readonly
+          VLYTICS_OPENAI_API_KEY: compose-ci-disabled
+          VLYTICS_ANTHROPIC_API_KEY: compose-ci-disabled
+          VLYTICS_GOOGLE_API_KEY: compose-ci-disabled
+        run: docker compose -f ../infra/compose.production.yaml config --quiet
       - name: Smoke test Compose stack, frontend image, and restore
         env:
           POSTGRES_PORT: 55432
