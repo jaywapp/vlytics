@@ -6,7 +6,8 @@ FROM ${PYTHON_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/workspace/backend/.venv/bin:$PATH"
+    PATH="/workspace/backend/.venv/bin:$PATH" \
+    VLYTICS_PROVIDER_REGISTRY_PATH=/workspace/config/variants.toml
 
 WORKDIR /workspace/backend
 COPY --from=uv /uv /uvx /bin/
