@@ -55,6 +55,20 @@ Production 전송은 공급자별 공식 HTTPS endpoint에 고정한다. OpenAI�
 
 구현 계약의 기준 문서는 [OpenAI Responses API](https://platform.openai.com/docs/api-reference/responses/create), [Anthropic Messages API](https://docs.anthropic.com/en/api/messages), [Gemini generateContent](https://ai.google.dev/api/generate-content), [Gemini API 인증](https://ai.google.dev/api)이다. 이 구현은 offline HTTP mock으로 검증한다. OP-003의 model/version·가격·예산·secret 확정과 소량 유료 smoke test가 끝나기 전에는 실제 요청을 계속 차단한다.
 
+## 2026-09-27 OP-003 모델·비용 결정 후보
+
+아래 값은 세 Provider의 **결정 후보**이며 활성 설정이 아니다. API key, 실제 계정의 모델 접근 권한, 일·월 예산과 호출·token 한도는 아직 확인되지 않았다. 운영 전 해당 계정에서 요청 ID·응답의 resolved model ID·사용량·청구 금액을 소량 호출로 확인해야 한다.
+
+| Provider | 후보 API model ID | 버전 확인 방침 | Standard 입력 / 출력 가격 (USD, 100만 token당) | 공식 근거 |
+|---|---|---|---|---|
+| OpenAI | `gpt-6-sol` | `verify_resolved_model_id`; 공개 모델 페이지에는 이 ID를 사용하도록 안내하며 별도 날짜형 snapshot은 제시하지 않는다 | $2 / $10 | [모델](https://developers.openai.com/api/docs/models/gpt-6-sol), [가격](https://developers.openai.com/api/docs/pricing) |
+| Anthropic | `claude-sonnet-5` | `immutable_model_id`; 4.6 이후 정식 model ID는 고정 snapshot이라는 공급자 계약 | $2 / $10 | [모델](https://platform.claude.com/docs/en/models/overview), [ID와 버전](https://platform.claude.com/docs/en/about-claude/models/model-ids-and-versions) |
+| Google | `gemini-3.8-flash` | `verify_resolved_model_id`; 특정 stable ID를 쓰되 응답 ID를 확인 | $0.75 / $3.75 (2026-12-31까지), 이후 $1.50 / $7.50 | [모델](https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash), [가격](https://ai.google.dev/gemini-api/docs/pricing) |
+
+비용 감각을 위한 계산 예시: 경기당 각 Provider를 1회 호출하고 각 호출의 과금 입력이 4,000 token, 과금 출력이 1,000 token이면 OpenAI $0.018, Anthropic $0.018, Google $0.00675로 합계 **$0.04275/경기**다. 같은 가정으로 252경기를 처리하면 **$10.773**이다. 이 수치는 환율·세금·재시도·thinking token 증가·긴 context 추가 요금·가격 변경을 포함하지 않으며, 실제 프롬프트의 token 측정값도 아니다.
+
+결정 시에는 세 모델의 실제 계정 접근 가능 여부, 1회 소량 호출의 요청/응답 model ID, token 사용량과 실제 비용을 기록한다. 그 결과를 바탕으로 통화와 경기당·일·월 호출/비용 한도 및 입력/출력 token 상한을 승인받아야 한다. 확인 전 `config/example.toml`과 운영 예시의 placeholder·0값 및 live 차단을 유지한다.
+
 ## T-60과 deadline
 
 예정 시작을 `T`, `cutoff_at = T - 60분`으로 둔다. input snapshot은 항상 이 cutoff를 기록하며 재시도해도 바꾸지 않는다.
