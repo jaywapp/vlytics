@@ -172,8 +172,9 @@ describe("prediction history", () => {
     expect(screen.queryByText("private-provider-response")).not.toBeInTheDocument();
 
     window.history.back();
-    window.dispatchEvent(new PopStateEvent("popstate"));
+    await waitFor(() => expect(window.location.search).not.toContain("prediction="));
     await waitFor(() => expect(screen.queryByRole("heading", { name: "불변 예측 Snapshot" })).not.toBeInTheDocument());
+    expect(await screen.findByText("openai · winner")).toBeInTheDocument();
     expect(screen.getByLabelText("팀")).toHaveValue("HOME");
   });
 
