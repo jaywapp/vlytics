@@ -697,7 +697,8 @@
         "bulk_collection_enabled",
         "permission_policy",
         "max_requests_per_minute",
-        "max_concurrency"
+        "max_concurrency",
+        "scopes"
       ],
       "properties": {
         "bulk_collection_enabled": {
@@ -714,6 +715,37 @@
         "max_concurrency": {
           "type": "integer",
           "minimum": 0
+        },
+        "scopes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "source",
+              "group_code",
+              "season_code",
+              "competition_code"
+            ],
+            "properties": {
+              "source": {
+                "const": "kovo"
+              },
+              "group_code": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "season_code": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$"
+              },
+              "competition_code": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+$"
+              }
+            }
+          }
         }
       },
       "allOf": [
@@ -740,6 +772,9 @@
               "max_concurrency": {
                 "type": "integer",
                 "minimum": 1
+              },
+              "scopes": {
+                "minItems": 1
               }
             }
           }

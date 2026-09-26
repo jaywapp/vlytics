@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any, cast
 from uuid import UUID
 
@@ -31,8 +31,16 @@ class PersistResult:
 class MirrorFactRepository:
     """Persist one normalized batch atomically, separate from its raw receipt."""
 
-    def __init__(self, bind: Engine | Connection) -> None:
+    def __init__(
+        self,
+        bind: Engine | Connection,
+        *,
+        result_stability: timedelta = timedelta(minutes=30),
+    ) -> None:
+        if result_stability < timedelta(0):
+            raise ValueError("result_stability must not be negative")
         self._bind = bind
+        self._result_stability = result_stability
 
     @property
     def _engine(self) -> Engine:
@@ -48,7 +56,9 @@ class MirrorFactRepository:
         """Commit all normalized facts in one transaction after receipt commit."""
 
         with self._engine.begin() as connection:
-            return MirrorFactRepository(connection).persist(batch)
+            return MirrorFactRepository(
+                connection, result_stability=self._result_stability
+            ).persist(batch)
 
     def quarantine_durable(
         self,
@@ -574,10 +584,10 @@ class MirrorFactRepository:
             self._connection.execute(
                 text(
                     """
-                    SELECT rr.revision, rs.sha256
-                    FROM mirror.result_revisions rr
-                    JOIN mirror.raw_snapshots rs ON rs.id=rr.raw_snapshot_id
-                    WHERE rr.match_id=:match_id ORDER BY rr.revision DESC LIMIT 1
+                    SELECT revision, home_sets, away_sets, home_points, away_points,
+                           finality, rule_version, observed_at
+                    FROM mirror.result_revisions
+                    WHERE match_id=:match_id ORDER BY revision DESC LIMIT 1
                     """
                 ),
                 {"match_id": match_id},
@@ -585,13 +595,56 @@ class MirrorFactRepository:
             .mappings()
             .one_or_none()
         )
-        current_hash = self._connection.execute(
-            text("SELECT sha256 FROM mirror.raw_snapshots WHERE id=:raw_id"),
-            {"raw_id": batch.raw_snapshot_id},
-        ).scalar_one()
-        if latest is not None and latest["sha256"] == current_hash:
-            return None
         result = batch.result
+        current_sets = tuple(
+            (item.set_number, item.home_points, item.away_points) for item in result.sets
+        )
+        same = False
+        if latest is not None:
+            previous_sets = tuple(
+                (
+                    int(item["set_number"]),
+                    int(item["home_points"]),
+                    int(item["away_points"]),
+                )
+                for item in self._connection.execute(
+                    text(
+                        """
+                        SELECT set_number, home_points, away_points
+                        FROM mirror.match_sets
+                        WHERE result_revision_id = (
+                            SELECT id FROM mirror.result_revisions
+                            WHERE match_id=:match_id ORDER BY revision DESC LIMIT 1
+                        )
+                        ORDER BY set_number
+                        """
+                    ),
+                    {"match_id": match_id},
+                ).mappings()
+            )
+            same = bool(
+                int(latest["home_sets"]) == result.home_sets
+                and int(latest["away_sets"]) == result.away_sets
+                and int(latest["home_points"]) == result.home_points
+                and int(latest["away_points"]) == result.away_points
+                and str(latest["rule_version"]) == result.rule_version
+                and previous_sets == current_sets
+            )
+
+        if latest is None:
+            finality = result.finality
+        elif same:
+            if str(latest["finality"]) != "provisional":
+                return None
+            stable_since = cast(datetime, latest["observed_at"])
+            if batch.observed_at - stable_since < self._result_stability:
+                return None
+            finality = "final"
+        elif str(latest["finality"]) in {"final", "corrected"}:
+            finality = "corrected"
+        else:
+            finality = "provisional"
+
         row_id = self._connection.execute(
             text(
                 """
@@ -611,7 +664,7 @@ class MirrorFactRepository:
                 "away_sets": result.away_sets,
                 "home_points": result.home_points,
                 "away_points": result.away_points,
-                "finality": "corrected" if latest is not None else result.finality,
+                "finality": finality,
                 "rule_version": result.rule_version,
                 "observed_at": batch.observed_at,
                 "raw_id": batch.raw_snapshot_id,

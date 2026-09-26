@@ -23,17 +23,21 @@ x-backend-environment: &backend-environment
   VLYTICS_OPERATIONAL_CONFIG_PATH: /run/vlytics/operational.toml
   VLYTICS_OPERATIONAL_SCHEMA_PATH: /run/vlytics/config.schema.json
   VLYTICS_LIVE_DRY_RUN_EVIDENCE_PATH: /run/vlytics/live-dry-run-evidence.json
+  VLYTICS_PROVIDER_REGISTRY_PATH: /run/vlytics/variants.toml
+  VLYTICS_SOURCE_REGISTRY_PATH: /run/vlytics/source.toml
   PYTHONDONTWRITEBYTECODE: "1"
   PYTHONUNBUFFERED: "1"
 
 x-backend-volumes: &backend-volumes
+  - ${VLYTICS_PROVIDER_REGISTRY_FILE:-../config/variants.toml}:/run/vlytics/variants.toml:ro
+  - ${VLYTICS_SOURCE_REGISTRY_FILE:-../config/source.toml}:/run/vlytics/source.toml:ro
   - ${VLYTICS_OPERATIONAL_CONFIG_FILE:-./operational.production.example.toml}:/run/vlytics/operational.toml:ro
   - ../contracts/config.schema.json:/run/vlytics/config.schema.json:ro
   - ${VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE:-./live-dry-run-evidence.example.json}:/run/vlytics/live-dry-run-evidence.json:ro
 
 services:
   postgres:
-    image: ${VLYTICS_POSTGRES_IMAGE:-postgres:17.11-alpine}
+    image: ${VLYTICS_POSTGRES_IMAGE:?VLYTICS_POSTGRES_IMAGE is required}
     restart: unless-stopped
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-vlytics}
@@ -112,12 +116,14 @@ services:
     environment:
       <<: *backend-environment
       VLYTICS_DATABASE_URL: ${ENGINE_DATABASE_URL:?ENGINE_DATABASE_URL is required}
+      VLYTICS_WORKER_HEARTBEAT_PATH: /tmp/vlytics-worker-heartbeat.json
+      VLYTICS_COLLECTOR_DATABASE_URL: ${COLLECTOR_DATABASE_URL:?COLLECTOR_DATABASE_URL is required}
       VLYTICS_OPENAI_API_KEY: ${VLYTICS_OPENAI_API_KEY:?VLYTICS_OPENAI_API_KEY is required}
       VLYTICS_ANTHROPIC_API_KEY: ${VLYTICS_ANTHROPIC_API_KEY:?VLYTICS_ANTHROPIC_API_KEY is required}
       VLYTICS_GOOGLE_API_KEY: ${VLYTICS_GOOGLE_API_KEY:?VLYTICS_GOOGLE_API_KEY is required}
     volumes: *backend-volumes
     healthcheck:
-      test: ["CMD-SHELL", "kill -0 1"]
+      test: ["CMD", "python", "-m", "vlytics.ops.heartbeat", "--max-age-seconds", "300"]
       interval: 30s
       timeout: 5s
       retries: 3

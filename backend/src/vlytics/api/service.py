@@ -6,7 +6,7 @@ import hashlib
 import json
 from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
-from datetime import UTC, date, datetime, time
+from datetime import UTC, date, datetime, time, timedelta
 from typing import Any, Literal, cast
 from zoneinfo import ZoneInfo
 
@@ -39,6 +39,7 @@ from vlytics.api.models import (
 )
 from vlytics.api.performance import build_performance
 from vlytics.api.repository import (
+    ReadQuery,
     ReadRepository,
     ReadSnapshot,
     RetryJobConflictError,
@@ -80,10 +81,9 @@ class ReadService:
         limit: int,
         cursor: str | None,
     ) -> ScheduleResponse:
-        snapshot = self._repository.load()
         zone = ZoneInfo(timezone)
         start = datetime.combine(day, time.min, zone).astimezone(UTC)
-        end = datetime.combine(day, time.max, zone).astimezone(UTC)
+        end = datetime.combine(day + timedelta(days=1), time.min, zone).astimezone(UTC)
         filters = {
             "day": day.isoformat(),
             "timezone": timezone,
@@ -94,12 +94,35 @@ class ReadService:
             "model": model,
             "prompt_version": prompt_version,
         }
-        predictions = self._predictions_by_match(snapshot.predictions)
+        snapshot = self._repository.load_query(
+            ReadQuery(
+                endpoint="schedule",
+                filters={
+                    "start_at": start,
+                    "end_at": end,
+                    "division": division,
+                    "team": team,
+                    "competition": competition,
+                },
+            )
+        )
+        prediction_candidates = self._predictions_by_match(snapshot.predictions)
+        predictions = {
+            str(row.get("id")): self._current_prediction_rows(
+                row,
+                [
+                    prediction
+                    for prediction in prediction_candidates.get(str(row.get("id")), [])
+                    if self._prediction_filters([prediction], provider, model, prompt_version, None)
+                ],
+            )
+            for row in snapshot.matches
+        }
         rows: list[Mapping[str, Any]] = []
         for row in snapshot.matches:
             scheduled = aware_datetime(row.get("scheduled_start_at"), "scheduled_start_at")
             match_predictions = predictions.get(str(row.get("id")), [])
-            if not start <= scheduled <= end:
+            if not start <= scheduled < end:
                 continue
             if division is not None and row.get("division") != division:
                 continue
@@ -141,25 +164,30 @@ class ReadService:
         ]
         return ScheduleResponse(
             metadata=self._metadata(
-                snapshot, matches=page, predictions=self._for_matches(snapshot.predictions, page)
+                snapshot,
+                matches=page,
+                predictions=[
+                    prediction
+                    for match in page
+                    for prediction in predictions.get(str(match.get("id")), [])
+                ],
             ),
             data=ScheduleData(date=day, timezone=timezone, items=items, next_cursor=next_cursor),
         )
 
     def match_detail(self, match_id: str, timezone: TimezoneName) -> MatchDetailResponse:
-        snapshot = self._repository.load()
+        snapshot = self._repository.load_query(
+            ReadQuery(endpoint="match", filters={"match_id": match_id})
+        )
         row = next((item for item in snapshot.matches if str(item.get("id")) == match_id), None)
         if row is None:
             raise HTTPException(status_code=404, detail={"code": "match_not_found"})
-        predictions = [
+        prediction_candidates = [
             item for item in snapshot.predictions if str(item.get("match_id")) == match_id
         ]
+        predictions = self._current_prediction_rows(row, prediction_candidates)
         summary = self._match_summary(row, predictions, ZoneInfo(timezone), timezone)
-        coverage = {
-            str(item.get("data_kind")): cast(Any, item.get("availability"))
-            for item in snapshot.coverage
-            if str(item.get("match_id")) == match_id
-        }
+        coverage = self._match_coverage(snapshot.coverage, match_id)
         detail = MatchDetail(
             **summary.model_dump(),
             actual_start_at_utc=row.get("actual_start_at"),
@@ -188,8 +216,6 @@ class ReadService:
         limit: int,
         cursor: str | None,
     ) -> PredictionHistoryResponse:
-        snapshot = self._repository.load()
-        match_by_id = {str(item.get("id")): item for item in snapshot.matches}
         filters = {
             "division": division,
             "team": team,
@@ -201,6 +227,22 @@ class ReadService:
             "start_at": start_at.isoformat() if start_at else None,
             "end_at": end_at.isoformat() if end_at else None,
         }
+        boundary, cursor_revision = self._query_boundary(
+            endpoint="predictions", filters=filters, cursor=cursor
+        )
+        snapshot = self._repository.load_query(
+            ReadQuery(
+                endpoint="predictions",
+                filters={
+                    **filters,
+                    "start_at": start_at,
+                    "end_at": end_at,
+                },
+                boundary=boundary,
+                limit=limit,
+            )
+        )
+        match_by_id = {str(item.get("id")): item for item in snapshot.matches}
         rows: list[Mapping[str, Any]] = []
         for row in snapshot.predictions:
             match = match_by_id.get(str(row.get("match_id")))
@@ -216,10 +258,10 @@ class ReadService:
             if competition is not None and row.get("competition") != competition:
                 continue
             if team is not None and team not in {
-                match.get("home_team_id"),
-                match.get("home_team_code"),
-                match.get("away_team_id"),
-                match.get("away_team_code"),
+                row.get("home_team_id"),
+                row.get("home_team_code"),
+                row.get("away_team_id"),
+                row.get("away_team_code"),
             }:
                 continue
             if not self._prediction_filters(
@@ -231,18 +273,33 @@ class ReadService:
             key=lambda item: (aware_datetime(item["generated_at"], "generated"), str(item["id"])),
             reverse=True,
         )
-        page, next_cursor = self._page(
-            rows,
-            endpoint="predictions",
-            filters=filters,
-            revision=snapshot.revision,
-            limit=limit,
-            cursor=cursor,
-            key=lambda item: [
+
+        def key(item: Mapping[str, Any]) -> list[str]:
+            return [
                 aware_datetime(item["generated_at"], "generated").isoformat(),
                 str(item["id"]),
-            ],
-        )
+            ]
+
+        if snapshot.scoped_page:
+            page, next_cursor = self._database_page(
+                rows,
+                endpoint="predictions",
+                filters=filters,
+                revision=snapshot.revision,
+                cursor_revision=cursor_revision,
+                has_more=snapshot.has_more,
+                key=key,
+            )
+        else:
+            page, next_cursor = self._page(
+                rows,
+                endpoint="predictions",
+                filters=filters,
+                revision=snapshot.revision,
+                limit=limit,
+                cursor=cursor,
+                key=key,
+            )
         evaluation_by_prediction: dict[str, str] = {}
         for evaluation in sorted(
             snapshot.evaluations,
@@ -259,13 +316,17 @@ class ReadService:
         items = [
             PredictionHistoryItem(
                 id=str(row["id"]),
+                record_type=cast(Any, row["record_type"]),
+                prediction_revision_id=cast(str | None, row.get("prediction_revision_id")),
+                attempt_id=cast(str | None, row.get("attempt_id")),
                 match_id=str(row["match_id"]),
                 competition=str(row["competition"]),
                 division=cast(Any, row["division"]),
                 provider=str(row["provider"]),
+                variant_id=str(row["variant_id"]),
                 prediction_type=str(row["prediction_type"]),
                 requested_model=str(row["requested_model"]),
-                resolved_model_id=str(row["resolved_model_id"]),
+                resolved_model_id=cast(str | None, row.get("resolved_model_id")),
                 model_version=cast(str | None, row.get("model_version")),
                 prompt_version=str(row["prompt_version"]),
                 feature_version=str(row["feature_version"]),
@@ -274,7 +335,9 @@ class ReadService:
                 generated_at=aware_datetime(row["generated_at"], "generated_at"),
                 status=str(row["status"]),
                 output=object_mapping(row.get("output")),
-                evaluation_revision_id=evaluation_by_prediction.get(str(row["id"])),
+                evaluation_revision_id=evaluation_by_prediction.get(
+                    str(row.get("prediction_revision_id"))
+                ),
             )
             for row in page
         ]
@@ -309,7 +372,6 @@ class ReadService:
         start_at: datetime | None = None,
         end_at: datetime | None = None,
     ) -> PerformanceResponse:
-        snapshot = self._repository.load()
         pre_filters = {
             "division": division,
             "competition": competition,
@@ -318,6 +380,22 @@ class ReadService:
             "availability_policy": availability_policy,
             "timing_eligibility": timing_eligibility,
         }
+        snapshot = self._repository.load_query(
+            ReadQuery(
+                endpoint="performance",
+                filters={
+                    **pre_filters,
+                    "evaluator_version": evaluator_version,
+                    "provider": provider,
+                    "model": model,
+                    "prediction_type": prediction_type,
+                    "prompt_version": prompt_version,
+                    "result_finality": result_finality,
+                    "start_at": start_at,
+                    "end_at": end_at,
+                },
+            )
+        )
         candidates: list[Mapping[str, Any]] = []
         for row in snapshot.evaluations:
             cohort = self._evaluation_cohort(row)
@@ -369,7 +447,18 @@ class ReadService:
     def operations(
         self, *, state: str | None, job_type: str | None, limit: int, cursor: str | None
     ) -> OperationsResponse:
-        snapshot = self._repository.load()
+        filters = {"state": state, "job_type": job_type}
+        boundary, cursor_revision = self._query_boundary(
+            endpoint="operations", filters=filters, cursor=cursor
+        )
+        snapshot = self._repository.load_query(
+            ReadQuery(
+                endpoint="operations",
+                filters=filters,
+                boundary=boundary,
+                limit=limit,
+            )
+        )
         rows = [
             row
             for row in snapshot.operations
@@ -377,18 +466,33 @@ class ReadService:
             and (job_type is None or row.get("job_type") == job_type)
         ]
         rows.sort(key=lambda item: (aware_datetime(item["due_at"], "due_at"), str(item["id"])))
-        page, next_cursor = self._page(
-            rows,
-            endpoint="operations",
-            filters={"state": state, "job_type": job_type},
-            revision=snapshot.revision,
-            limit=limit,
-            cursor=cursor,
-            key=lambda item: [
+
+        def key(item: Mapping[str, Any]) -> list[str]:
+            return [
                 aware_datetime(item["due_at"], "due_at").isoformat(),
                 str(item["id"]),
-            ],
-        )
+            ]
+
+        if snapshot.scoped_page:
+            page, next_cursor = self._database_page(
+                rows,
+                endpoint="operations",
+                filters=filters,
+                revision=snapshot.revision,
+                cursor_revision=cursor_revision,
+                has_more=snapshot.has_more,
+                key=key,
+            )
+        else:
+            page, next_cursor = self._page(
+                rows,
+                endpoint="operations",
+                filters=filters,
+                revision=snapshot.revision,
+                limit=limit,
+                cursor=cursor,
+                key=key,
+            )
         items = [
             OperationSummary(
                 id=str(row["id"]),
@@ -426,9 +530,15 @@ class ReadService:
         )
 
     def coverage(self, *, data_kind: str | None, availability: str | None) -> CoverageResponse:
-        snapshot = self._repository.load()
+        snapshot = self._repository.load_query(
+            ReadQuery(
+                endpoint="coverage",
+                filters={"data_kind": data_kind, "availability": availability},
+            )
+        )
         groups: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
-        for row in snapshot.coverage:
+        current_coverage = self._latest_coverage_rows(snapshot.coverage)
+        for row in current_coverage:
             if data_kind is not None and row.get("data_kind") != data_kind:
                 continue
             if availability is not None and row.get("availability") != availability:
@@ -543,6 +653,67 @@ class ReadService:
             )
         return page, next_cursor
 
+    def _query_boundary(
+        self,
+        *,
+        endpoint: str,
+        filters: Mapping[str, object],
+        cursor: str | None,
+    ) -> tuple[tuple[datetime, str] | None, str | None]:
+        if cursor is None:
+            return None, None
+        payload = self._cursors.decode(cursor)
+        fingerprint = hashlib.sha256(
+            json.dumps(filters, sort_keys=True, separators=(",", ":")).encode()
+        ).hexdigest()
+        if payload.get("endpoint") != endpoint or payload.get("filters") != fingerprint:
+            raise HTTPException(status_code=422, detail={"code": "cursor_filter_mismatch"})
+        key = payload.get("key")
+        if (
+            not isinstance(key, list)
+            or len(key) != 2
+            or not all(isinstance(value, str) for value in key)
+        ):
+            raise HTTPException(status_code=422, detail={"code": "invalid_cursor"})
+        try:
+            boundary_at = datetime.fromisoformat(key[0])
+            aware_datetime(boundary_at, "cursor boundary")
+        except (TypeError, ValueError) as error:
+            raise HTTPException(status_code=422, detail={"code": "invalid_cursor"}) from error
+        revision = payload.get("revision")
+        return (boundary_at, key[1]), str(revision) if revision is not None else None
+
+    def _database_page(
+        self,
+        rows: list[Mapping[str, Any]],
+        *,
+        endpoint: str,
+        filters: Mapping[str, object],
+        revision: str,
+        cursor_revision: str | None,
+        has_more: bool,
+        key: Any,
+    ) -> tuple[list[Mapping[str, Any]], str | None]:
+        if cursor_revision is not None and cursor_revision != revision:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail={"code": "cursor_revision_stale"},
+            )
+        next_cursor = None
+        if has_more and rows:
+            fingerprint = hashlib.sha256(
+                json.dumps(filters, sort_keys=True, separators=(",", ":")).encode()
+            ).hexdigest()
+            next_cursor = self._cursors.encode(
+                {
+                    "endpoint": endpoint,
+                    "filters": fingerprint,
+                    "revision": revision,
+                    "key": key(rows[-1]),
+                }
+            )
+        return rows, next_cursor
+
     def _match_summary(
         self,
         row: Mapping[str, Any],
@@ -555,19 +726,7 @@ class ReadService:
             self._provider_outcome(item)
             for item in sorted(predictions, key=lambda item: str(item.get("provider")))
         ]
-        market_id = row.get("market_snapshot_id")
-        market = (
-            MarketSummary(
-                availability="available",
-                source=cast(str | None, row.get("market_source")),
-                snapshot_id=str(market_id),
-                quoted_at=cast(datetime | None, row.get("market_quoted_at")),
-            )
-            if market_id
-            else MarketSummary(
-                availability="missing", reason="market_source_not_configured_or_no_eligible_quote"
-            )
-        )
+        market = self._match_market_summary(predictions)
         return MatchSummary(
             id=str(row["id"]),
             competition=str(row["competition"]),
@@ -598,15 +757,178 @@ class ReadService:
         return ProviderOutcome(
             provider=str(row.get("provider")),
             status=cast(Any, safe_status),
+            variant_id=cast(str | None, row.get("variant_id")),
             requested_model=cast(str | None, row.get("requested_model")),
             resolved_model_id=cast(str | None, row.get("resolved_model_id")),
             model_version=cast(str | None, row.get("model_version")),
             prompt_version=cast(str | None, row.get("prompt_version")),
             generated_at=cast(datetime | None, row.get("generated_at")),
-            prediction_revision_id=str(row["id"]) if row.get("id") else None,
+            prediction_revision_id=cast(str | None, row.get("prediction_revision_id")),
+            attempt_id=cast(str | None, row.get("attempt_id")),
+            lifecycle_status=cast(Any, row.get("lifecycle_status")),
+            schedule_revision_id=cast(str | None, row.get("schedule_revision_id")),
+            feature_snapshot_id=cast(str | None, row.get("feature_snapshot_id")),
+            feature_version=cast(str | None, row.get("feature_version")),
+            input_cutoff_at=cast(datetime | None, row.get("input_cutoff_at")),
+            market=self._market_summary(row),
             output=object_mapping(row.get("output")) or None,
             error_code=cast(str | None, row.get("error_code")),
         )
+
+    @staticmethod
+    def _market_summary(row: Mapping[str, Any]) -> MarketSummary:
+        eligibility = row.get("market_eligibility")
+        snapshot_id = row.get("market_snapshot_id")
+        source = cast(str | None, row.get("market_source"))
+        quoted_at = cast(datetime | None, row.get("market_quoted_at"))
+        reason = cast(str | None, row.get("market_reason"))
+        if eligibility == "eligible" and snapshot_id:
+            return MarketSummary(
+                availability="available",
+                source=source,
+                snapshot_id=str(snapshot_id),
+                quoted_at=quoted_at,
+                reason=reason,
+            )
+        if eligibility in {"stale", "late"}:
+            return MarketSummary(
+                availability=cast(Any, eligibility),
+                source=source,
+                snapshot_id=str(snapshot_id) if snapshot_id else None,
+                quoted_at=quoted_at,
+                reason=reason,
+            )
+        if eligibility == "unsupported":
+            return MarketSummary(
+                availability="not_supported",
+                source=source,
+                snapshot_id=str(snapshot_id) if snapshot_id else None,
+                quoted_at=quoted_at,
+                reason=reason,
+            )
+        if eligibility == "missing":
+            return MarketSummary(availability="missing", reason=reason or "no_market_as_of_cutoff")
+        if snapshot_id:
+            return MarketSummary(
+                availability="unverified",
+                source=source,
+                snapshot_id=str(snapshot_id),
+                quoted_at=quoted_at,
+                reason="market_evaluation_missing",
+            )
+        return MarketSummary(
+            availability="missing", reason="prediction_market_provenance_unavailable"
+        )
+
+    def _match_market_summary(self, predictions: Iterable[Mapping[str, Any]]) -> MarketSummary:
+        summaries = [self._market_summary(row) for row in predictions]
+        if not summaries:
+            return MarketSummary(
+                availability="missing", reason="no_current_prediction_market_summary"
+            )
+        identities = {summary.model_dump_json() for summary in summaries}
+        if len(identities) == 1:
+            return summaries[0]
+        return MarketSummary(availability="unverified", reason="provider_market_summaries_differ")
+
+    @staticmethod
+    def _current_prediction_rows(
+        match: Mapping[str, Any], rows: Iterable[Mapping[str, Any]]
+    ) -> list[Mapping[str, Any]]:
+        current_schedule_revision = str(match.get("schedule_revision_id"))
+        grouped: dict[tuple[str, str], list[Mapping[str, Any]]] = defaultdict(list)
+        for row in rows:
+            if str(row.get("schedule_revision_id")) != current_schedule_revision:
+                continue
+            provider_status = str(row.get("provider_status", "missing"))
+            if provider_status == "succeeded" and row.get("lifecycle_status") != "published":
+                continue
+            snapshot_id = row.get("feature_snapshot_id")
+            cutoff = row.get("input_cutoff_at")
+            if not snapshot_id or not isinstance(cutoff, datetime):
+                continue
+            aware_datetime(cutoff, "input_cutoff_at")
+            grouped[(str(snapshot_id), cutoff.isoformat())].append(row)
+        if not grouped:
+            return []
+
+        def group_rank(
+            item: tuple[tuple[str, str], list[Mapping[str, Any]]],
+        ) -> tuple[int, int, str, str, str]:
+            key, candidates = item
+            providers = {str(candidate.get("provider")).lower() for candidate in candidates}
+            succeeded = sum(
+                str(candidate.get("provider_status")) == "succeeded" for candidate in candidates
+            )
+            latest_generated = max(
+                aware_datetime(candidate.get("generated_at"), "generated_at").isoformat()
+                for candidate in candidates
+            )
+            return len(providers), succeeded, key[1], latest_generated, key[0]
+
+        selected_group = max(grouped.items(), key=group_rank)[1]
+        representatives: dict[str, Mapping[str, Any]] = {}
+        for row in selected_group:
+            provider = str(row.get("provider")).lower()
+            current = representatives.get(provider)
+
+            def row_rank(candidate: Mapping[str, Any]) -> tuple[int, str, str]:
+                return (
+                    int(str(candidate.get("provider_status")) == "succeeded"),
+                    aware_datetime(candidate.get("generated_at"), "generated_at").isoformat(),
+                    str(candidate.get("id")),
+                )
+
+            if current is None or row_rank(row) > row_rank(current):
+                representatives[provider] = row
+        return [representatives[key] for key in sorted(representatives)]
+
+    @staticmethod
+    def _latest_coverage_rows(
+        rows: Iterable[Mapping[str, Any]],
+    ) -> list[Mapping[str, Any]]:
+        latest: dict[tuple[str, ...], Mapping[str, Any]] = {}
+        for row in rows:
+            identity = tuple(
+                str(row.get(name) or "")
+                for name in (
+                    "source",
+                    "season_id",
+                    "competition_id",
+                    "match_id",
+                    "data_kind",
+                )
+            )
+            current = latest.get(identity)
+            rank = (
+                aware_datetime(row.get("observed_at"), "observed_at"),
+                str(row.get("id")),
+            )
+            if current is None or rank > (
+                aware_datetime(current.get("observed_at"), "observed_at"),
+                str(current.get("id")),
+            ):
+                latest[identity] = row
+        return list(latest.values())
+
+    @classmethod
+    def _match_coverage(cls, rows: Iterable[Mapping[str, Any]], match_id: str) -> dict[str, Any]:
+        by_kind: dict[str, Mapping[str, Any]] = {}
+        for row in cls._latest_coverage_rows(rows):
+            if str(row.get("match_id")) != match_id:
+                continue
+            kind = str(row.get("data_kind"))
+            current = by_kind.get(kind)
+            rank = (
+                aware_datetime(row.get("observed_at"), "observed_at"),
+                str(row.get("id")),
+            )
+            if current is None or rank > (
+                aware_datetime(current.get("observed_at"), "observed_at"),
+                str(current.get("id")),
+            ):
+                by_kind[kind] = row
+        return {kind: cast(Any, row.get("availability")) for kind, row in by_kind.items()}
 
     @staticmethod
     def _prediction_filters(
@@ -681,6 +1003,8 @@ class ReadService:
         }
         versions: dict[str, set[str]] = defaultdict(set)
         for row in [*prediction_rows, *evaluation_rows]:
+            if not (row.get("prediction_revision_id") or row.get("prediction_id")):
+                continue
             provider, version = (
                 row.get("provider"),
                 row.get("model_version") or row.get("resolved_model_id"),
@@ -694,7 +1018,9 @@ class ReadService:
                 {
                     str(revision_id)
                     for row in [*prediction_rows, *evaluation_rows]
-                    if (revision_id := row.get("prediction_id") or row.get("id"))
+                    if (
+                        revision_id := row.get("prediction_id") or row.get("prediction_revision_id")
+                    )
                 }
             ),
             evaluation_revision_ids=sorted(

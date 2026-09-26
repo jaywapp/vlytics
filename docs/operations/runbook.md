@@ -87,7 +87,7 @@ powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Invoke-Preflight
 
 ```powershell
 $env:VLYTICS_BACKUP_DATABASE_URL = '<injected externally>'
-$env:VLYTICS_MIGRATION_DATABASE_URL = '<injected externally>'
+$env:VLYTICS_RESTORE_ADMIN_DATABASE_URL = '<dedicated recovery administrator injected externally>'
 powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Invoke-RestoreDrill.ps1
 
 docker compose --env-file D:\private\vlytics.env -f .\infra\compose.production.yaml run --rm migrate
@@ -98,7 +98,7 @@ docker compose --env-file D:\private\vlytics.env -f .\infra\compose.production.y
 
 ## Backup, PITR와 복구
 
-`Backup-Database.ps1`은 `VLYTICS_BACKUP_DATABASE_URL`에서 URL을 읽고 custom-format dump, SHA-256, DB명·PostgreSQL 버전·크기만 담은 manifest를 만든다. URL과 비밀번호는 artifact에 기록하지 않는다.
+`Backup-Database.ps1`은 `VLYTICS_BACKUP_DATABASE_URL`에서 URL을 읽고 custom-format dump, SHA-256, PostgreSQL 버전·크기·동일 exported snapshot의 table count와 migration checksum을 담은 manifest를 만든다. URL과 비밀번호는 artifact에 기록하지 않는다.
 
 ```powershell
 $env:VLYTICS_POSTGRES_BIN = 'C:\Program Files\PostgreSQL\17\bin'
@@ -108,7 +108,7 @@ powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Backup-Database.
 
 운영 host의 단일 volume은 backup이 아니다. OP-002에서 암호화된 외부 목적지, 보존 기간, RPO/RTO와 알림을 정한다. PostgreSQL WAL archive 또는 관리형 PITR를 켜고 복구 시각을 정기 검증한다. logical dump는 migration 전과 정기 검증용이며 PITR를 대체하지 않는다.
 
-분기마다 restore drill을 별도 DB에서 수행한다. 스크립트는 migration checksum, 네 domain schema, table set, 모든 table row count, prediction/job/published-event 중복 및 orphan projection을 비교하고 임시 DB를 삭제한다. 실패한 dump나 DB는 민감 자료로 취급하고 즉시 격리·삭제한다.
+분기마다 restore drill을 원본과 다른 PostgreSQL cluster의 별도 DB에서 수행한다. 실행 host에는 uv와 backend 의존성이 필요하다. 복구용 URL은 NOCREATEDB migrator와 분리한 `VLYTICS_RESTORE_ADMIN_DATABASE_URL`로 공급한다. 원본 backup 역할에는 cluster 식별자 확인용 `pg_control_system()` EXECUTE 권한이 필요하다. 원본과 대상의 system identifier가 같거나 확인할 수 없으면 어떤 역할도 변경하기 전에 중단한다. 복구 관리자는 CREATEDB 및 복구할 owner/role을 생성·설정하고 세션의 비밀번호 관련 로깅을 억제할 권한이 필요하며, 일반 API/worker에 이 URL을 전달하지 않는다. 새 cluster의 로그인 비밀번호는 네 `VLYTICS_*_DATABASE_PASSWORD`와 `VLYTICS_RESTORE_MIGRATOR_PASSWORD` 환경변수로 외부 주입한다. 이미 존재하는 대상 역할의 비밀번호는 자동 변경하지 않는다. dump는 owner/ACL을 보존하고 복구 후 네 실제 서비스 로그인으로 SELECT·허용 INSERT·금지 UPDATE/DELETE를 검사한다. database-level owner/GRANT를 manifest에서 별도로 복원·검증하고(Compose의 `vlytics_bootstrap_admin` 소유권 또는 `vlytics_migrator` 소유권을 그대로 보존), migrator 로그인과 migration_owner의 schema CREATE를 rollback transaction에서 확인한다. TLS URL 옵션을 보존하며 비교 행 수는 dump와 같은 snapshot에서 생성하므로 이후 원본 쓰기와 비교하지 않는다. 스크립트는 migration checksum, 네 domain schema, table set, 모든 table row count, prediction/job/published-event 중복 및 orphan projection을 비교하고 임시 DB를 삭제한다. 실패한 dump나 DB는 민감 자료로 취급하고 즉시 격리·삭제한다.
 
 실제 복구 순서는 worker 정지, 원본 격리, 목표 시각/PITR 또는 검증된 dump restore, 위 불변식 검사, API read-only 확인, worker 한 인스턴스 재개, coverage 재조정이다. RPO 범위를 벗어난 관측은 과거 시각으로 소급하지 않는다.
 
@@ -129,3 +129,9 @@ Upgrade 전 현재 image digest, config hash, migration checksum, backup hash를
 - **Market:** 실제 adapter 전 `missing`은 정상 운영 상태다. 0 또는 임의 quote로 대체하지 않는다.
 
 중대한 장애에서는 worker를 먼저 정지해 외부 비용과 오염을 막고 API를 read-only 조회용으로 유지한다. correlation ID, job/prediction ID, config hash, image digest와 시각만 사건 기록에 남기며 secret·Raw·Provider 원문은 복사하지 않는다. 원인 제거 후 preflight와 필요한 restore/replay 검증을 다시 통과하고 worker 한 인스턴스부터 재개한다.
+
+## Image 및 릴리스 증거
+
+backend Dockerfile은 `PYTHON_IMAGE`와 `UV_IMAGE` build argument를 요구한다. production build에는 `VLYTICS_PYTHON_BUILD_IMAGE`·`VLYTICS_UV_BUILD_IMAGE`의 승인된 digest를 전달한다. Node/Nginx, PostgreSQL 및 최종 backend/frontend image도 digest로 고정한다. 개발용 Compose만 태그 기본값을 허용하며 CI smoke는 pull 결과의 digest를 실제 build에 전달한다.
+
+깨끗한 release commit에서 Docker와 Trivy가 설치된 검증 host가 `infra/scripts/Test-ReleaseEvidence.ps1 -BackendImage <backend digest> -FrontendImage <frontend digest> -BaseImages <python,uv,postgres,node,nginx digest 목록> -OutputDirectory <비공개 산출물 경로>`를 실행한다. 모든 image의 CycloneDX SBOM, HIGH/CRITICAL 취약점 보고서, 결과 hash와 git revision을 남긴다. 도구 부재·scan 실패·취약점 gate 실패를 성공으로 처리하지 않는다. 이 스크립트는 image를 push하거나 배포하지 않는다. 실제 보고서와 검토자 기록이 없으면 릴리스 증거 완료로 표시하지 않는다.

@@ -71,12 +71,12 @@ if (($compose | Select-String -Pattern 'image: \$\{VLYTICS_BACKEND_IMAGE:' -AllM
 }
 
 $dockerfile = Get-Content -LiteralPath $frontendDockerfile -Raw -Encoding UTF8
-Assert-Contains $dockerfile '(?m)^ARG NODE_IMAGE$' "Frontend Node build image must be an explicit build argument."
-Assert-Contains $dockerfile '(?m)^ARG NGINX_IMAGE$' "Frontend Nginx runtime image must be an explicit build argument."
+Assert-Contains $dockerfile '(?m)^ARG NODE_IMAGE\r?$' "Frontend Node build image must be an explicit build argument."
+Assert-Contains $dockerfile '(?m)^ARG NGINX_IMAGE\r?$' "Frontend Nginx runtime image must be an explicit build argument."
 Assert-Contains $dockerfile 'FROM \$\{NODE_IMAGE\} AS build' "Frontend build stage is not pinned through NODE_IMAGE."
 Assert-Contains $dockerfile 'FROM \$\{NGINX_IMAGE\} AS runtime' "Frontend runtime stage is not pinned through NGINX_IMAGE."
-Assert-Contains $dockerfile '(?m)^RUN npm ci$' "Frontend build must use npm ci."
-Assert-Contains $dockerfile '(?m)^USER 101:101$' "Frontend runtime must be non-root."
+Assert-Contains $dockerfile '(?m)^RUN npm ci\r?$' "Frontend build must use npm ci."
+Assert-Contains $dockerfile '(?m)^USER 101:101\r?$' "Frontend runtime must be non-root."
 if ($dockerfile -match '(?i)(SECRET|TOKEN|API_KEY|\.env)') { throw "Frontend Dockerfile must not copy or define secret material." }
 
 $proxy = Get-Content -LiteralPath $frontendProxyConfig -Raw -Encoding UTF8
@@ -85,7 +85,7 @@ Assert-Contains $proxy 'proxy_pass http://api:8000;' "API proxy does not target 
 Assert-Contains $proxy 'try_files \$uri \$uri/ /index\.html;' "SPA history fallback is missing."
 Assert-Contains $proxy 'listen 8080;' "Unprivileged frontend listen port is missing."
 $dockerIgnore = Get-Content -LiteralPath $frontendDockerIgnore -Raw -Encoding UTF8
-Assert-Contains $dockerIgnore '(?m)^\.env\.\*$' "Frontend Docker context must exclude environment files."
+Assert-Contains $dockerIgnore '(?m)^\.env\.\*\r?$' "Frontend Docker context must exclude environment files."
 
 $environmentText = Get-Content -LiteralPath $EnvironmentExample -Raw -Encoding UTF8
 if ($environmentText -match '(?i)(sk-[a-z0-9]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|postgres(?:ql)?://[^_\r\n]*:[^_\r\n]*@)') {
@@ -93,6 +93,7 @@ if ($environmentText -match '(?i)(sk-[a-z0-9]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY
 }
 $requiredPlaceholderKeys = @(
     "VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE",
+    "VLYTICS_PYTHON_BUILD_IMAGE", "VLYTICS_UV_BUILD_IMAGE", "VLYTICS_POSTGRES_IMAGE",
     "MIGRATOR_DATABASE_PASSWORD", "COLLECTOR_DATABASE_PASSWORD", "ENGINE_DATABASE_PASSWORD",
     "MARKET_INGEST_DATABASE_PASSWORD", "READ_API_DATABASE_PASSWORD", "MIGRATOR_DATABASE_URL",
     "ENGINE_DATABASE_URL", "READ_API_DATABASE_URL", "VLYTICS_OPERATOR_AUTH_SECRET",

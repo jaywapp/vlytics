@@ -8,7 +8,13 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { createOperatorApiClient, OperatorApiError } from "../src/features/matches/api";
 import { MatchBriefingPage } from "../src/features/matches/MatchBriefingPage";
 import { createSyntheticFixtureClient } from "../src/features/matches/fixtures";
-import type { OperatorApiClient } from "../src/features/matches/types";
+import type { MatchDetailResponse, OperatorApiClient, ScheduleResponse } from "../src/features/matches/types";
+import serializedApiFixtureJson from "./fixtures/operator-api.serializer.json";
+
+const serializedApiFixture = serializedApiFixtureJson as unknown as {
+  schedule: ScheduleResponse;
+  match: MatchDetailResponse;
+};
 
 afterEach(() => {
   cleanup();
@@ -45,7 +51,21 @@ describe("match briefing flow", () => {
     await userEvent.click(screen.getByText("입력과 예측 기록 확인"));
     expect(screen.getByText("vlytics.operator.v1")).toBeInTheDocument();
     expect(screen.getByText("feature-v2")).toBeInTheDocument();
-    expect(screen.getByText("모델 버전").nextElementSibling).toHaveTextContent("2026-09");
+    expect(screen.getByText("Variant 모델 버전").nextElementSibling).toHaveTextContent("2026-09");
+  });
+
+  it("renders the shared fixture emitted by the FastAPI serializer", async () => {
+    const client: OperatorApiClient = {
+      dataMode: "synthetic-test",
+      getSchedule: () => Promise.resolve(serializedApiFixture.schedule),
+      getMatch: () => Promise.resolve(serializedApiFixture.match),
+    };
+    renderBriefing(client);
+
+    expect(await screen.findByRole("heading", { name: /Home Club 승리 확률 60%/ })).toBeInTheDocument();
+    expect(screen.getByText("market-match-1")).toBeInTheDocument();
+    expect(screen.getByText("feature-match-1")).toBeInTheDocument();
+    expect(screen.getByText("이 시각까지 고정된 입력만 사용")).toBeInTheDocument();
   });
 
   it("supports keyboard match selection and exposes missing market without invented values", async () => {
@@ -64,7 +84,7 @@ describe("match briefing flow", () => {
       }),
     ).toBeInTheDocument();
     expect(screen.getAllByText("미수신").length).toBeGreaterThan(0);
-    expect(screen.getByText("market_source_not_configured_or_no_eligible_quote")).toBeInTheDocument();
+    expect(screen.getByText("prediction_market_provenance_unavailable")).toBeInTheDocument();
     expect(screen.getAllByText("응답 없음")).toHaveLength(2);
     expect(screen.queryByText("provider_outcome_missing")).not.toBeInTheDocument();
   });
@@ -104,6 +124,10 @@ describe("match briefing flow", () => {
       screen.getByRole("heading", { name: /한강 블루웨이브 승리 확률 57%/ }),
     ).toBeInTheDocument();
     expect(screen.getByText("세트 분포 미지원")).toBeInTheDocument();
+    expect(screen.getAllByText("기준 이후 수신").length).toBeGreaterThan(0);
+    expect(screen.getByText("market-google-late")).toBeInTheDocument();
+    expect(screen.getByText("received_after_input_cutoff")).toBeInTheDocument();
+    expect(screen.getByText("이 시각까지 고정된 입력만 사용")).toBeInTheDocument();
     expect(screen.queryByRole("img", { name: /세트 스코어 확률/ })).not.toBeInTheDocument();
   });
 

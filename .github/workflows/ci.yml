@@ -69,6 +69,8 @@ jobs:
         env:
           VLYTICS_BACKEND_IMAGE: vlytics-backend:ci
           VLYTICS_FRONTEND_IMAGE: vlytics-frontend:ci
+          VLYTICS_POSTGRES_IMAGE: postgres:17.11-alpine
+          COLLECTOR_DATABASE_URL: postgresql+psycopg://vlytics_collector_login:compose-ci-collector@postgres:5432/vlytics
           MIGRATOR_DATABASE_PASSWORD: compose-ci-migrator
           MIGRATOR_DATABASE_URL: postgresql+psycopg://vlytics_migrator:compose-ci-migrator@postgres:5432/vlytics
           COLLECTOR_DATABASE_PASSWORD: compose-ci-collector
@@ -83,6 +85,14 @@ jobs:
           VLYTICS_ANTHROPIC_API_KEY: compose-ci-disabled
           VLYTICS_GOOGLE_API_KEY: compose-ci-disabled
         run: docker compose -f ../infra/compose.production.yaml config --quiet
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+      - name: Install live browser verification dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Smoke test Compose stack, frontend image, and restore
         env:
           POSTGRES_PORT: 55432
@@ -123,3 +133,18 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run production-preview end-to-end tests
         run: npm run test:e2e:ci
+  deployment-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+      - run: uv sync --frozen
+      - run: uv run pytest tests/test_deployment_scripts.py tests/test_operational_config.py tests/test_recovery.py

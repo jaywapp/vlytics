@@ -21,10 +21,14 @@ const metadata = {
 
 const prediction: PredictionHistoryItem = {
   id: "prediction-1",
+  record_type: "prediction",
+  prediction_revision_id: "prediction-1",
+  attempt_id: null,
   match_id: "match-1",
   competition: "synthetic-regular",
   division: "women",
   provider: "openai",
+  variant_id: "variant-openai",
   prediction_type: "winner",
   requested_model: "requested-v1",
   resolved_model_id: "resolved-v1",
@@ -34,7 +38,7 @@ const prediction: PredictionHistoryItem = {
   schedule_revision_id: "schedule-1",
   source_snapshot_id: "source-1",
   generated_at: "2026-09-20T08:00:00Z",
-  status: "succeeded",
+  status: "published",
   output: {
     home_win_probability: 0.61,
     capabilities: ["winner"],
@@ -146,6 +150,7 @@ describe("prediction history", () => {
     render(createElement(HistoryPage, { client, onNavigate: vi.fn() }));
 
     expect(await screen.findByText("openai · winner")).toBeInTheDocument();
+    expect(screen.getByText("게시됨")).toBeInTheDocument();
     expect(queries[0]).toMatchObject({
       division: "women",
       provider: "openai",
@@ -184,6 +189,34 @@ describe("prediction history", () => {
     render(createElement(HistoryPage, { client, onNavigate: vi.fn() }));
     expect(await screen.findByRole("heading", { name: "조건에 맞는 예측 기록이 없습니다" })).toBeInTheDocument();
     expect(screen.queryByText("openai · winner")).not.toBeInTheDocument();
+  });
+
+  it("labels a failed provider attempt without inventing a resolved model or prediction revision", async () => {
+    window.history.replaceState({}, "", "/history");
+    const attempt: PredictionHistoryItem = {
+      ...prediction,
+      id: "attempt-1",
+      record_type: "attempt",
+      prediction_revision_id: null,
+      attempt_id: "attempt-1",
+      requested_model: "requested-unresolved",
+      resolved_model_id: null,
+      status: "timed_out",
+      output: {},
+      evaluation_revision_id: null,
+    };
+    const client: HistoryApiClient = {
+      getPredictions: vi.fn(() => Promise.resolve(historyResponse([attempt], null))),
+    };
+    const user = userEvent.setup();
+    render(createElement(HistoryPage, { client, onNavigate: vi.fn() }));
+
+    expect(await screen.findByText("requested-unresolved (요청값)")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "실패 attempt 보기" }));
+    expect(screen.getByRole("heading", { name: "Provider 실패 Attempt" })).toBeInTheDocument();
+    expect(screen.getByText("Provider attempt")).toBeInTheDocument();
+    expect(screen.getByText("실행 모델 미확인")).toBeInTheDocument();
+    expect(screen.getByText("attempt-1")).toBeInTheDocument();
   });
 });
 
@@ -234,6 +267,36 @@ describe("operations", () => {
     await waitFor(() => expect(retryJob).toHaveBeenCalledTimes(2));
     expect(retryJob.mock.calls[1][1]).toBe(retryJob.mock.calls[0][1]);
     expect(await screen.findByRole("button", { name: "요청 완료" })).toBeDisabled();
+  });
+
+  it("creates a new idempotency key for a later failed attempt", async () => {
+    window.history.replaceState({}, "", "/operations");
+    let attemptNo = 2;
+    const getOperations = vi.fn(() => {
+      const response = operationsResponse();
+      response.data.items[0] = { ...response.data.items[0], attempt_no: attemptNo };
+      return Promise.resolve(response);
+    });
+    const retryJob = vi.fn<OperationsApiClient["retryJob"]>().mockResolvedValue({ metadata, data: { job_id: operationsResponse().data.items[0].id, state: "retry_wait", due_at: "2026-09-20T08:00:00Z", deadline_at: "2099-09-20T09:00:00Z", idempotent_replay: false } });
+    const client: OperationsApiClient = {
+      getOperations,
+      getCoverage: vi.fn(() => Promise.resolve(coverageResponse)),
+      retryJob,
+    };
+    const user = userEvent.setup();
+    render(createElement(OperationsPage, { client, onNavigate: vi.fn() }));
+
+    const button = await screen.findByRole("button", { name: "재시도" });
+    attemptNo = 3;
+    await user.click(button);
+    await waitFor(() => expect(retryJob).toHaveBeenCalledTimes(1));
+    const firstKey = retryJob.mock.calls[0][1];
+
+    await waitFor(() => expect(getOperations).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.getByRole("button", { name: "재시도" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "재시도" }));
+    await waitFor(() => expect(retryJob).toHaveBeenCalledTimes(2));
+    expect(retryJob.mock.calls[1][1]).not.toBe(firstKey);
   });
 
   it("shows independent n0 states for jobs and coverage", async () => {

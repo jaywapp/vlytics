@@ -75,11 +75,19 @@ class Settings(BaseSettings):
         repr=False,
     )
     migration_database_url: str | None = Field(default=None, repr=False)
+    collector_database_url: str | None = Field(default=None, repr=False)
+    provider_registry_path: Path = Field(
+        default_factory=lambda: _discover_repository_root() / "config" / "variants.toml"
+    )
+    source_registry_path: Path = Field(
+        default_factory=lambda: _discover_repository_root() / "config" / "source.toml"
+    )
     collector_database_password: SecretStr | None = Field(default=None, repr=False)
     engine_database_password: SecretStr | None = Field(default=None, repr=False)
     market_ingest_database_password: SecretStr | None = Field(default=None, repr=False)
     read_api_database_password: SecretStr | None = Field(default=None, repr=False)
     worker_poll_seconds: float = Field(default=5.0, gt=0)
+    worker_heartbeat_path: Path | None = None
     operational_config_path: Path = Field(default_factory=_default_operational_config_path)
     operational_schema_path: Path = Field(default_factory=_default_operational_schema_path)
     live_dry_run_evidence_path: Path | None = None
@@ -174,6 +182,8 @@ def _validate_provider(
     provider_name: str,
     provider: Mapping[str, object],
     environ: Mapping[str, str],
+    *,
+    require_secret: bool = True,
 ) -> None:
     if not _boolean(provider, "enabled"):
         errors.append(f"ai.{provider_name}.enabled must be true when live AI calls are enabled")
@@ -181,7 +191,8 @@ def _validate_provider(
 
     _require_configured(errors, provider, "model_id", f"ai.{provider_name}")
     _require_configured(errors, provider, "pinned_model_version", f"ai.{provider_name}")
-    _require_secret_reference(errors, provider, "api_key_env", f"ai.{provider_name}", environ)
+    if require_secret:
+        _require_secret_reference(errors, provider, "api_key_env", f"ai.{provider_name}", environ)
 
     daily_budget = _number(provider, "daily_budget_amount")
     monthly_budget = _number(provider, "monthly_budget_amount")
@@ -254,16 +265,21 @@ def _validate_cross_fields(
     if _boolean(deployment, "live_enabled"):
         for field in ("host_provider", "host_region", "cost_currency"):
             _require_configured(errors, deployment, field, "deployment")
-        _require_secret_reference(errors, deployment, "operator_secret_env", "deployment", environ)
+        if component in {None, "api"}:
+            _require_secret_reference(
+                errors, deployment, "operator_secret_env", "deployment", environ
+            )
         _require_secret_reference(errors, database, "connection_url_env", "database", environ)
 
     if _boolean(backup, "enabled"):
         _require_configured(errors, backup, "strategy", "backup")
-        _require_secret_reference(errors, backup, "credential_env", "backup", environ)
+        if component is None:
+            _require_secret_reference(errors, backup, "credential_env", "backup", environ)
 
     if _boolean(alerting, "enabled"):
         _require_configured(errors, alerting, "channel", "alerting")
-        _require_secret_reference(errors, alerting, "destination_env", "alerting", environ)
+        if component is None:
+            _require_secret_reference(errors, alerting, "destination_env", "alerting", environ)
 
     if _boolean(ai, "live_calls_enabled"):
         _require_configured(errors, ai, "budget_currency", "ai")
@@ -273,6 +289,7 @@ def _validate_cross_fields(
                 provider_name,
                 _section(ai, provider_name),
                 environ,
+                require_secret=component != "api",
             )
 
     if _boolean(source, "bulk_collection_enabled"):
@@ -295,7 +312,11 @@ def validate_operational_config(
     environ: Mapping[str, str] | None = None,
     component: RuntimeComponent | None = None,
 ) -> None:
-    """Validate schema, activation gates, cross-field limits, and secret references."""
+    """Validate all policy fields and only secrets consumed by this component.
+
+    With no component, validate the complete deployment including host-managed
+    backup and alert credentials. Process startup must not receive unrelated keys.
+    """
 
     try:
         Draft202012Validator.check_schema(schema)

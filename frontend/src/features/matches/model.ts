@@ -1,5 +1,6 @@
 import type {
   Availability,
+  MarketAvailability,
   MatchDetail,
   PredictionOutput,
   ProviderOutcome,
@@ -107,10 +108,12 @@ export function coverageSummary(match: MatchDetail): string {
   return unavailable.map(([kind, state]) => `${kind}: ${availabilityLabel(state)}`).join(" · ");
 }
 
-export function availabilityLabel(value: Availability): string {
-  const labels: Record<Availability, string> = {
+export function availabilityLabel(value: MarketAvailability): string {
+  const labels: Record<MarketAvailability, string> = {
     available: "사용 가능",
     missing: "미수신",
+    stale: "기준 이전, 오래됨",
+    late: "기준 이후 수신",
     not_supported: "미지원",
     unverified: "미검증",
   };

@@ -86,15 +86,15 @@ test("renders server-owned n20, n1, n0, confidence interval, and missing-market 
 });
 
 test("offers a retry after a performance API failure", async ({ page }) => {
-  let attempts = 0;
+  let serveError = true;
   await page.route("**/api/v1/performance**", async (route) => {
-    attempts += 1;
-    if (attempts === 1) return fulfillJson(route, retryableError, 503);
+    if (serveError) return fulfillJson(route, retryableError, 503);
     return fulfillJson(route, { metadata, data: { cohort_policy_version: "performance-cohort-v1", items: [] } });
   });
 
   await page.goto("/performance");
   await expect(page.getByRole("alert")).toContainText("fixture service unavailable");
+  serveError = false;
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByRole("heading", { name: "조건에 맞는 평가가 없습니다" })).toBeVisible();
 });

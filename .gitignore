@@ -21,7 +21,9 @@ htmlcov/
 # Node
 node_modules/
 frontend/dist/
+frontend/.vite/
 frontend/tests/e2e/artifacts/
+frontend/tests/live-e2e/artifacts/
 *.tsbuildinfo
 
 # Editors and operating systems

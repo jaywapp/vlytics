@@ -89,6 +89,21 @@ function safeProbability(output: Record<string, unknown>): string {
     : "기록 없음";
 }
 
+function lifecycleLabel(status: PredictionHistoryItem["status"]): string {
+  const labels: Record<PredictionHistoryItem["status"], string> = {
+    published: "게시됨",
+    succeeded: "저장 완료",
+    voided: "무효화",
+    superseded: "대체됨",
+    late_rejected: "지연 거부",
+    failed: "실패",
+    timed_out: "시간 초과",
+    budget_skipped: "예산으로 건너뜀",
+    missing: "응답 없음",
+  };
+  return labels[status];
+}
+
 function navigate(url: URL, replace = false) {
   window.history[replace ? "replaceState" : "pushState"]({}, "", url);
   window.dispatchEvent(new PopStateEvent("popstate"));
@@ -101,14 +116,19 @@ function HistoryDetail({ item, onClose }: { item: PredictionHistoryItem; onClose
   return (
     <section className="record-card history-detail" aria-labelledby="history-detail-title">
       <button type="button" className="text-button" onClick={onClose}>← 목록으로</button>
-      <h2 id="history-detail-title">불변 예측 Snapshot</h2>
+      <h2 id="history-detail-title">
+        {item.record_type === "prediction" ? "불변 예측 Snapshot" : "Provider 실패 Attempt"}
+      </h2>
       <p>원문 응답이나 인증 정보 없이 서버가 공개한 식별자와 검증된 요약만 표시합니다.</p>
       <dl className="record-list">
-        <div><dt>Prediction revision</dt><dd className="numeric">{item.id}</dd></div>
+        <div><dt>기록 유형</dt><dd>{item.record_type === "prediction" ? "예측 revision" : "Provider attempt"}</dd></div>
+        <div><dt>{item.record_type === "prediction" ? "Prediction revision" : "Attempt"}</dt><dd className="numeric">{item.prediction_revision_id ?? item.attempt_id ?? item.id}</dd></div>
         <div><dt>Match</dt><dd className="numeric">{item.match_id}</dd></div>
         <div><dt>생성 시각</dt><dd className="numeric">{formatTimestamp(item.generated_at)} KST</dd></div>
-        <div><dt>Provider / Model</dt><dd>{item.provider} / <span className="numeric">{item.resolved_model_id}</span></dd></div>
-        <div><dt>Model / Prompt version</dt><dd className="numeric">{item.model_version ?? "기록 없음"} / {item.prompt_version}</dd></div>
+        <div><dt>Provider / 실행 모델</dt><dd>{item.provider} / <span className="numeric">{item.resolved_model_id ?? "실행 모델 미확인"}</span></dd></div>
+        <div><dt>요청 모델</dt><dd className="numeric">{item.requested_model}</dd></div>
+        <div><dt>Variant</dt><dd className="numeric">{item.variant_id}</dd></div>
+        <div><dt>Variant model / Prompt version</dt><dd className="numeric">{item.model_version ?? "기록 없음"} / {item.prompt_version}</dd></div>
         <div><dt>Feature version</dt><dd className="numeric">{item.feature_version}</dd></div>
         <div><dt>Schedule revision</dt><dd className="numeric">{item.schedule_revision_id}</dd></div>
         <div><dt>Source snapshot</dt><dd className="numeric">{item.source_snapshot_id}</dd></div>
@@ -210,10 +230,10 @@ export function HistoryPage({
             <div className="history-list" aria-label="예측 기록 목록">
               {result.value.data.items.map((item) => (
                 <article className="record-card" key={item.id}>
-                  <div className="record-card__heading"><div><small>{item.competition} · {item.division === "women" ? "여자부" : "남자부"}</small><h2>{item.provider} · {item.prediction_type}</h2></div><StatusBadge tone={item.status === "succeeded" ? "neutral" : "warning"}>{item.status}</StatusBadge></div>
+                  <div className="record-card__heading"><div><small>{item.competition} · {item.division === "women" ? "여자부" : "남자부"}</small><h2>{item.provider} · {item.prediction_type}</h2></div><StatusBadge tone={item.status === "published" || item.status === "succeeded" ? "neutral" : "warning"}>{lifecycleLabel(item.status)}</StatusBadge></div>
                   <p className="numeric">{formatTimestamp(item.generated_at)} KST</p>
-                  <dl className="compact-facts"><div><dt>Model</dt><dd>{item.resolved_model_id}</dd></div><div><dt>Prompt</dt><dd>{item.prompt_version}</dd></div><div><dt>승리 확률</dt><dd>{safeProbability(item.output)}</dd></div></dl>
-                  <button type="button" className="secondary-button" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("prediction", item.id); navigate(url); }}>Snapshot 보기</button>
+                  <dl className="compact-facts"><div><dt>Model</dt><dd>{item.resolved_model_id ?? `${item.requested_model} (요청값)`}</dd></div><div><dt>Prompt</dt><dd>{item.prompt_version}</dd></div><div><dt>승리 확률</dt><dd>{safeProbability(item.output)}</dd></div></dl>
+                  <button type="button" className="secondary-button" onClick={() => { const url = new URL(window.location.href); url.searchParams.set("prediction", item.id); navigate(url); }}>{item.record_type === "prediction" ? "Snapshot 보기" : "실패 attempt 보기"}</button>
                 </article>
               ))}
             </div>

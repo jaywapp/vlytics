@@ -153,7 +153,7 @@ def test_live_config_rejects_missing_secret_reference_value() -> None:
     del environ["VLYTICS_GOOGLE_API_KEY"]
 
     with pytest.raises(OperationalConfigError, match="VLYTICS_GOOGLE_API_KEY"):
-        validate_operational_config(values, _schema(), environ=environ, component="api")
+        validate_operational_config(values, _schema(), environ=environ, component="worker")
 
 
 def test_bulk_collection_rejects_unresolved_op_001_policy() -> None:
@@ -164,6 +164,33 @@ def test_bulk_collection_rejects_unresolved_op_001_policy() -> None:
 
     with pytest.raises(OperationalConfigError, match="source"):
         validate_operational_config(values, _schema(), environ={}, component="worker")
+
+
+def test_bulk_collection_requires_an_explicit_kovo_scope() -> None:
+    values = _values()
+    source = values["source"]
+    assert isinstance(source, dict)
+    source.update(
+        {
+            "bulk_collection_enabled": True,
+            "permission_policy": "approved-test-policy",
+            "max_requests_per_minute": 10,
+            "max_concurrency": 1,
+        }
+    )
+
+    with pytest.raises(OperationalConfigError, match="source"):
+        validate_operational_config(values, _schema(), environ={}, component="worker")
+
+    source["scopes"] = [
+        {
+            "source": "kovo",
+            "group_code": "001",
+            "season_code": "023",
+            "competition_code": "201",
+        }
+    ]
+    validate_operational_config(values, _schema(), environ={}, component="worker")
 
 
 def test_cross_field_validation_rejects_retry_budget_above_grace() -> None:
@@ -321,3 +348,49 @@ def test_live_dry_run_evidence_loader_rejects_malformed_and_oversized_files(
     oversized.write_bytes(b"x" * 16385)
     with pytest.raises(OperationalConfigError, match="file is invalid"):
         load_live_dry_run_evidence(config, oversized, now=now)
+
+
+@pytest.mark.parametrize("component", ["api", "worker"])
+def test_live_process_only_requires_its_own_secrets(component: str) -> None:
+    values = _values()
+    all_secrets = _activate(values)
+    keys = {"VLYTICS_DATABASE_URL"}
+    if component == "api":
+        keys.add("VLYTICS_OPERATOR_AUTH_SECRET")
+    else:
+        keys.update(
+            {
+                "VLYTICS_OPENAI_API_KEY",
+                "VLYTICS_ANTHROPIC_API_KEY",
+                "VLYTICS_GOOGLE_API_KEY",
+            }
+        )
+    process_secrets = {key: all_secrets[key] for key in keys}
+    validate_operational_config(values, _schema(), environ=process_secrets, component=component)
+    for required in keys:
+        missing = {key: value for key, value in process_secrets.items() if key != required}
+        with pytest.raises(OperationalConfigError, match=required):
+            validate_operational_config(values, _schema(), environ=missing, component=component)
+
+
+def test_deployment_validation_still_requires_host_managed_credentials() -> None:
+    values = _values()
+    secrets = _activate(values)
+    for required in ("VLYTICS_BACKUP_CREDENTIAL", "VLYTICS_ALERT_DESTINATION"):
+        missing = {key: value for key, value in secrets.items() if key != required}
+        with pytest.raises(OperationalConfigError, match=required):
+            validate_operational_config(values, _schema(), environ=missing)
+
+
+def test_production_template_uses_valid_non_activation_schema_values() -> None:
+    with (REPOSITORY_ROOT / "infra" / "operational.production.example.toml").open("rb") as stream:
+        values = tomllib.load(stream)
+    values["environment"] = "development"
+    values["live_operations_enabled"] = False
+    values["deployment"]["live_enabled"] = False
+    values["backup"]["enabled"] = False
+    values["alerting"]["enabled"] = False
+    values["ai"]["live_calls_enabled"] = False
+    for provider in ("openai", "anthropic", "google"):
+        values["ai"][provider]["enabled"] = False
+    validate_operational_config(values, _schema(), environ={})

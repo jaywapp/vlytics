@@ -54,9 +54,13 @@ export function ProviderComparison({
                   {outcome.error_code ? <span className="error-code">{outcome.error_code}</span> : null}
                 </td>
                 <td className="model-identity numeric">
-                  <span>{outcome.resolved_model_id ?? outcome.requested_model ?? "기록 없음"}</span>
+                  <span>
+                    {outcome.resolved_model_id ??
+                      (outcome.requested_model ? `${outcome.requested_model} (요청값)` : "기록 없음")}
+                  </span>
                   <small>
                     버전 {outcome.model_version ?? outcome.output?.model_version ?? "기록 없음"}
+                    {!outcome.resolved_model_id && outcome.model_version ? " (variant 설정)" : ""}
                   </small>
                 </td>
                 <td>

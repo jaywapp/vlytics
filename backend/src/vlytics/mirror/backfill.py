@@ -6,6 +6,7 @@ import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from threading import Lock
 from typing import TYPE_CHECKING, Protocol
 
 from sqlalchemy import Connection, text
@@ -345,6 +346,7 @@ class RequestRateLimiter:
         self._monotonic = monotonic
         self._sleep = sleep
         self._last_request: float | None = None
+        self._lock = Lock()
 
     @classmethod
     def from_gate(
@@ -363,49 +365,79 @@ class RequestRateLimiter:
         )
 
     def wait(self) -> None:
-        now = self._monotonic()
-        if self._last_request is not None:
-            remaining = self._interval - (now - self._last_request)
+        with self._lock:
+            now = self._monotonic()
+            if self._last_request is not None:
+                remaining = self._interval - (now - self._last_request)
+                if remaining > 0:
+                    self._sleep(remaining)
+                    now = self._monotonic()
+            self._last_request = now
+
+    def wait_after_global_lease(self) -> None:
+        """Conservatively space the first request after a cross-process lease."""
+
+        with self._lock:
+            remaining = self._interval
+            if self._last_request is not None:
+                remaining -= self._monotonic() - self._last_request
             if remaining > 0:
                 self._sleep(remaining)
-                now = self._monotonic()
-        self._last_request = now
+
+    def cooldown(self) -> None:
+        """Wait out the final request interval without consuming another token."""
+
+        with self._lock:
+            if self._last_request is None:
+                return
+            remaining = self._interval - (self._monotonic() - self._last_request)
+            if remaining > 0:
+                self._sleep(remaining)
 
 
 class InMemoryScopeLease:
-    def __init__(self) -> None:
+    def __init__(self, *, lease_key: str | None = None) -> None:
+        self._lease_key = lease_key
         self._slots: set[tuple[str, int]] = set()
+        self._lock = Lock()
 
     def acquire(self, scope: BackfillScope, max_concurrency: int) -> int | None:
-        for slot in range(max_concurrency):
-            key = (scope.key, slot)
-            if key not in self._slots:
-                self._slots.add(key)
-                return slot
+        key_scope = self._lease_key or scope.key
+        with self._lock:
+            for slot in range(max_concurrency):
+                key = (key_scope, slot)
+                if key not in self._slots:
+                    self._slots.add(key)
+                    return slot
         return None
 
     def release(self, scope: BackfillScope, slot: int) -> None:
-        self._slots.discard((scope.key, slot))
+        key_scope = self._lease_key or scope.key
+        with self._lock:
+            self._slots.discard((key_scope, slot))
 
 
 class PostgresScopeLease:
-    def __init__(self, connection: Connection) -> None:
+    def __init__(self, connection: Connection, *, lease_key: str | None = None) -> None:
         self._connection = connection
+        self._lease_key = lease_key
 
     def acquire(self, scope: BackfillScope, max_concurrency: int) -> int | None:
+        key_scope = self._lease_key or scope.key
         for slot in range(max_concurrency):
             acquired = self._connection.execute(
                 text("SELECT pg_try_advisory_lock(hashtextextended(:scope, :slot))"),
-                {"scope": scope.key, "slot": slot},
+                {"scope": key_scope, "slot": slot},
             ).scalar_one()
             if bool(acquired):
                 return slot
         return None
 
     def release(self, scope: BackfillScope, slot: int) -> None:
+        key_scope = self._lease_key or scope.key
         self._connection.execute(
             text("SELECT pg_advisory_unlock(hashtextextended(:scope, :slot))"),
-            {"scope": scope.key, "slot": slot},
+            {"scope": key_scope, "slot": slot},
         )
 
 
@@ -420,6 +452,7 @@ class BackfillRunner:
         rate_limiter: RequestRateLimiter,
         scope_lease: ScopeLease,
         requested_concurrency: int | None = None,
+        wait_after_global_lease: bool = False,
         retry_policy: RetryPolicy | None = None,
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         sleep: Callable[[float], None] = time.sleep,
@@ -437,6 +470,7 @@ class BackfillRunner:
         self._rate_limiter = rate_limiter
         self._scope_lease = scope_lease
         self._max_concurrency = gate.approved_concurrency(adapter, requested_concurrency)
+        self._wait_after_global_lease = wait_after_global_lease
         if not adapter.synthetic and not isinstance(scope_lease, PostgresScopeLease):
             raise BulkCollectionBlocked("live collection requires a PostgreSQL scope lease")
         if (
@@ -466,6 +500,8 @@ class BackfillRunner:
         if slot is None:
             raise ScopeLeaseUnavailable("approved scope concurrency is exhausted")
         try:
+            if self._wait_after_global_lease:
+                self._rate_limiter.wait_after_global_lease()
             return self._run_leased(
                 scope,
                 validation_page_size,
@@ -483,7 +519,7 @@ class BackfillRunner:
         page_size: int = 2,
         deadline_at: datetime | None = None,
     ) -> int:
-        """Fetch one recurring sync page; the durable ops job is its checkpoint."""
+        """Fetch every page for one recurring sync job."""
 
         if page_size <= 0:
             raise ValueError("page_size must be positive")
@@ -492,21 +528,37 @@ class BackfillRunner:
         if slot is None:
             raise ScopeLeaseUnavailable("approved scope concurrency is exhausted")
         try:
-            page, _, _ = self._fetch_with_retry(scope, None, page_size, deadline_at)
+            if self._wait_after_global_lease:
+                self._rate_limiter.wait_after_global_lease()
             accepted = 0
-            for response in page.responses:
-                result = self._ingestion.ingest(response)
-                if getattr(result, "action", None) in {
-                    IngestAction.RETRY_LATER,
-                    IngestAction.QUARANTINE,
-                }:
-                    raise SourceRequestFailed(
-                        f"ingestion did not accept {response.request_key.fingerprint()}"
-                    )
-                accepted += 1
+            cursor: str | None = None
+            seen_cursors: set[str | None] = {cursor}
+            while True:
+                if deadline_at is not None and self._now() >= deadline_at:
+                    raise RetryBudgetExceeded("source pagination reached the job deadline")
+                page, _, _ = self._fetch_with_retry(scope, cursor, page_size, deadline_at)
+                for response in page.responses:
+                    result = self._ingestion.ingest(response)
+                    if getattr(result, "action", None) in {
+                        IngestAction.RETRY_LATER,
+                        IngestAction.QUARANTINE,
+                    }:
+                        raise SourceRequestFailed(
+                            f"ingestion did not accept {response.request_key.fingerprint()}"
+                        )
+                    accepted += 1
+                cursor = page.next_cursor
+                if cursor is None:
+                    break
+                if cursor in seen_cursors:
+                    raise SourceRequestFailed("source pagination cursor repeated")
+                seen_cursors.add(cursor)
             return accepted
         finally:
-            self._scope_lease.release(scope, slot)
+            try:
+                self._rate_limiter.cooldown()
+            finally:
+                self._scope_lease.release(scope, slot)
 
     def _run_leased(
         self,

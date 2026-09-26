@@ -2,9 +2,9 @@
 
 - 판정일: 2026-09-20 (Asia/Seoul)
 - 대상: `codex/implement-vlytics-mvp`
-- 패키지 판정: **배포 준비 산출물 완료 / 운영 활성화 NO-GO**
+- 패키지 판정: **감사 후 production 통합 재검증 / 운영 활성화 NO-GO**
 
-NO-GO는 미확정 외부 운영값과 현재 host 시계·container runtime 상태에 대한 판정이다. 구현 또는 합성 MVP 검증 실패를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
+2026-09-27 전체 감사에서 코드 연결과 복구 누락도 확인했다. [감사 조치 장부](../verification/audit-remediation.md)의 코드 잔여 작업과 외부 운영 게이트를 함께 해소해야 한다. 기존 체크는 당시의 제한된 검증 증거이며 전체 운영 완료를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
 
 ## 활성화 차단 장부
 

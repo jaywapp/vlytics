@@ -13,7 +13,9 @@ from pydantic import BaseModel, Field
 SchemaVersion = Literal["vlytics.operator.v1"]
 Division = Literal["men", "women"]
 Availability = Literal["available", "missing", "not_supported", "unverified"]
+MarketAvailability = Literal["available", "missing", "stale", "late", "not_supported", "unverified"]
 ProviderStatus = Literal["succeeded", "failed", "timed_out", "budget_skipped", "missing"]
+PredictionLifecycleStatus = Literal["published", "voided", "superseded", "late_rejected"]
 
 
 class APIError(BaseModel):
@@ -43,7 +45,7 @@ class TeamSummary(BaseModel):
 
 
 class MarketSummary(BaseModel):
-    availability: Availability
+    availability: MarketAvailability
     source: str | None = None
     snapshot_id: str | None = None
     quoted_at: datetime | None = None
@@ -53,12 +55,20 @@ class MarketSummary(BaseModel):
 class ProviderOutcome(BaseModel):
     provider: str
     status: ProviderStatus
+    variant_id: str | None = None
     requested_model: str | None = None
     resolved_model_id: str | None = None
     model_version: str | None = None
     prompt_version: str | None = None
     generated_at: datetime | None = None
     prediction_revision_id: str | None = None
+    attempt_id: str | None = None
+    lifecycle_status: PredictionLifecycleStatus | None = None
+    schedule_revision_id: str | None = None
+    feature_snapshot_id: str | None = None
+    feature_version: str | None = None
+    input_cutoff_at: datetime | None = None
+    market: MarketSummary
     output: dict[str, object] | None = None
     error_code: str | None = None
 
@@ -89,13 +99,17 @@ class MatchDetail(MatchSummary):
 
 class PredictionHistoryItem(BaseModel):
     id: str
+    record_type: Literal["prediction", "attempt"]
+    prediction_revision_id: str | None = None
+    attempt_id: str | None = None
     match_id: str
     competition: str
     division: Division
     provider: str
+    variant_id: str
     prediction_type: str
     requested_model: str
-    resolved_model_id: str
+    resolved_model_id: str | None = None
     model_version: str | None = None
     prompt_version: str
     feature_version: str

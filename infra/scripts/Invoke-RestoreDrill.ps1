@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$SourceConnectionEnvironmentVariable = "VLYTICS_BACKUP_DATABASE_URL",
-    [string]$AdminConnectionEnvironmentVariable = "VLYTICS_MIGRATION_DATABASE_URL",
+    [string]$AdminConnectionEnvironmentVariable = "VLYTICS_RESTORE_ADMIN_DATABASE_URL",
     [string]$OutputDirectory,
     [switch]$KeepBackup
 )
@@ -24,26 +24,12 @@ function Invoke-PostgresTool {
     try {
         $output = & $Tool @Arguments 2>&1
         if ($LASTEXITCODE -ne 0) {
-            throw ($FailureMessage + ": " + ($output -join " "))
+            throw ($FailureMessage + ". Connection details were suppressed.")
         }
     }
     finally {
         Pop-PostgresEnvironment $previous
     }
-}
-
-function New-DatabaseUrl {
-    param(
-        [Parameter(Mandatory = $true)][string]$DatabaseUrl,
-        [Parameter(Mandatory = $true)][string]$DatabaseName
-    )
-
-    $normalized = ConvertTo-PostgresToolUrl $DatabaseUrl
-    $builder = New-Object System.UriBuilder($normalized)
-    $builder.Path = "/" + $DatabaseName
-    $builder.Query = ""
-    $builder.Fragment = ""
-    return $builder.Uri.AbsoluteUri
 }
 
 function Get-DomainTables {
@@ -94,31 +80,43 @@ $report = $null
 $cleanupError = $null
 
 try {
+    Push-Location (Join-Path $PSScriptRoot "..\..\backend")
+    try {
+        & uv run --frozen python -m vlytics.storage.recovery bootstrap --connection-env $AdminConnectionEnvironmentVariable --source-env $SourceConnectionEnvironmentVariable | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "Recovery administrator or role bootstrap validation failed." }
+    }
+    finally { Pop-Location }
     $backupResult = & (Join-Path $PSScriptRoot "Backup-Database.ps1") -ConnectionEnvironmentVariable $SourceConnectionEnvironmentVariable -OutputDirectory $resolvedDirectory -Prefix "restore-source"
     if ($null -eq $backupResult -or -not (Test-Path -LiteralPath $backupResult.DumpPath -PathType Leaf)) {
         throw "Backup step did not return a valid dump artifact."
     }
 
-    $createSql = "CREATE DATABASE $restoreDatabase TEMPLATE template0;"
+    $createSql = "CREATE DATABASE $restoreDatabase OWNER vlytics_migrator TEMPLATE template0;"
     Invoke-PostgresTool -Tool $psql -DatabaseUrl $adminUrl -Arguments @("--no-password", "--no-psqlrc", "--set=ON_ERROR_STOP=1", "--command=$createSql") -FailureMessage "Could not create the isolated restore database"
     $restoreCreated = $true
     $restoreUrl = New-DatabaseUrl -DatabaseUrl $adminUrl -DatabaseName $restoreDatabase
 
-    Invoke-PostgresTool -Tool $pgRestore -DatabaseUrl $restoreUrl -Arguments @("--dbname=$restoreDatabase", "--no-password", "--exit-on-error", "--single-transaction", "--no-owner", "--no-privileges", $backupResult.DumpPath) -FailureMessage "pg_restore failed"
 
-    $sourceMigrations = Invoke-PsqlScalar -Psql $psql -DatabaseUrl $sourceUrl -Query "SELECT version || ':' || checksum FROM public.vlytics_schema_migrations ORDER BY version;"
+    $manifest = Get-Content -LiteralPath $backupResult.ManifestPath -Raw -Encoding UTF8 | ConvertFrom-Json
+    if ($manifest.schema_version -ne "2.0" -or -not $manifest.preserves_owner_and_acl) {
+        throw "Restore requires a version 2 consistent manifest with ownership and ACLs."
+    }
+    $actualHash = (Get-FileHash -LiteralPath $backupResult.DumpPath -Algorithm SHA256).Hash.ToLowerInvariant()
+    if ($actualHash -ne $manifest.sha256) { throw "Backup hash differs from manifest." }
+    Invoke-PostgresTool -Tool $pgRestore -DatabaseUrl $restoreUrl -Arguments @("--dbname=$restoreDatabase", "--no-password", "--exit-on-error", "--single-transaction", $backupResult.DumpPath) -FailureMessage "pg_restore failed"
+    $sourceMigrations = ($manifest.snapshot_signature.migrations | ForEach-Object { $_[0] + ":" + $_[1] }) -join "`n"
     $restoredMigrations = Invoke-PsqlScalar -Psql $psql -DatabaseUrl $restoreUrl -Query "SELECT version || ':' || checksum FROM public.vlytics_schema_migrations ORDER BY version;"
     if ($sourceMigrations -ne $restoredMigrations) {
         throw "Restored migration versions or checksums differ from the source."
     }
 
-    $sourceTables = @(Get-DomainTables -Psql $psql -DatabaseUrl $sourceUrl)
+    $sourceTables = @($manifest.snapshot_signature.tables.PSObject.Properties.Name | Sort-Object)
     $restoredTables = @(Get-DomainTables -Psql $psql -DatabaseUrl $restoreUrl)
     if (($sourceTables -join "`n") -ne ($restoredTables -join "`n")) {
         throw "Restored domain table set differs from the source."
     }
 
-    $sourceCounts = @(Get-TableCountSignature -Psql $psql -DatabaseUrl $sourceUrl -Tables $sourceTables)
+    $sourceCounts = @($sourceTables | ForEach-Object { $_ + "=" + $manifest.snapshot_signature.tables.PSObject.Properties[$_].Value })
     $restoredCounts = @(Get-TableCountSignature -Psql $psql -DatabaseUrl $restoreUrl -Tables $restoredTables)
     if (($sourceCounts -join "`n") -ne ($restoredCounts -join "`n")) {
         throw "Restored domain table row counts differ from the source."
@@ -170,12 +168,31 @@ SELECT json_build_object(
         throw "Restored database does not contain all four domain schemas."
     }
 
+    $previousRestoreUrl = [Environment]::GetEnvironmentVariable("VLYTICS_RESTORE_VERIFY_URL")
+    try {
+        [Environment]::SetEnvironmentVariable("VLYTICS_RESTORE_VERIFY_URL", $restoreUrl)
+        Push-Location (Join-Path $PSScriptRoot "..\..\backend")
+        try {
+            & uv run --frozen python -m vlytics.storage.recovery restore-acl --connection-env VLYTICS_RESTORE_VERIFY_URL --manifest $backupResult.ManifestPath | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Restored database owner or ACL verification failed." }
+            $roleOutput = & uv run --frozen python -m vlytics.storage.recovery verify --connection-env VLYTICS_RESTORE_VERIFY_URL
+            if ($LASTEXITCODE -ne 0) { throw "Restored service login or write boundaries failed." }
+            $roleChecks = ($roleOutput -join "`n") | ConvertFrom-Json
+        }
+        finally { Pop-Location }
+    }
+    finally { [Environment]::SetEnvironmentVariable("VLYTICS_RESTORE_VERIFY_URL", $previousRestoreUrl) }
+
     $migrationCount = 0
     if (-not [string]::IsNullOrWhiteSpace($restoredMigrations)) {
         $migrationCount = @($restoredMigrations -split "`n").Count
     }
-$report = [ordered]@{
-        schema_version = "1.0"
+    $report = [ordered]@{
+        schema_version = "2.0"
+        service_role_checks = $roleChecks
+        database_acl_verified = $true
+        separate_cluster_verified = $true
+        comparison_source = "exported-backup-snapshot"
         started_at_utc = $startedAt.ToString("o")
         completed_at_utc = $null
         postgres_version = Invoke-PsqlScalar -Psql $psql -DatabaseUrl $restoreUrl -Query "SELECT current_setting('server_version');"

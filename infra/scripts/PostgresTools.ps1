@@ -44,18 +44,32 @@ function Push-PostgresEnvironment {
         "sslkey" = "PGSSLKEY"
         "sslcrl" = "PGSSLCRL"
         "channel_binding" = "PGCHANNELBINDING"
+        "sslpassword" = "PGSSLPASSWORD"
+        "sslcrldir" = "PGSSLCRLDIR"
+        "ssl_min_protocol_version" = "PGSSLMINPROTOCOLVERSION"
+        "ssl_max_protocol_version" = "PGSSLMAXPROTOCOLVERSION"
+        "target_session_attrs" = "PGTARGETSESSIONATTRS"
+        "hostaddr" = "PGHOSTADDR"
+        "passfile" = "PGPASSFILE"
+        "connect_timeout" = "PGCONNECT_TIMEOUT"
+        "application_name" = "PGAPPNAME"
+        "options" = "PGOPTIONS"
+        "gssencmode" = "PGGSSENCMODE"
+        "service" = "PGSERVICE"
     }
     $queryValues = @{}
     foreach ($pair in @($uri.Query.TrimStart('?') -split '&')) {
         if ([string]::IsNullOrWhiteSpace($pair)) { continue }
         $parts = @($pair -split '=', 2)
         $key = [System.Uri]::UnescapeDataString($parts[0]).ToLowerInvariant()
-        if ($queryEnvironment.ContainsKey($key) -and $parts.Count -eq 2) {
-            $queryValues[$queryEnvironment[$key]] = [System.Uri]::UnescapeDataString($parts[1])
+        if (-not $queryEnvironment.ContainsKey($key) -or $parts.Count -ne 2) {
+            throw "Unsupported PostgreSQL connection option."
         }
+        if ($queryValues.ContainsKey($queryEnvironment[$key])) { throw "Duplicate PostgreSQL connection option." }
+        $queryValues[$queryEnvironment[$key]] = [System.Uri]::UnescapeDataString($parts[1])
     }
 
-    $names = @("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE", "PGCONNECT_TIMEOUT", "PGSSLMODE", "PGSSLROOTCERT", "PGSSLCERT", "PGSSLKEY", "PGSSLCRL", "PGCHANNELBINDING")
+    $names = @(@("PGHOST", "PGPORT", "PGUSER", "PGPASSWORD", "PGDATABASE") + @($queryEnvironment.Values) | Select-Object -Unique)
     $previous = @{}
     foreach ($name in $names) { $previous[$name] = [Environment]::GetEnvironmentVariable($name) }
     $env:PGHOST = $uri.Host
@@ -67,14 +81,23 @@ function Push-PostgresEnvironment {
     foreach ($name in $queryEnvironment.Values) {
         $queryValue = $null
         if ($queryValues.ContainsKey($name)) { $queryValue = $queryValues[$name] }
-        [Environment]::SetEnvironmentVariable($name, $queryValue)
+        elseif ($name -eq "PGCONNECT_TIMEOUT") { $queryValue = "10" }
+        if ($null -eq $queryValue) {
+            Remove-Item -LiteralPath ("Env:" + $name) -ErrorAction SilentlyContinue
+        }
+        else { [Environment]::SetEnvironmentVariable($name, $queryValue) }
     }
     return $previous
 }
 
 function Pop-PostgresEnvironment {
     param([Parameter(Mandatory = $true)][hashtable]$Previous)
-    foreach ($entry in $Previous.GetEnumerator()) { [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value) }
+    foreach ($entry in $Previous.GetEnumerator()) {
+        if ($null -eq $entry.Value) {
+            Remove-Item -LiteralPath ("Env:" + $entry.Key) -ErrorAction SilentlyContinue
+        }
+        else { [Environment]::SetEnvironmentVariable($entry.Key, $entry.Value) }
+    }
 }
 
 function Invoke-PsqlScalar {
@@ -97,4 +120,16 @@ function Set-Utf8File {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][string]$Content)
     $utf8WithoutBom = New-Object System.Text.UTF8Encoding($false)
     [System.IO.File]::WriteAllText($Path, $Content, $utf8WithoutBom)
+}
+function New-DatabaseUrl {
+    param(
+        [Parameter(Mandatory = $true)][string]$DatabaseUrl,
+        [Parameter(Mandatory = $true)][string]$DatabaseName
+    )
+
+    $normalized = ConvertTo-PostgresToolUrl $DatabaseUrl
+    $builder = New-Object System.UriBuilder($normalized)
+    $builder.Path = "/" + $DatabaseName
+    $builder.Fragment = ""
+    return $builder.Uri.AbsoluteUri
 }

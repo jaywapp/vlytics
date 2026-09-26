@@ -89,12 +89,26 @@ function completeProviderRows(outcomes: ProviderOutcome[]): ProviderOutcome[] {
     return {
       provider: key,
       status: "missing" as const,
+      variant_id: null,
       requested_model: null,
       resolved_model_id: null,
       model_version: null,
       prompt_version: null,
       generated_at: null,
       prediction_revision_id: null,
+      attempt_id: null,
+      lifecycle_status: null,
+      schedule_revision_id: null,
+      feature_snapshot_id: null,
+      feature_version: null,
+      input_cutoff_at: null,
+      market: {
+        availability: "missing" as const,
+        source: null,
+        snapshot_id: null,
+        quoted_at: null,
+        reason: "provider_outcome_missing",
+      },
       output: null,
       error_code: null,
     };
@@ -156,6 +170,7 @@ function MatchAnalysis({
     outcomes.find((outcome) => outcome.provider === selectedProvider && outcome.status === "succeeded") ??
     preferredProvider(outcomes);
   const view = predictionView(active?.output ?? null);
+  const activeMarket = active?.market ?? match.market;
   const failedCount = outcomes.filter((outcome) => outcome.status !== "succeeded").length;
   const title =
     view.homeWinProbability === null
@@ -170,8 +185,8 @@ function MatchAnalysis({
           <StatusBadge tone={failedCount > 0 ? "warning" : "neutral"}>
             {failedCount > 0 ? `Provider ${failedCount}개 미완료` : "모든 Provider 완료"}
           </StatusBadge>
-          <StatusBadge tone={match.market.availability === "available" ? "neutral" : "warning"}>
-            Market {availabilityLabel(match.market.availability)}
+          <StatusBadge tone={activeMarket.availability === "available" ? "neutral" : "warning"}>
+            Market {availabilityLabel(activeMarket.availability)}
           </StatusBadge>
         </div>
         <h1>{title}</h1>
@@ -251,25 +266,25 @@ function MatchAnalysis({
       <section className="brief-section" aria-labelledby="market-title">
         <h2 id="market-title">Market 비교</h2>
         <div className="market-panel">
-          <StatusBadge tone={match.market.availability === "available" ? "neutral" : "warning"}>
-            {availabilityLabel(match.market.availability)}
+          <StatusBadge tone={activeMarket.availability === "available" ? "neutral" : "warning"}>
+            {availabilityLabel(activeMarket.availability)}
           </StatusBadge>
           <dl className="facts">
             <div>
               <dt>소스</dt>
-              <dd>{match.market.source ?? "기록 없음"}</dd>
+              <dd>{activeMarket.source ?? "기록 없음"}</dd>
             </div>
             <div>
               <dt>Quote 기준 시각</dt>
-              <dd className="numeric">{formatTimestamp(match.market.quoted_at, "Asia/Seoul")} KST</dd>
+              <dd className="numeric">{formatTimestamp(activeMarket.quoted_at, "Asia/Seoul")} KST</dd>
             </div>
             <div>
               <dt>Snapshot</dt>
-              <dd className="numeric">{match.market.snapshot_id ?? "기록 없음"}</dd>
+              <dd className="numeric">{activeMarket.snapshot_id ?? "기록 없음"}</dd>
             </div>
             <div>
               <dt>상태 근거</dt>
-              <dd>{match.market.reason ?? "별도 사유 없음"}</dd>
+              <dd>{activeMarket.reason ?? "별도 사유 없음"}</dd>
             </div>
           </dl>
           <p className="muted">
@@ -292,9 +307,14 @@ function MatchAnalysis({
             <p>{active ? providerStateLabel(active) : "예측 없음"}</p>
           </div>
           <div>
+            <b>입력 기준 시각</b>
+            <p className="numeric">{formatTimestamp(active?.input_cutoff_at ?? null, "Asia/Seoul")} KST</p>
+            <p>이 시각까지 고정된 입력만 사용</p>
+          </div>
+          <div>
             <b>Feature Snapshot</b>
-            <p className="numeric">{match.feature_snapshot_id ?? "생성 전"}</p>
-            <p>{match.feature_version ?? "버전 기록 없음"}</p>
+            <p className="numeric">{active?.feature_snapshot_id ?? match.feature_snapshot_id ?? "생성 전"}</p>
+            <p>{active?.feature_version ?? match.feature_version ?? "버전 기록 없음"}</p>
           </div>
         </div>
       </section>
@@ -311,17 +331,33 @@ function MatchAnalysis({
             <dd className="numeric">{active?.prediction_revision_id ?? "기록 없음"}</dd>
           </div>
           <div>
+            <dt>Provider Attempt</dt>
+            <dd className="numeric">{active?.attempt_id ?? "기록 없음"}</dd>
+          </div>
+          <div>
+            <dt>요청 모델</dt>
+            <dd className="numeric">{active?.requested_model ?? "기록 없음"}</dd>
+          </div>
+          <div>
+            <dt>Variant</dt>
+            <dd className="numeric">{active?.variant_id ?? "기록 없음"}</dd>
+          </div>
+          <div>
             <dt>실행 모델 / Prompt</dt>
             <dd className="numeric">
-              {active?.resolved_model_id ?? active?.requested_model ?? "기록 없음"} /{" "}
+              {active?.resolved_model_id ?? "실행 모델 미확인"} /{" "}
               {active?.prompt_version ?? "기록 없음"}
             </dd>
           </div>
           <div>
-            <dt>모델 버전</dt>
+            <dt>Variant 모델 버전</dt>
             <dd className="numeric">
               {active?.model_version ?? active?.output?.model_version ?? "기록 없음"}
             </dd>
+          </div>
+          <div>
+            <dt>Lifecycle</dt>
+            <dd>{active?.lifecycle_status ?? "기록 없음"}</dd>
           </div>
           <div>
             <dt>Source Snapshot</dt>
@@ -332,7 +368,7 @@ function MatchAnalysis({
           <div>
             <dt>Schedule Revision</dt>
             <dd className="numeric">
-              {response.metadata.schedule_revision_ids.join(", ") || "기록 없음"}
+              {active?.schedule_revision_id ?? (response.metadata.schedule_revision_ids.join(", ") || "기록 없음")}
             </dd>
           </div>
           <div>

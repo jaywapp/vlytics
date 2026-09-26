@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+import json
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from runpy import run_path
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -9,10 +11,31 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 
 from vlytics.api.app import create_app
-from vlytics.api.repository import InMemoryReadRepository, PostgresReadRepository, ReadSnapshot
+from vlytics.api.repository import (
+    InMemoryReadRepository,
+    PostgresReadRepository,
+    ReadQuery,
+    ReadSnapshot,
+)
 
 OPERATOR_HEADERS = {"Authorization": "Bearer synthetic-operator-secret"}
 JOB_ID = "11111111-1111-1111-1111-111111111111"
+
+
+def _seed_postgres_graph(postgres_role_urls: object, run_id: str) -> dict[str, object]:
+    script = Path(__file__).resolve().parents[3] / "infra" / "scripts" / "seed_browser_smoke.py"
+    seed_function = run_path(str(script))["seed"]
+    return seed_function(str(postgres_role_urls.migrator), run_id)
+
+
+def _postgres_client(postgres_role_urls: object) -> TestClient:
+    repository = PostgresReadRepository(create_engine(str(postgres_role_urls.read_api)))
+    return TestClient(
+        create_app(
+            repository=repository,
+            environ={"VLYTICS_OPERATOR_AUTH_SECRET": "synthetic-operator-secret"},
+        )
+    )
 
 
 def _match(
@@ -52,26 +75,54 @@ def _prediction(
     *,
     provider: str = "openai",
     status: str = "succeeded",
+    lifecycle_status: str | None = "published",
+    schedule_revision_id: str | None = None,
+    feature_snapshot_id: str | None = None,
+    input_cutoff_at: datetime | None = None,
+    market_eligibility: str | None = "eligible",
+    market_snapshot_id: str | None = None,
+    requested_model: str | None = None,
+    variant_id: str | None = None,
 ) -> dict[str, object]:
+    has_prediction = status == "succeeded"
     return {
         "id": identifier,
+        "record_type": "prediction" if has_prediction else "attempt",
+        "prediction_revision_id": identifier if has_prediction else None,
+        "attempt_id": None if has_prediction else identifier,
         "match_id": match_id,
         "competition": "regular-2026",
         "division": "women",
+        "competition_stage": "regular",
         "provider": provider,
+        "variant_id": variant_id or f"variant-{provider}",
         "prediction_type": "winner",
-        "requested_model": f"{provider}-synthetic",
-        "resolved_model_id": f"{provider}-synthetic-2026-09",
+        "requested_model": requested_model or f"{provider}-synthetic",
+        "resolved_model_id": f"{provider}-synthetic-2026-09" if has_prediction else None,
         "model_version": "2026-09",
         "prompt_version": "prompt-v1",
         "feature_version": "feature-v2",
-        "schedule_revision_id": f"schedule-{match_id}",
+        "availability_policy": "live_prospective",
+        "schedule_revision_id": schedule_revision_id or f"schedule-{match_id}",
         "source_snapshot_id": f"source-{match_id}",
-        "feature_snapshot_id": f"feature-{match_id}",
+        "home_team_id": "team-home",
+        "home_team_code": "HOME",
+        "away_team_id": "team-away",
+        "away_team_code": "AWAY",
+        "feature_snapshot_id": feature_snapshot_id or f"feature-{match_id}",
+        "input_cutoff_at": input_cutoff_at or generated_at,
         "generated_at": generated_at,
-        "status": "published",
+        "status": lifecycle_status if has_prediction else status,
+        "lifecycle_status": lifecycle_status if has_prediction else None,
         "provider_status": status,
         "error_code": "provider_timeout" if status != "succeeded" else None,
+        "market_eligibility": market_eligibility if has_prediction else None,
+        "market_reason": None if has_prediction else "prediction_market_provenance_unavailable",
+        "market_snapshot_id": (
+            market_snapshot_id or f"market-{match_id}" if has_prediction else None
+        ),
+        "market_source": "synthetic" if has_prediction else None,
+        "market_quoted_at": generated_at if has_prediction else None,
         "output": {"home_win_probability": 0.6} if status == "succeeded" else {},
     }
 
@@ -407,11 +458,345 @@ def test_empty_partial_provider_failure_and_market_missing_are_explicit() -> Non
         "source": None,
         "snapshot_id": None,
         "quoted_at": None,
-        "reason": "market_source_not_configured_or_no_eligible_quote",
+        "reason": "prediction_market_provenance_unavailable",
     }
     assert detail["data"]["provider_outcomes"][0]["status"] == "timed_out"
     assert detail["data"]["provider_outcomes"][0]["error_code"] == "provider_timeout"
     assert "raw" not in str(detail).lower()
+
+
+def test_frontend_contract_fixture_matches_actual_api_serialization() -> None:
+    client = _client()
+    fixture_path = (
+        Path(__file__).parents[3]
+        / "frontend"
+        / "tests"
+        / "fixtures"
+        / "operator-api.serializer.json"
+    )
+    fixture = __import__("json").loads(fixture_path.read_text(encoding="utf-8"))
+
+    assert fixture == {
+        "schedule": client.get(
+            "/api/v1/schedule?date=2026-09-20&timezone=UTC",
+            headers=OPERATOR_HEADERS,
+        ).json(),
+        "match": client.get(
+            "/api/v1/matches/match-1?timezone=Asia%2FSeoul",
+            headers=OPERATOR_HEADERS,
+        ).json(),
+        "history": client.get(
+            "/api/v1/predictions?provider=openai&limit=1",
+            headers=OPERATOR_HEADERS,
+        ).json(),
+    }
+
+
+def test_failed_attempt_serialization_keeps_prediction_provenance_empty() -> None:
+    client = _client()
+
+    schedule = client.get(
+        "/api/v1/schedule?date=2026-09-20&timezone=UTC",
+        headers=OPERATOR_HEADERS,
+    ).json()
+    failed_match = next(item for item in schedule["data"]["items"] if item["id"] == "match-2")
+    failed_outcome = failed_match["provider_outcomes"][0]
+    assert failed_outcome["status"] == "timed_out"
+    assert failed_outcome["prediction_revision_id"] is None
+    assert failed_outcome["attempt_id"] == "prediction-2"
+    assert failed_outcome["requested_model"] == "anthropic-synthetic"
+    assert failed_outcome["resolved_model_id"] is None
+    assert "prediction-2" not in schedule["metadata"]["prediction_revision_ids"]
+
+    history = client.get(
+        "/api/v1/predictions?provider=anthropic",
+        headers=OPERATOR_HEADERS,
+    ).json()
+    assert history["data"]["items"] == [
+        {
+            "id": "prediction-2",
+            "record_type": "attempt",
+            "prediction_revision_id": None,
+            "attempt_id": "prediction-2",
+            "match_id": "match-2",
+            "competition": "regular-2026",
+            "division": "women",
+            "provider": "anthropic",
+            "variant_id": "variant-anthropic",
+            "prediction_type": "winner",
+            "requested_model": "anthropic-synthetic",
+            "resolved_model_id": None,
+            "model_version": "2026-09",
+            "prompt_version": "prompt-v1",
+            "feature_version": "feature-v2",
+            "schedule_revision_id": "schedule-match-2",
+            "source_snapshot_id": "source-match-2",
+            "generated_at": "2026-09-20T14:30:00Z",
+            "status": "timed_out",
+            "output": {},
+            "evaluation_revision_id": None,
+        }
+    ]
+    assert history["metadata"]["prediction_revision_ids"] == []
+    assert history["metadata"]["model_versions"] == {}
+
+
+def test_match_detail_selects_current_shared_snapshot_and_published_lifecycle() -> None:
+    client = _client()
+    repository = client.app.state.read_repository
+    generated = datetime(2026, 9, 20, 13, 0, tzinfo=UTC)
+    current = (
+        _prediction(
+            "current-openai",
+            "match-1",
+            generated,
+            provider="openai",
+            feature_snapshot_id="feature-shared",
+            input_cutoff_at=generated,
+        ),
+        _prediction(
+            "current-statistical",
+            "match-1",
+            generated,
+            provider="statistical",
+            feature_snapshot_id="feature-shared",
+            input_cutoff_at=generated,
+        ),
+        _prediction(
+            "newer-partial",
+            "match-1",
+            datetime(2026, 9, 20, 13, 20, tzinfo=UTC),
+            provider="anthropic",
+            feature_snapshot_id="feature-partial",
+        ),
+        _prediction(
+            "voided-current",
+            "match-1",
+            generated,
+            provider="google",
+            lifecycle_status="voided",
+            feature_snapshot_id="feature-shared",
+            input_cutoff_at=generated,
+        ),
+        _prediction(
+            "old-schedule",
+            "match-1",
+            generated,
+            provider="google",
+            schedule_revision_id="schedule-match-1-old",
+            feature_snapshot_id="feature-shared",
+            input_cutoff_at=generated,
+        ),
+        _prediction(
+            "legacy-no-lifecycle",
+            "match-1",
+            generated,
+            provider="anthropic",
+            lifecycle_status=None,
+            feature_snapshot_id="feature-shared",
+            input_cutoff_at=generated,
+        ),
+    )
+    repository.snapshot = ReadSnapshot(
+        repository.snapshot.matches,
+        current,
+        repository.snapshot.evaluations,
+        repository.snapshot.operations,
+        repository.snapshot.coverage,
+        "revision-current-predictions",
+        repository.snapshot.budgets,
+    )
+
+    response = client.get("/api/v1/matches/match-1", headers=OPERATOR_HEADERS)
+    assert response.status_code == 200
+    detail = response.json()["data"]
+    assert detail["feature_snapshot_id"] == "feature-shared"
+    assert [row["prediction_revision_id"] for row in detail["provider_outcomes"]] == [
+        "current-openai",
+        "current-statistical",
+    ]
+    assert {row["lifecycle_status"] for row in detail["provider_outcomes"]} == {"published"}
+    assert {row["schedule_revision_id"] for row in detail["provider_outcomes"]} == {
+        "schedule-match-1"
+    }
+    assert {row["input_cutoff_at"] for row in detail["provider_outcomes"]} == {
+        "2026-09-20T13:00:00Z"
+    }
+
+
+def test_schedule_model_filter_selects_matching_variant_before_provider_representative() -> None:
+    client = _client()
+    repository = client.app.state.read_repository
+    cutoff = datetime(2026, 9, 20, 13, 0, tzinfo=UTC)
+    repository.snapshot = ReadSnapshot(
+        repository.snapshot.matches,
+        (
+            _prediction(
+                "target-variant-prediction",
+                "match-1",
+                cutoff + timedelta(minutes=1),
+                provider="openai",
+                feature_snapshot_id="feature-shared",
+                input_cutoff_at=cutoff,
+                requested_model="openai-target",
+                variant_id="variant-openai-target",
+            ),
+            _prediction(
+                "newer-other-variant",
+                "match-1",
+                cutoff + timedelta(minutes=2),
+                provider="openai",
+                feature_snapshot_id="feature-shared",
+                input_cutoff_at=cutoff,
+                requested_model="openai-other",
+                variant_id="variant-openai-other",
+            ),
+        ),
+        repository.snapshot.evaluations,
+        repository.snapshot.operations,
+        repository.snapshot.coverage,
+        "revision-variant-filter",
+        repository.snapshot.budgets,
+    )
+
+    response = client.get(
+        "/api/v1/schedule?date=2026-09-20&timezone=UTC&model=openai-target",
+        headers=OPERATOR_HEADERS,
+    )
+    assert response.status_code == 200
+    outcomes = response.json()["data"]["items"][0]["provider_outcomes"]
+    assert [(row["prediction_revision_id"], row["variant_id"]) for row in outcomes] == [
+        ("target-variant-prediction", "variant-openai-target")
+    ]
+
+
+def test_provider_market_summary_preserves_as_of_eligibility() -> None:
+    client = _client()
+    repository = client.app.state.read_repository
+    cutoff = datetime(2026, 9, 20, 13, 0, tzinfo=UTC)
+    predictions = (
+        _prediction(
+            "market-eligible",
+            "match-1",
+            cutoff,
+            provider="openai",
+            feature_snapshot_id="feature-market",
+            input_cutoff_at=cutoff,
+            market_eligibility="eligible",
+            market_snapshot_id="quote-eligible",
+        ),
+        {
+            **_prediction(
+                "market-stale",
+                "match-1",
+                cutoff,
+                provider="anthropic",
+                feature_snapshot_id="feature-market",
+                input_cutoff_at=cutoff,
+                market_eligibility="stale",
+                market_snapshot_id="quote-stale",
+            ),
+            "market_reason": "quote_age_exceeded",
+        },
+        {
+            **_prediction(
+                "market-late",
+                "match-1",
+                cutoff,
+                provider="statistical",
+                feature_snapshot_id="feature-market",
+                input_cutoff_at=cutoff,
+                market_eligibility="late",
+                market_snapshot_id="quote-late",
+            ),
+            "market_reason": "received_after_input_cutoff",
+        },
+    )
+    repository.snapshot = ReadSnapshot(
+        repository.snapshot.matches,
+        predictions,
+        repository.snapshot.evaluations,
+        repository.snapshot.operations,
+        repository.snapshot.coverage,
+        "revision-market-as-of",
+        repository.snapshot.budgets,
+    )
+
+    detail = client.get("/api/v1/matches/match-1", headers=OPERATOR_HEADERS).json()["data"]
+    by_provider = {row["provider"]: row["market"] for row in detail["provider_outcomes"]}
+    assert by_provider["openai"]["availability"] == "available"
+    assert by_provider["anthropic"] == {
+        "availability": "stale",
+        "source": "synthetic",
+        "snapshot_id": "quote-stale",
+        "quoted_at": "2026-09-20T13:00:00Z",
+        "reason": "quote_age_exceeded",
+    }
+    assert by_provider["statistical"]["availability"] == "late"
+    assert detail["market"] == {
+        "availability": "unverified",
+        "source": None,
+        "snapshot_id": None,
+        "quoted_at": None,
+        "reason": "provider_market_summaries_differ",
+    }
+
+
+def test_coverage_uses_latest_observation_per_source_scope() -> None:
+    client = _client()
+    repository = client.app.state.read_repository
+    base = {
+        "source": "synthetic",
+        "season_id": "season-1",
+        "competition_id": "competition-1",
+        "match_id": "match-2",
+        "data_kind": "lineup",
+        "evidence_code": "OP-005",
+        "source_snapshot_id": "source-match-2",
+    }
+    coverage = (
+        {
+            **base,
+            "id": "coverage-old",
+            "availability": "missing",
+            "observed_at": datetime(2026, 9, 20, 13, 0, tzinfo=UTC),
+        },
+        {
+            **base,
+            "id": "coverage-y",
+            "availability": "missing",
+            "observed_at": datetime(2026, 9, 20, 14, 0, tzinfo=UTC),
+        },
+        {
+            **base,
+            "id": "coverage-z",
+            "availability": "available",
+            "observed_at": datetime(2026, 9, 20, 14, 0, tzinfo=UTC),
+        },
+    )
+    repository.snapshot = ReadSnapshot(
+        repository.snapshot.matches,
+        repository.snapshot.predictions,
+        repository.snapshot.evaluations,
+        repository.snapshot.operations,
+        coverage,
+        "revision-coverage-latest",
+        repository.snapshot.budgets,
+    )
+
+    response = client.get("/api/v1/operations/coverage", headers=OPERATOR_HEADERS)
+    assert response.status_code == 200
+    assert response.json()["data"]["items"] == [
+        {
+            "data_kind": "lineup",
+            "availability": "available",
+            "count": 1,
+            "latest_observed_at": "2026-09-20T14:00:00Z",
+            "evidence_codes": ["OP-005"],
+        }
+    ]
+    detail = client.get("/api/v1/matches/match-2", headers=OPERATOR_HEADERS).json()
+    assert detail["data"]["source_coverage"]["lineup"] == "available"
 
 
 def test_performance_and_operations_are_server_aggregated_with_revisions() -> None:
@@ -785,6 +1170,135 @@ def test_postgres_read_queries_match_migrated_schema(postgres_role_urls: object)
         engine.dispose()
 
 
+def test_postgres_endpoint_scoped_queries_match_migrated_schema(
+    postgres_role_urls: object,
+) -> None:
+    engine = create_engine(str(postgres_role_urls.read_api))
+    boundary = (datetime(2026, 9, 20, 13, 30, tzinfo=UTC), str(uuid4()))
+    queries = (
+        ReadQuery(
+            endpoint="schedule",
+            filters={
+                "start_at": datetime(2026, 9, 20, tzinfo=UTC),
+                "end_at": datetime(2026, 9, 21, tzinfo=UTC),
+                "division": "women",
+                "team": None,
+                "competition": None,
+            },
+        ),
+        ReadQuery(endpoint="match", filters={"match_id": str(uuid4())}),
+        ReadQuery(
+            endpoint="predictions",
+            filters={
+                "division": "women",
+                "team": None,
+                "competition": None,
+                "provider": "openai",
+                "model": None,
+                "prediction_type": None,
+                "prompt_version": None,
+                "start_at": None,
+                "end_at": None,
+            },
+            boundary=boundary,
+            limit=25,
+        ),
+        ReadQuery(
+            endpoint="performance",
+            filters={
+                "division": "women",
+                "competition": None,
+                "stage": None,
+                "feature_version": None,
+                "availability_policy": None,
+                "timing_eligibility": None,
+                "evaluator_version": None,
+                "start_at": None,
+                "end_at": None,
+            },
+        ),
+        ReadQuery(
+            endpoint="operations",
+            filters={"state": "failed", "job_type": None},
+            boundary=boundary,
+            limit=25,
+        ),
+        ReadQuery(
+            endpoint="coverage",
+            filters={"data_kind": "lineup", "availability": "available"},
+        ),
+    )
+    try:
+        snapshots = [PostgresReadRepository(engine).load_query(query) for query in queries]
+        assert all(isinstance(snapshot.revision, str) for snapshot in snapshots)
+        assert snapshots[2].scoped_page is True
+        assert snapshots[4].scoped_page is True
+    finally:
+        engine.dispose()
+
+
+def test_postgres_operations_query_uses_filtered_keyset_page(
+    postgres_role_urls: object,
+) -> None:
+    engine = create_engine(str(postgres_role_urls.migrator))
+    repository = PostgresReadRepository(engine)
+    base_due = datetime(2026, 9, 27, 12, 0, tzinfo=UTC)
+    job_ids = [uuid4() for _ in range(4)]
+    try:
+        with engine.connect() as connection:
+            transaction = connection.begin()
+            try:
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO ops.jobs (
+                            id, job_key, job_type, due_at, state, error_code
+                        ) VALUES (
+                            :id, :job_key, :job_type, :due_at, :state, :error_code
+                        )
+                        """
+                    ),
+                    [
+                        {
+                            "id": identifier,
+                            "job_key": f"api-keyset:{identifier}",
+                            "job_type": "synthetic.keyset",
+                            "due_at": base_due + timedelta(minutes=index),
+                            "state": "failed" if index < 3 else "queued",
+                            "error_code": "synthetic_failure" if index < 3 else None,
+                        }
+                        for index, identifier in enumerate(job_ids)
+                    ],
+                )
+                query = ReadQuery(
+                    endpoint="operations",
+                    filters={"state": "failed", "job_type": "synthetic.keyset"},
+                    limit=2,
+                )
+                first = repository._load_query(connection, query)
+                assert [row["id"] for row in first.operations] == [
+                    str(job_ids[0]),
+                    str(job_ids[1]),
+                ]
+                assert first.has_more is True
+
+                second = repository._load_query(
+                    connection,
+                    ReadQuery(
+                        endpoint="operations",
+                        filters=query.filters,
+                        boundary=(base_due + timedelta(minutes=1), str(job_ids[1])),
+                        limit=2,
+                    ),
+                )
+                assert [row["id"] for row in second.operations] == [str(job_ids[2])]
+                assert second.has_more is False
+            finally:
+                transaction.rollback()
+    finally:
+        engine.dispose()
+
+
 def test_postgres_operator_retry_function_is_idempotent_and_role_restricted(
     postgres_role_urls: object,
 ) -> None:
@@ -829,3 +1343,337 @@ def test_postgres_operator_retry_function_is_idempotent_and_role_restricted(
     finally:
         read_engine.dispose()
         engine.dispose()
+
+
+def test_postgres_performance_uses_market_evaluation_snapshot(
+    postgres_role_urls: object,
+) -> None:
+    run_id = f"api-market-{uuid4().hex}"
+    manifest = _seed_postgres_graph(postgres_role_urls, run_id)
+    engine = create_engine(str(postgres_role_urls.migrator))
+    market_snapshot_id = uuid4()
+    source_event_id = f"market-{uuid4().hex}"
+    now = datetime.now(UTC)
+    try:
+        with engine.begin() as connection:
+            prediction_id = connection.execute(
+                text(
+                    """
+                    SELECT p.id FROM engine.predictions p
+                    JOIN engine.model_variants v ON v.id = p.variant_id
+                    WHERE p.match_id = CAST(:match_id AS uuid) AND v.provider = 'openai'
+                    """
+                ),
+                {"match_id": manifest["match_id"]},
+            ).scalar_one()
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO market.source_event_mappings (source, source_event_id, match_id)
+                    VALUES ('synthetic-api-test', :source_event_id, CAST(:match_id AS uuid))
+                    """
+                ),
+                {"source_event_id": source_event_id, "match_id": manifest["match_id"]},
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO market.market_snapshots (
+                        id, match_id, source, source_event_id, quoted_at, observed_at,
+                        received_at, contract_version, markets_json, sha256
+                    ) VALUES (
+                        :id, CAST(:match_id AS uuid), 'synthetic-api-test', :source_event_id,
+                        :now, :now, :now, 'api-test-v1', CAST(:markets AS jsonb), :sha256
+                    )
+                    """
+                ),
+                {
+                    "id": market_snapshot_id,
+                    "match_id": manifest["match_id"],
+                    "source_event_id": source_event_id,
+                    "now": now,
+                    "markets": json.dumps(
+                        {
+                            "markets": [
+                                {
+                                    "market_type": "moneyline",
+                                    "period": "full_match",
+                                    "selection": "home",
+                                    "decimal_odds": "1.80",
+                                },
+                                {
+                                    "market_type": "moneyline",
+                                    "period": "full_match",
+                                    "selection": "away",
+                                    "decimal_odds": "2.20",
+                                },
+                            ]
+                        }
+                    ),
+                    "sha256": uuid4().hex + uuid4().hex,
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO market.market_evaluations (
+                        match_id, prediction_id, market_snapshot_id, evaluator_version,
+                        derived_probabilities, eligibility, reason
+                    ) VALUES (
+                        CAST(:match_id AS uuid), :prediction_id, :market_snapshot_id,
+                        'api-market-v1', '{}'::jsonb, 'eligible', 'as_of_cutoff'
+                    )
+                    """
+                ),
+                {
+                    "match_id": manifest["match_id"],
+                    "prediction_id": prediction_id,
+                    "market_snapshot_id": market_snapshot_id,
+                },
+            )
+    finally:
+        engine.dispose()
+
+    client = _postgres_client(postgres_role_urls)
+    response = client.get(
+        "/api/v1/performance",
+        params={"competition": manifest["competition"], "provider": "openai"},
+        headers=OPERATOR_HEADERS,
+    )
+    assert response.status_code == 200
+    item = response.json()["data"]["items"][0]
+    market = next(row for row in item["comparisons"] if row["baseline_kind"] == "market")
+    assert market["baseline_individual_n"] == 1
+    assert market["paired_n"] == 1
+
+
+def test_postgres_history_cursor_ignores_jobs_and_tracks_lifecycle(
+    postgres_role_urls: object,
+) -> None:
+    run_id = f"api-cursor-{uuid4().hex}"
+    manifest = _seed_postgres_graph(postgres_role_urls, run_id)
+    client = _postgres_client(postgres_role_urls)
+    first = client.get(
+        "/api/v1/predictions",
+        params={"competition": manifest["competition"], "limit": 1},
+        headers=OPERATOR_HEADERS,
+    )
+    assert first.status_code == 200
+    cursor = first.json()["data"]["next_cursor"]
+    assert cursor is not None
+
+    engine = create_engine(str(postgres_role_urls.migrator))
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO ops.jobs (job_key, job_type, due_at)
+                    VALUES (:job_key, 'unrelated.cursor-change', :due_at)
+                    """
+                ),
+                {"job_key": f"unrelated:{uuid4()}", "due_at": datetime.now(UTC)},
+            )
+        second = client.get(
+            "/api/v1/predictions",
+            params={
+                "competition": manifest["competition"],
+                "limit": 1,
+                "cursor": cursor,
+            },
+            headers=OPERATOR_HEADERS,
+        )
+        assert second.status_code == 200
+        assert len(second.json()["data"]["items"]) == 1
+
+        with engine.begin() as connection:
+            prediction = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT p.id, p.schedule_revision_id
+                    FROM engine.predictions p
+                    JOIN engine.model_variants v ON v.id = p.variant_id
+                    WHERE p.match_id = CAST(:match_id AS uuid) AND v.provider = 'openai'
+                    """
+                    ),
+                    {"match_id": manifest["match_id"]},
+                )
+                .mappings()
+                .one()
+            )
+            event_id = uuid4()
+            now = datetime.now(UTC) + timedelta(seconds=1)
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO engine.prediction_events (
+                        id, prediction_id, event_type, reason, occurred_at,
+                        observed_at, schedule_revision_id
+                    ) VALUES (
+                        :id, :prediction_id, 'voided', 'api_cursor_regression',
+                        :now, :now, :schedule_revision_id
+                    )
+                    """
+                ),
+                {
+                    "id": event_id,
+                    "prediction_id": prediction["id"],
+                    "now": now,
+                    "schedule_revision_id": prediction["schedule_revision_id"],
+                },
+            )
+            connection.execute(
+                text(
+                    """
+                    UPDATE engine.prediction_status_projection
+                    SET latest_event_id = :event_id, current_status = 'voided', refreshed_at = :now
+                    WHERE prediction_id = :prediction_id
+                    """
+                ),
+                {"event_id": event_id, "now": now, "prediction_id": prediction["id"]},
+            )
+        stale = client.get(
+            "/api/v1/predictions",
+            params={
+                "competition": manifest["competition"],
+                "limit": 1,
+                "cursor": cursor,
+            },
+            headers=OPERATOR_HEADERS,
+        )
+        assert stale.status_code == 409
+        assert stale.json()["code"] == "cursor_revision_stale"
+    finally:
+        engine.dispose()
+
+
+def test_postgres_history_team_keyset_uses_prediction_schedule_revision(
+    postgres_role_urls: object,
+) -> None:
+    run_id = f"api-team-{uuid4().hex}"
+    manifest = _seed_postgres_graph(postgres_role_urls, run_id)
+    engine = create_engine(str(postgres_role_urls.migrator))
+    try:
+        with engine.begin() as connection:
+            match = (
+                connection.execute(
+                    text(
+                        """
+                    SELECT m.id, m.source, m.season_id, m.raw_snapshot_id,
+                           mr.scheduled_start_at, mr.actual_start_at
+                    FROM mirror.matches m
+                    JOIN mirror.match_revisions mr ON mr.match_id = m.id
+                    WHERE m.id = CAST(:match_id AS uuid)
+                    ORDER BY mr.revision DESC LIMIT 1
+                    """
+                    ),
+                    {"match_id": manifest["match_id"]},
+                )
+                .mappings()
+                .one()
+            )
+            replacement_ids = [uuid4(), uuid4()]
+            for team_id, code in zip(replacement_ids, ("NEW-HOME", "NEW-AWAY"), strict=True):
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO mirror.team_identities (
+                            id, source, source_team_code, season_id, display_name,
+                            observed_at, mapping_version, raw_snapshot_id
+                        ) VALUES (
+                            :id, :source, :code, :season_id, :code,
+                            :now, 'api-team-v2', :raw_snapshot_id
+                        )
+                        """
+                    ),
+                    {
+                        "id": team_id,
+                        "source": match["source"],
+                        "code": f"{code}-{run_id}",
+                        "season_id": match["season_id"],
+                        "now": datetime.now(UTC),
+                        "raw_snapshot_id": match["raw_snapshot_id"],
+                    },
+                )
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO mirror.match_revisions (
+                        match_id, revision, home_team_id, away_team_id,
+                        scheduled_start_at, actual_start_at, status, observed_at, raw_snapshot_id
+                    ) VALUES (
+                        :match_id, 2, :home_team_id, :away_team_id,
+                        :scheduled_start_at, :actual_start_at, 'finished', :now, :raw_snapshot_id
+                    )
+                    """
+                ),
+                {
+                    "match_id": match["id"],
+                    "home_team_id": replacement_ids[0],
+                    "away_team_id": replacement_ids[1],
+                    "scheduled_start_at": match["scheduled_start_at"],
+                    "actual_start_at": match["actual_start_at"],
+                    "now": datetime.now(UTC),
+                    "raw_snapshot_id": match["raw_snapshot_id"],
+                },
+            )
+    finally:
+        engine.dispose()
+
+    client = _postgres_client(postgres_role_urls)
+    params = {"team": f"LIVE-HOME-{run_id}", "limit": 1}
+    first = client.get("/api/v1/predictions", params=params, headers=OPERATOR_HEADERS)
+    assert first.status_code == 200
+    assert len(first.json()["data"]["items"]) == 1
+    cursor = first.json()["data"]["next_cursor"]
+    assert cursor is not None
+    second = client.get(
+        "/api/v1/predictions",
+        params={**params, "cursor": cursor},
+        headers=OPERATOR_HEADERS,
+    )
+    assert second.status_code == 200
+    assert len(second.json()["data"]["items"]) == 1
+
+
+def test_postgres_performance_companions_stay_within_filtered_evaluation_matches(
+    postgres_role_urls: object,
+) -> None:
+    selected_run = f"api-performance-selected-{uuid4().hex}"
+    unrelated_run = f"api-performance-unrelated-{uuid4().hex}"
+    selected = _seed_postgres_graph(postgres_role_urls, selected_run)
+    unrelated = _seed_postgres_graph(postgres_role_urls, unrelated_run)
+    day = datetime.fromisoformat(str(selected["schedule_date"]))
+    start_at = day.replace(tzinfo=UTC)
+    end_at = start_at + timedelta(days=1)
+    engine = create_engine(str(postgres_role_urls.read_api))
+    try:
+        snapshot = PostgresReadRepository(engine).load_query(
+            ReadQuery(
+                endpoint="performance",
+                filters={
+                    "division": "women",
+                    "competition": selected["competition"],
+                    "stage": "regular",
+                    "feature_version": "live-feature-v1",
+                    "availability_policy": "live_prospective",
+                    "timing_eligibility": "on_time",
+                    "evaluator_version": "live-evaluator-v1",
+                    "provider": "openai",
+                    "model": "live-openai-model",
+                    "prediction_type": "winner",
+                    "prompt_version": "live-prompt-v1",
+                    "result_finality": "final",
+                    "start_at": start_at,
+                    "end_at": end_at,
+                },
+            )
+        )
+    finally:
+        engine.dispose()
+
+    assert {row["match_id"] for row in snapshot.evaluations} == {selected["match_id"]}
+    assert {row["match_id"] for row in snapshot.predictions} == {selected["match_id"]}
+    assert {row["provider"] for row in snapshot.predictions} == {"openai", "statistical"}
+    assert unrelated["match_id"] not in {row["match_id"] for row in snapshot.predictions}

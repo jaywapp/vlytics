@@ -1,6 +1,6 @@
 # 구현 작업 계획
 
-작성일: 2026-09-20 · 최종 검증일: 2026-09-25 · 상태: TASK-001~020 구현 및 로컬 검증 완료, 외부 운영 게이트 미활성
+작성일: 2026-09-20 · 최종 감사일: 2026-09-27 · 상태: 모듈 구현 증거 보존, production 통합 재검증 진행
 
 ## 적용 기준과 시작점
 
@@ -8,7 +8,7 @@
 
 **첫 MVP는 전체 범위를 한 번에 제공한다.** 아래 작업 순서는 내부 개발 순서이며 MVP-0/MVP-1 분리 출시 승인이 아니다. 수집·Feature·Elo·세트/공동 점수 모델·독립 Multi-AI·네 예측·불변 저장·자동 평가·경기 중심 Web·기록/성능/운영 화면이 모두 완료되어야 한다. Market 계약과 합성 검증도 필수이며 실제 schema 전 `missing` 운영은 UC-005 C의 확정된 예외다. 점수 모델 미구현을 `unsupported`로 숨겨 MVP 완료로 간주하지 않는다.
 
-TASK-001~020의 코드·계약·UI·운영 패키지를 구현했다. 합성·offline 범위와 clean PostgreSQL 17 재생 검증은 완료했으며 결과는 `docs/verification/mvp-report.md`에 기록한다. CI의 합성 Compose 기동·worker 재시작·격리 복구는 검증했다. OP-001~005의 실제 데이터 접근, 유료 Provider 호출, Market adapter, live T-60 dry-run과 운영 host의 production Compose·frontend smoke는 외부 값이 준비될 때까지 fail-closed 상태다.
+기존 모듈·합성 검증 증거는 [MVP 보고서](../verification/mvp-report.md)에 보존한다. [전체 감사](../verification/project-audit-2026-09-27.md)에서 production 연결·상태 선택·과금·복구 누락을 확인했으므로 전체 구현 완료 판정을 철회하고 재검증한다. 외부 운영값 대기와 코드 잔여 작업은 별개다. 항목별 최신 상태는 [감사 조치 장부](../verification/audit-remediation.md)를 따른다. 실제 접근·유료 호출·live 검증은 별도 게이트다.
 
 ## 결정과 실행 의존
 
@@ -438,5 +438,5 @@ flowchart TD
 | 개인용 접근과 복구 | 인증·시크릿 외부 주입·백업 복구·상시 worker 재기동 |
 | 변경 검증 | 빌드·계약·DB 통합·시간 재생·브라우저 검증 보고서 |
 
-과거 Elo 점수나 특정 개막일은 고정 합격 기준이 아니다. 실제 모델 성능과 live 가동 성과는 외부 운영 게이트가 해제된 뒤 측정한다. TASK-001~020의 구현 완료는 계약·코드·합성 fixture·clean PostgreSQL 재생·브라우저 흐름·운영 패키지의 검증으로 판정하며 세부 증거는 `docs/verification/mvp-report.md`를 기준으로 한다.
+과거 Elo 점수나 특정 개막일은 고정 합격 기준이 아니다. 실제 모델 성능과 live 가동 성과는 외부 운영 게이트가 해제된 뒤 측정한다. TASK-001~020의 구현 완료는 계약·코드·합성 fixture·clean PostgreSQL 재생·브라우저 흐름·운영 패키지의 검증으로 판정하며 세부 증거는 MVP 보고서와 감사 조치 장부를 함께 확인한다. 모듈 구현, production 연결, 합성 통합, live 검증을 각각 판정한다.
 
