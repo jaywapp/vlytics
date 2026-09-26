@@ -137,6 +137,7 @@ restore report는 `artifacts/operations/`에 생성되며 Git에서 제외된다
 | Nginx 컨테이너 | UID 101, read-only filesystem, UID/GID가 지정된 tmpfs, capability drop, `no-new-privileges`로 기동 |
 | SPA와 보안 헤더 | `/healthz` 200, `/history` fallback, CSP 응답 확인 |
 | Same-origin API | 익명 401, readonly 권한 403, operator 인증 200 확인 |
+| Production Compose parser | 합성 값으로 `docker compose -f infra/compose.production.yaml config --quiet` 통과 ([CI 실행](https://github.com/jaywapp/vlytics/actions/runs/36271516676)); 운영 host 기동은 별도 게이트 |
 | 기존 Compose smoke | worker 재시작 중복 0, migration 재실행, custom dump와 격리 복구 계속 통과 |
 
 이 결과는 CI의 개발용 비활성 Compose에서 얻었다. 운영 host의 production Compose 배포, 실제 image digest 승인·PITR·알림·NTP·source 및 Provider live dry-run은 활성화 전 게이트로 남는다.
