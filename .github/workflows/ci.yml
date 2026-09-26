@@ -65,10 +65,13 @@ jobs:
           READ_API_DATABASE_URL: postgresql+psycopg://vlytics_read_api_login:compose-ci-read-api@postgres:5432/vlytics
           ENGINE_DATABASE_URL: postgresql+psycopg://vlytics_engine_login:compose-ci-engine@postgres:5432/vlytics
         run: docker compose -f ../infra/compose.yaml config --quiet
-      - name: Smoke test Compose API, worker, and restore
+      - name: Smoke test Compose stack, frontend image, and restore
         env:
           POSTGRES_PORT: 55432
           API_PORT: 18080
+          WEB_PORT: 18081
+          VLYTICS_CI_NODE_IMAGE: node:22-alpine
+          VLYTICS_CI_NGINX_IMAGE: nginx:stable-alpine
           MIGRATOR_DATABASE_PASSWORD: compose-ci-migrator
           MIGRATOR_DATABASE_URL: postgresql+psycopg://vlytics_migrator:compose-ci-migrator@postgres:5432/vlytics
           COLLECTOR_DATABASE_PASSWORD: compose-ci-collector
@@ -78,6 +81,7 @@ jobs:
           READ_API_DATABASE_URL: postgresql+psycopg://vlytics_read_api_login:compose-ci-read-api@postgres:5432/vlytics
           ENGINE_DATABASE_URL: postgresql+psycopg://vlytics_engine_login:compose-ci-engine@postgres:5432/vlytics
           VLYTICS_OPERATOR_AUTH_SECRET: compose-ci-operator
+          VLYTICS_READONLY_AUTH_SECRET: compose-ci-readonly
         run: bash ../infra/scripts/ci-compose-smoke.sh
 
   frontend:
