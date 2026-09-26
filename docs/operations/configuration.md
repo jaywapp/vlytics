@@ -18,13 +18,24 @@ OP-001의 이용 범위와 요청 속도는 TASK-001 소유다. 따라서 예시
 
 ## 호스트·접근 후보
 
-비용과 공급업체를 확인하지 않았으므로 아래는 선택 가능한 운영 형태다. 특정 상품 구매나 비용 가정을 뜻하지 않는다.
+아래는 선택 가능한 운영 형태다. 아직 어느 상품도 구매하거나 운영 호스트로 확정하지 않았다.
 
 | `host_class` | 구성 | 운영상 확인할 사항 |
 |---|---|---|
 | `managed_vm_and_database` | 상시 API/worker VM과 관리형 PostgreSQL | 네트워크 격리, 관리형 backup의 실제 RPO/RTO, DB egress와 월 상한 |
 | `private_single_vm` | private VM 한 대에 API/worker/PostgreSQL | host 장애가 전체 장애가 되므로 외부 backup, 복구 시간, 디스크 용량과 patch 책임 |
 | `dedicated_private_machine` | 전용 상시 장비와 PostgreSQL | 절전 차단, 전원·회선 장애, 원격 복구, off-host backup과 시계 동기화 |
+
+### 단일 호스트 비용·운영 판단 자료 (2026-09-27)
+
+현재 production Compose는 PostgreSQL을 같은 호스트에서 실행하므로 `private_single_vm`과 `dedicated_private_machine`을 호스트 구성 관점에서 비교할 수 있다. 두 형태 모두 실제 배포 적합성은 미검증이다. 아래 가격은 공급업체의 공개 목록 가격이며, 용량 적합성이나 월 총비용을 검증한 값은 아니다.
+
+| 후보 | 확인된 비용 | 운영 전 확인할 조건 |
+|---|---|---|
+| 보유한 경우의 전용 상시 장비 | 추가 VM 임대료 없음. 전력·회선·장비 비용과 가용성은 미확인 | 24시간 전원·회선, Docker/Compose, UTC 시계 동기화, 원격 복구, 외부 암호화 backup과 PostgreSQL WAL/PITR 복구 시험 |
+| AWS Lightsail Linux VM, 서울 `ap-northeast-2`, public IPv4, 2 vCPU·4 GB RAM·80 GB SSD | [목록 가격 월 USD 24](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-bundles.html). 서울 [리전 지원](https://docs.aws.amazon.com/lightsail/latest/userguide/understanding-regions-and-availability-zones-in-amazon-lightsail.html) 확인 | 4 GB 부하·디스크 시험, firewall과 loopback/private 접근 검증, OS patch, 외부 암호화 backup과 WAL/PITR 복구 시험. Snapshot·backup 목적지·초과 전송·세금·유료 Provider 비용은 별도 확인 |
+
+VM snapshot만으로 PostgreSQL의 목표 시각 복구를 통과한 것으로 간주하지 않는다. 관리형 DB는 [Lightsail의 최근 7일 PITR](https://docs.aws.amazon.com/lightsail/latest/userguide/amazon-lightsail-creating-a-database-from-point-in-time-backup.html)이 후보지만, 현재 Compose의 로컬 PostgreSQL을 교체해야 하고 DB 버전·권한·마이그레이션 호환성을 아직 검증하지 않았다. 따라서 어느 후보도 OP-002를 닫지 않는다. 운영자는 호스트·월 비용 상한, 외부 backup 대상과 보존 기간, RPO/RTO, restore drill, 인증·알림 목적지를 결정하고 실제 호스트에서 검증해야 한다.
 
 운영 접근은 `loopback` 또는 `private_network`만 schema가 허용한다. 운영자 명령에는 별도 인증을 적용하고, 인증 방식은 private network identity, reverse proxy OIDC, mutual TLS 중 배포 환경에서 검증된 방식을 명시한다. public ingress는 이 계약의 선택지가 아니며 별도 결정 없이는 열지 않는다.
 
