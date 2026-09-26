@@ -4,6 +4,8 @@ set -Eeuo pipefail
 repository_root="$(cd "$(dirname "$0")/../.." && pwd)"
 project="vlytics-smoke-$(date +%s)-$RANDOM"
 restore_container="$project-restore"
+frontend_container="$project-frontend"
+frontend_image="$project-frontend:ci"
 temporary_directory="$(mktemp -d)"
 
 compose() {
@@ -16,7 +18,9 @@ cleanup() {
   if (( result != 0 )); then
     compose ps || true
     compose logs --no-color --tail=120 postgres migrate api worker || true
+    docker logs --tail=120 "$frontend_container" || true
   fi
+  docker rm --force "$frontend_container" >/dev/null 2>&1 || true
   docker rm --force "$restore_container" >/dev/null 2>&1 || true
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf -- "$temporary_directory"
@@ -60,6 +64,45 @@ anonymous_status="$(curl --silent --output /dev/null --write-out '%{http_code}' 
 test "$anonymous_status" = 401
 authorized_status="$(curl --silent --output /dev/null --write-out '%{http_code}' --header "Authorization: Bearer $VLYTICS_OPERATOR_AUTH_SECRET" "$schedule_url")"
 test "$authorized_status" = 200
+
+docker pull "$VLYTICS_CI_NODE_IMAGE" > /dev/null
+docker pull "$VLYTICS_CI_NGINX_IMAGE" > /dev/null
+node_image="$(docker image inspect --format '{{index .RepoDigests 0}}' "$VLYTICS_CI_NODE_IMAGE")"
+nginx_image="$(docker image inspect --format '{{index .RepoDigests 0}}' "$VLYTICS_CI_NGINX_IMAGE")"
+[[ "$node_image" == *@sha256:* ]]
+[[ "$nginx_image" == *@sha256:* ]]
+docker build --file "$repository_root/frontend/Dockerfile" \
+  --build-arg NODE_IMAGE="$node_image" \
+  --build-arg NGINX_IMAGE="$nginx_image" \
+  --tag "$frontend_image" "$repository_root/frontend"
+docker run --detach --name "$frontend_container" --init \
+  --network "$project"_default --read-only --user 101:101 \
+  --cap-drop ALL --security-opt no-new-privileges:true \
+  --tmpfs /var/cache/nginx:rw,noexec,nosuid,nodev,size=32m,uid=101,gid=101 \
+  --tmpfs /var/run:rw,noexec,nosuid,nodev,size=4m,uid=101,gid=101 \
+  --tmpfs /tmp:rw,noexec,nosuid,nodev,size=16m,uid=101,gid=101 \
+  --publish "127.0.0.1:$WEB_PORT:8080" "$frontend_image" > /dev/null
+frontend_url="http://127.0.0.1:$WEB_PORT"
+for attempt in $(seq 1 30); do
+  if curl --fail --silent "$frontend_url/healthz" > "$temporary_directory/frontend-health" 2>/dev/null; then
+    break
+  fi
+  sleep 2
+done
+test "$(tr -d '\r\n' < "$temporary_directory/frontend-health")" = ok
+test "$(docker inspect --format '{{.State.Running}}' "$frontend_container")" = true
+curl --fail --silent --show-error "$frontend_url/" > "$temporary_directory/frontend-root.html"
+curl --fail --silent --show-error "$frontend_url/history" > "$temporary_directory/frontend-history.html"
+cmp "$temporary_directory/frontend-root.html" "$temporary_directory/frontend-history.html"
+grep -q '<title>Vlytics</title>' "$temporary_directory/frontend-root.html"
+curl --fail --silent --show-error --head "$frontend_url/" |
+  tr -d '\r' | grep -qi '^content-security-policy:'
+frontend_schedule_url="$frontend_url/api/v1/schedule?date=2026-09-25"
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$frontend_schedule_url")" = 401
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $VLYTICS_READONLY_AUTH_SECRET" "$frontend_schedule_url")" = 403
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $VLYTICS_OPERATOR_AUTH_SECRET" "$frontend_schedule_url")" = 200
 
 migration_count="$(database_query 'SELECT count(*) FROM public.vlytics_schema_migrations;')"
 test "$migration_count" -ge 1
@@ -120,4 +163,4 @@ test "$(restore_query 'SELECT count(*) FROM ops.job_attempts;')" = 1
 test "$(restore_query "$job_query")" = "quarantined:1:1"
 test "$(restore_query "SELECT count(*) FROM pg_namespace WHERE nspname IN ('mirror', 'engine', 'market', 'ops');")" = 4
 
-echo "Compose smoke passed: API, worker restart, migration replay, backup and isolated restore."
+echo "Compose smoke passed: API, frontend image and proxy, worker restart, migration replay, backup and isolated restore."

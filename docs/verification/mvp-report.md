@@ -84,6 +84,7 @@ Playwright 1.63.0과 Chromium headless로 다음을 production bundle에서 확�
 | Backend full pytest + clean PostgreSQL 17.11 | 297 passed, 0 failed, 0 errors, 0 skipped, 0 xfailed |
 | CI PostgreSQL bootstrap 재검증 | 운영 init SQL을 격리 DB에 적용, bootstrap `NOLOGIN`·migrator `NOSUPERUSER` 확인 |
 | CI 합성 Compose smoke | backend 이미지 빌드, PostgreSQL·migration·API·worker 기동, 인증 401/200, 합성 source job 격리 후 worker 재시작 중복 0, migration 재실행, custom dump와 격리 복구 통과 ([CI 실행](https://github.com/jaywapp/vlytics/actions/runs/36088207723)) |
+| CI frontend image smoke | digest로 확인한 Node·Nginx base에서 frontend image 빌드, 비루트·읽기 전용 컨테이너 기동, `/healthz`, `/history` fallback, CSP, same-origin `/api` 익명 401·readonly 403·operator 200 확인 ([CI 실행](https://github.com/jaywapp/vlytics/actions/runs/36270882620)) |
 | Backend replay registry 재확인 | 2 passed (위 297개의 부분집합) |
 | Ruff lint / format | 통과, 103 files formatted |
 | mypy | 통과, 73 source files |
@@ -99,7 +100,7 @@ Playwright 1.63.0과 Chromium headless로 다음을 production bundle에서 확�
 
 ## 외부 운영 제한
 
-CI 스모크는 외부 호출을 끈 개발용 Compose에서 실행했다. production Compose의 frontend Nginx 이미지, 운영 host의 private ingress·backup/PITR·알림·시계 및 live T-60은 아직 검증하지 않았다.
+CI 스모크는 외부 호출을 끈 개발용 Compose에서 실행했다. frontend production Dockerfile의 Nginx 이미지는 CI에서 운영과 같은 비루트·읽기 전용 옵션으로 기동했지만, production Compose 전체와 운영 host의 private ingress·backup/PITR·알림·시계 및 live T-60은 아직 검증하지 않았다.
 
 
 
