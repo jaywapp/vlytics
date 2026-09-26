@@ -126,7 +126,20 @@ restore report는 `artifacts/operations/`에 생성되며 Git에서 제외된다
 | Worker 재시작 | 외부 수집이 금지된 합성 job을 1회 격리하고 재시작 후 attempt 1건 유지 |
 | Migration과 복구 | 재실행 후 ledger 동일, custom dump를 격리 PostgreSQL 17.11에 복구해 checksum·job 기록 확인 |
 
-이 검사는 개발용 비활성 설정만 사용한다. 운영 host의 production Compose, frontend Nginx image, PITR, 실제 Provider·source 및 T-60 dry-run 검증은 남아 있다.
+이 검사는 개발용 비활성 설정만 사용한다. 운영 host의 production Compose, frontend Nginx image 기동, PITR, 실제 Provider·source 및 T-60 dry-run 검증은 남아 있다.
+
+## 2026-09-27 CI frontend image 검증
+
+[GitHub Actions 실행](https://github.com/jaywapp/vlytics/actions/runs/36270882620)에서 frontend production Dockerfile을 digest로 확인한 Node·Nginx base image로 빌드하고 합성 API와 연결했다.
+
+| 검사 | 결과 |
+| --- | --- |
+| Nginx 컨테이너 | UID 101, read-only filesystem, UID/GID가 지정된 tmpfs, capability drop, `no-new-privileges`로 기동 |
+| SPA와 보안 헤더 | `/healthz` 200, `/history` fallback, CSP 응답 확인 |
+| Same-origin API | 익명 401, readonly 권한 403, operator 인증 200 확인 |
+| 기존 Compose smoke | worker 재시작 중복 0, migration 재실행, custom dump와 격리 복구 계속 통과 |
+
+이 결과는 CI의 개발용 비활성 Compose에서 얻었다. 운영 host의 production Compose 배포, 실제 image digest 승인·PITR·알림·NTP·source 및 Provider live dry-run은 활성화 전 게이트로 남는다.
 
 ## 최종 Go/No-Go
 
