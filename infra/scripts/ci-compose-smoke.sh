@@ -3,6 +3,7 @@ set -Eeuo pipefail
 
 repository_root="$(cd "$(dirname "$0")/../.." && pwd)"
 project="vlytics-smoke-$(date +%s)-$RANDOM"
+production_project="$project-production"
 restore_container="$project-restore"
 frontend_container="$project-frontend"
 frontend_image="$project-frontend:ci"
@@ -12,6 +13,16 @@ compose() {
   docker compose --project-name "$project" --file "$repository_root/infra/compose.yaml" "$@"
 }
 
+production_compose() {
+  VLYTICS_BACKEND_IMAGE=vlytics-backend:local \
+  VLYTICS_FRONTEND_IMAGE="$frontend_image" \
+  VLYTICS_OPERATIONAL_CONFIG_FILE="$repository_root/config/example.toml" \
+  VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE="$repository_root/infra/live-dry-run-evidence.example.json" \
+  WEB_PORT="$VLYTICS_CI_PRODUCTION_WEB_PORT" \
+    docker compose --project-name "$production_project" \
+      --file "$repository_root/infra/compose.production.yaml" "$@"
+}
+
 cleanup() {
   result=$?
   trap - EXIT
@@ -19,7 +30,10 @@ cleanup() {
     compose ps || true
     compose logs --no-color --tail=120 postgres migrate api worker || true
     docker logs --tail=120 "$frontend_container" || true
+    production_compose ps || true
+    production_compose logs --no-color --tail=120 postgres migrate api worker frontend || true
   fi
+  production_compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   docker rm --force "$frontend_container" >/dev/null 2>&1 || true
   docker rm --force "$restore_container" >/dev/null 2>&1 || true
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
@@ -163,4 +177,36 @@ test "$(restore_query 'SELECT count(*) FROM ops.job_attempts;')" = 1
 test "$(restore_query "$job_query")" = "quarantined:1:1"
 test "$(restore_query "SELECT count(*) FROM pg_namespace WHERE nspname IN ('mirror', 'engine', 'market', 'ops');")" = 4
 
-echo "Compose smoke passed: API, frontend image and proxy, worker restart, migration replay, backup and isolated restore."
+# Exercise the hardened production topology with the inactive example configuration.
+production_compose config --quiet
+production_compose up --detach postgres migrate api worker frontend
+production_url="http://127.0.0.1:$VLYTICS_CI_PRODUCTION_WEB_PORT"
+for attempt in $(seq 1 60); do
+  if curl --fail --silent "$production_url/healthz" > "$temporary_directory/production-health" 2>/dev/null; then
+    break
+  fi
+  sleep 2
+done
+test "$(tr -d '\r\n' < "$temporary_directory/production-health")" = ok
+for service in postgres api worker frontend; do
+  container_id="$(production_compose ps -q "$service")"
+  test -n "$container_id"
+  test "$(docker inspect --format '{{.State.Running}}' "$container_id")" = true
+done
+for service in api worker frontend; do
+  container_id="$(production_compose ps -q "$service")"
+  test "$(docker inspect --format '{{.HostConfig.ReadonlyRootfs}}' "$container_id")" = true
+done
+curl --fail --silent --show-error "$production_url/" > "$temporary_directory/production-root.html"
+curl --fail --silent --show-error "$production_url/history" > "$temporary_directory/production-history.html"
+cmp "$temporary_directory/production-root.html" "$temporary_directory/production-history.html"
+curl --fail --silent --show-error --head "$production_url/" |
+  tr -d '\r' | grep -qi '^content-security-policy:'
+production_schedule_url="$production_url/api/v1/schedule?date=2026-09-25"
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$production_schedule_url")" = 401
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $VLYTICS_READONLY_AUTH_SECRET" "$production_schedule_url")" = 403
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $VLYTICS_OPERATOR_AUTH_SECRET" "$production_schedule_url")" = 200
+
+echo "Compose smoke passed: development and inactive production stacks, API, frontend proxy, worker restart, migration replay, backup and isolated restore."

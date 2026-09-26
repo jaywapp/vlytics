@@ -83,11 +83,15 @@ jobs:
           VLYTICS_ANTHROPIC_API_KEY: compose-ci-disabled
           VLYTICS_GOOGLE_API_KEY: compose-ci-disabled
         run: docker compose -f ../infra/compose.production.yaml config --quiet
-      - name: Smoke test Compose stack, frontend image, and restore
+      - name: Smoke test Compose stacks, frontend image, and restore
         env:
           POSTGRES_PORT: 55432
           API_PORT: 18080
           WEB_PORT: 18081
+          VLYTICS_CI_PRODUCTION_WEB_PORT: 18082
+          VLYTICS_OPENAI_API_KEY: compose-ci-disabled
+          VLYTICS_ANTHROPIC_API_KEY: compose-ci-disabled
+          VLYTICS_GOOGLE_API_KEY: compose-ci-disabled
           VLYTICS_CI_NODE_IMAGE: node:22-alpine
           VLYTICS_CI_NGINX_IMAGE: nginx:stable-alpine
           MIGRATOR_DATABASE_PASSWORD: compose-ci-migrator
