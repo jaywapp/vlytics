@@ -29,17 +29,27 @@ test("uses the real Nginx, FastAPI, and PostgreSQL operator flow", async ({ page
   await page.goto("/");
   await scheduleResponse;
   await page.getByLabel("경기일 · KST").fill(manifest.schedule_date);
-  await expect(
-    page.getByRole("button", { name: new RegExp(escapeRegExp(manifest.home_team)) }),
-  ).toBeVisible();
+  const seededMatch = page.getByRole("button", {
+    name: new RegExp(escapeRegExp(manifest.home_team)),
+  });
+  await expect(seededMatch).toBeVisible();
+  await seededMatch.click();
   await expect(
     page.getByRole("heading", {
-      name: new RegExp(`${escapeRegExp(manifest.home_team)} 승리 확률 64%`),
+      name: new RegExp(`${escapeRegExp(manifest.home_team)} 승리 확률 58%`),
     }),
   ).toBeVisible();
   const comparison = page.getByRole("table", { name: /통계 · GPT · Claude · Gemini/ });
   await expect(comparison.getByText("GPT 독립 실험군")).toBeVisible();
   await expect(comparison.getByText("통계 세트 모델")).toBeVisible();
+  const gptRow = comparison.getByRole("row", { name: /GPT 독립 실험군/ });
+  await expect(gptRow).toContainText("64%");
+  await gptRow.getByRole("button", { name: "분석 보기" }).click();
+  await expect(
+    page.getByRole("heading", {
+      name: new RegExp(`${escapeRegExp(manifest.home_team)} 승리 확률 64%`),
+    }),
+  ).toBeVisible();
 
   await page.getByRole("link", { name: "예측 기록" }).click();
   await page.getByLabel("대회").fill(manifest.competition);
@@ -67,9 +77,35 @@ test("uses the real Nginx, FastAPI, and PostgreSQL operator flow", async ({ page
 
   await page.getByRole("link", { name: "성능" }).click();
   await expect(page.getByLabel("대회")).toContainText(manifest.competition);
+  const competitionResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/v1/performance" &&
+      url.searchParams.get("competition") === manifest.competition &&
+      !url.searchParams.has("provider") &&
+      response.status() === 200
+    );
+  });
   await page.getByLabel("대회").selectOption(manifest.competition);
+  await competitionResponse;
+  const providerResponse = page.waitForResponse((response) => {
+    const url = new URL(response.url());
+    return (
+      url.pathname === "/api/v1/performance" &&
+      url.searchParams.get("competition") === manifest.competition &&
+      url.searchParams.get("provider") === "openai" &&
+      response.status() === 200
+    );
+  });
   await page.getByLabel("Provider").selectOption("openai");
+  await providerResponse;
   await expect(page.getByRole("heading", { name: "openai · live-openai-model" })).toBeVisible();
-  await expect(page.getByRole("table", { name: /서버 집계 성능 지표/ })).toContainText("64%");
+  const performanceRow = page
+    .getByRole("table", { name: /서버 집계 성능 지표/ })
+    .getByRole("row", { name: /openai · live-openai-model/ });
+  await expect(performanceRow).toContainText("100.0%");
+  await expect(performanceRow).toContainText("0.1296");
+  await expect(performanceRow).toContainText("0.4460");
+  await expect(performanceRow.getByRole("cell", { name: "1", exact: true })).toBeVisible();
   await expect(page.getByText("운영 API")).toBeVisible();
 });

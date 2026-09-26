@@ -8,7 +8,7 @@ export default defineConfig({
   outputDir: "./tests/live-e2e/artifacts/test-results",
   fullyParallel: false,
   workers: 1,
-  retries: process.env.CI ? 1 : 0,
+  retries: 0,
   reporter: [["list"]],
   use: {
     baseURL,

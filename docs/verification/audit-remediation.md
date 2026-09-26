@@ -55,3 +55,11 @@
 - API 추가 교차 검토 범위: 실패 attempt와 prediction 출처 구분, 평가에 고정된 Market snapshot 연결, lifecycle 변경에 따른 cursor 무효화, History 과거 team 식별, Performance 조회 cohort 제한, model 필터의 variant 선택 순서.
 
 - 최종 프런트엔드 lint/typecheck·단위 23 tests·production build·fixture Playwright 9 tests 통과. Backend Ruff check/format·mypy 78 source files·PowerShell syntax 통과.
+
+## 실제 CI에서 추가 확인한 배선
+
+- Windows 검증 job의 Python 3.12.14 배포본 부재를 확인하여 공식 Windows 배포본이 있는 3.12.10으로 고정했다. 수정 후 Windows 32 tests 통과.
+- image 안의 Provider registry는 `/workspace/config/variants.toml`에 있으나 기본 탐색이 `/workspace/backend/config/variants.toml`을 가리키던 시작 오류를 image 환경변수로 수정했다. production Compose의 명시 경로 override는 유지한다.
+- [CI 실행 36280349964](https://github.com/jaywapp/vlytics/actions/runs/36280349964)에서 실제 Nginx 인증 401/403/200, worker 재시작, 새 cluster owner/ACL 복구와 SCRAM 5로그인 경계를 통과했다. 마지막 브라우저 흐름은 경기 확률 제목의 기대값에서 실패해 후속 수정·실행으로 판정한다. 이 실행 전체를 성공으로 표시하지 않는다.
+
+- 후속 live spec은 지정 경기 클릭·통계 58%/GPT 64% 전환·History·retry·고유 performance cohort 평가값을 검증한다. 실제 PostgreSQL/FastAPI/Vite proxy 전체 흐름 1 test 통과. Nginx 경로는 수정 후 CI로 최종 확인한다.
