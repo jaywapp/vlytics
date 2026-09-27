@@ -37,3 +37,15 @@ B5 포함 commit `eca2129`의 [CI 36283848936](https://github.com/jaywapp/vlytic
 [CI 36284623462](https://github.com/jaywapp/vlytics/actions/runs/36284623462), commit `859f489`에서 FastAPI/Starlette 업데이트·Python Alpine 전환·Node/npm 및 Nginx/libexpat 파생 base를 실제 빌드했다. Backend·frontend·Python·Node·Nginx·uv 모두 package inventory/identity/DB 신선도와 HIGH/CRITICAL 0건 gate를 통과했다. 실제 Compose browser와 복구 흐름도 통과했다. 전체 CI는 PostgreSQL upstream gosu의 22행 때문에 실패 상태다.
 
 PostgreSQL의 [gosu 재빌드 후보](gosu-rebuild.md)는 동일 source commit을 고정한 patched Go compiler로만 다시 빌드한다. CI에서 compiler를 여덟 번째 이미지로 검사하고 binary/source/module/build metadata를 별도 `gosu-build-provenance` artifact에 저장한다. 후보가 실제 빌드·PostgreSQL 초기화·복구·8개 image 검사까지 통과해야 해당 항목을 닫을 수 있다.
+
+## 최종 CI 확인
+
+[CI 36285424504](https://github.com/jaywapp/vlytics/actions/runs/36285424504)가 후보 `90a6e41`에서 전체 성공했다. 실제 checkout·manifest revision은 PR merge commit `c5061442dde43f69f0e0cb70b077211e0eb2dbfd`이며 부모는 main `69585df`와 후보 `90a6e41`이다.
+
+- backend·frontend·PostgreSQL·Python·uv·Node·Nginx·Go compiler **8개 전부 HIGH/CRITICAL 0건**.
+- 모든 SBOM·취약점 JSON hash를 다운로드한 manifest와 다시 대조했다. nonempty package inventory, image ID, DB 신선도 gate도 통과했다.
+- 취약점 DB 갱신 시각 `2026-09-27T00:40:58.172367669Z`.
+- `gosu-build-provenance`의 PostgreSQL image ID와 compiler digest가 scanner manifest의 동일 image/label/build input과 일치한다. Go 1.26.8 및 module 검증 성공 기록도 확인했다.
+- backend 400 tests, Windows 34 tests, frontend 24 tests·fixture E2E 9 tests, 실제 Nginx→API→DB browser 1 test와 worker 재시작·새 cluster 복구를 통과했다.
+
+이 결과는 해당 commit의 linux/amd64 CI 후보에 대한 현재 DB 기준 검사다. 운영 배포·registry 게시·실제 release digest 검사는 수행하지 않았다. A03/A08/A12 생성/B1 및 호스트·실제 외부 호출 증거는 별도 미완료다.

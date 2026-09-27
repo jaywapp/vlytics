@@ -30,7 +30,7 @@
 | B3 | 장기 조회 성능 | endpoint SQL/keyset, 5,500 합성 경기 benchmark: 반환 99.35% 감소, scoped p50 9.23ms. API DB 28 tests 통과 |
 | B4 | TLS·일관 backup snapshot | 옵션 보존 unit 및 exported snapshot restore drill 통과 |
 | B5 | backup·alert·clock·heartbeat | 읽기 전용 DB·파일 evidence collector와 감시 CLI 연결. health/evidence 단위 25 tests·실제 read_api DB 통합 1 test 통과. host NTP/heartbeat 전달·예약·전송 증거 대기 |
-| B6 | digest·SBOM·취약점 | .vite ignore·모든 base digest 입력·SBOM/취약점 gate 스크립트 반영. CI 빌드 후보의 immutable image ID별 SBOM/취약점 gate 연결·scanner 회귀 14 tests·Windows wrapper 포함 6 tests 통과, [실제 CI scan](image-security-evidence.md) 실행: 초기 6개 image 발견 후 보안 업데이트로 6/7 이미지 0건 통과. PostgreSQL gosu 22행 잔여, 동일 소스 재빌드 후보 검증 중, 게시 release digest 증거 별도 필요 |
+| B6 | digest·SBOM·취약점 | .vite ignore·모든 base digest 입력·SBOM/취약점 gate 스크립트 반영. CI 빌드 후보의 immutable image ID별 SBOM/취약점 gate 연결·scanner 회귀 14 tests·Windows wrapper 포함 6 tests 통과, [실제 CI scan](image-security-evidence.md) 실행: 초기 취약점 보완 및 gosu 동일 소스 재빌드 후 CI 36285424504에서 compiler 포함 8개 image HIGH/CRITICAL 0건 통과, 게시 release digest 증거 별도 필요 |
 | B7 | 완료 장부 | plan 전체 완료 문구 철회, 이 장부에서 검증 범위 분리 |
 
 ## plan 재검증 항목
@@ -88,3 +88,9 @@ B5 검증: 별도 합성 PostgreSQL에서 실제 `vlytics_read_api_login`으로 
 최초 실제 image scan에서 SBOM·보고서 identity/DB 신선도 검증은 동작했으며 6개 image의 보안 발견으로 gate가 실패했다. 이 결과를 도구 오류나 성공으로 바꾸지 않고 [상세 증거](image-security-evidence.md)에 기록한다.
 
 보안 업데이트 `859f489`의 CI 36284623462에서 6/7 이미지의 실제 HIGH/CRITICAL 0건과 Alpine 실제 스택 회귀를 확인했다. PostgreSQL gosu의 22행 때문에 전체 CI는 실패이며 새 compiler 고정 재빌드 후보를 별도로 검증한다.
+
+## 후속 보완 최종 상태
+
+[CI 36285424504](https://github.com/jaywapp/vlytics/actions/runs/36285424504) 전체 성공: backend 400 tests, Windows 34, frontend 24·fixture E2E 9, 실제 browser 1·worker 재시작·새 cluster 복구, 8개 image SBOM/취약점 gate를 통과했다. 후보 head는 `90a6e41`, 검사한 PR merge commit은 `c506144`다. 원본 artifact hash와 gosu source/compiler/image ID 관계를 직접 확인했다. [이미지 상세 증거](image-security-evidence.md)를 따른다.
+
+B5의 DB/파일 collector와 평가기, B6의 실제 CI image 검사 보완은 검증됐다. **전체 감사 조치 완료는 아니다.** A03 ingress/egress, A08 운영 Elo, A12 Market 생성, B1 roster/stats 입력의 자동 승인 거부는 그대로이며 운영 host NTP/heartbeat 전달·예약 backup/PITR·알림·source/유료 Provider smoke·게시 release digest 증거가 남아 있다. PR #12는 초안으로 유지하고 병합하지 않았다.

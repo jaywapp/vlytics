@@ -154,3 +154,5 @@ HIGH/CRITICAL 발견, scanner 오류, 비어 있거나 불완전한 보고서, i
 릴리스 담당자는 동일 Dockerfile과 upstream digest로 파생 base를 빌드·검증하고, 게시된 파생 digest를 frontend의 `NODE_IMAGE`/`NGINX_IMAGE`와 release 검사에 전달한다. private registry의 base repository는 `.../node@sha256:...`, `.../nginx@sha256:...`처럼 family를 식별할 수 있어야 한다. upstream image의 취약 패키지를 그대로 둔 채 이름만 바꾸거나 보고서에서 제외하지 않는다. [실제 검사 기록](../verification/image-security-evidence.md)을 함께 확인한다.
 
 PostgreSQL gosu 자체 재빌드 후보를 사용하는 릴리스는 [고정 소스·compiler 계약](../verification/gosu-rebuild.md)을 따른다. 이 경우 `Test-ReleaseEvidence.ps1`에 추가 `-GoBuilderImage <검증한 golang digest>`를 전달하고 compiler까지 여덟 이미지 모두 검사한다. `gosu-build-provenance`의 파생 PostgreSQL image ID, source/archive/module/binary hash 및 compiler digest를 함께 보존한다. 이 후보는 공식 PostgreSQL의 prebuilt gosu 서명 binary와 구별되는 자체 빌드 결과다.
+
+현재 linux/amd64 후보는 [CI 36285424504](https://github.com/jaywapp/vlytics/actions/runs/36285424504)에서 실제 stack/restore와 compiler 포함 8개 image HIGH/CRITICAL 0건 검사를 통과했다. 재현한 소스·digest·검사 시각과 운영 미완료 조건은 [이미지 증거](../verification/image-security-evidence.md)를 따른다.

@@ -4,7 +4,7 @@
 
 CI 36283661022에서 `postgres:17.11-alpine`의 `/usr/local/bin/gosu`가 Go 1.24.6 표준 라이브러리 HIGH/CRITICAL 22행을 발생시켰다. 모든 행의 상태는 `fixed`였고 가장 높은 수정 기준은 Go 1.25.13 또는 1.26.6이었다. PostgreSQL major 17과 공식 entrypoint를 유지하기 위해 [gosu 1.19의 동일 소스 commit](https://github.com/tianon/gosu/tree/6456aaa0f3c854d199d0f037f068eb97515b7513)을 현재 지원되는 Go 1.26.8로 다시 빌드하는 후보를 `infra/images/postgres.Dockerfile`에 정의했다.
 
-이 후보는 아직 실제 Docker build, Trivy 검사, 배포를 통과한 결과가 아니다. HIGH/CRITICAL을 무시하거나 `--ignore-unfixed`를 사용하지 않으며, 실제 재검사가 통과할 때까지 release gate는 닫힌 상태다.
+이 후보는 [CI 36285424504](https://github.com/jaywapp/vlytics/actions/runs/36285424504)에서 실제 Docker build, 8개 image Trivy gate 및 PostgreSQL/복구/브라우저 검증을 통과했다. 운영 배포와 게시 release digest 검증은 수행하지 않았다. HIGH/CRITICAL을 무시하거나 `--ignore-unfixed`를 사용하지 않으며, CI 성공을 게시 release digest 또는 운영 배포 승인으로 확대하지 않는다.
 
 ## 고정 입력
 
@@ -21,7 +21,7 @@ Docker Official Images의 mutable tag가 아니라 위 index digest를 build inp
 
 ## 빌드와 내부 검증
 
-다음 명령은 검증 환경에서 실행할 후보이며 이 문서 작성 시점에는 실행하지 않았다.
+다음 명령은 CI에서 검증한 고정 입력의 재현 예시다.
 
 ```sh
 docker build \
@@ -50,13 +50,13 @@ Build 중 upstream과 같은 `gosu --version`, `gosu nobody id`, `gosu nobody ls
 
 Upstream gosu가 수정된 Go toolchain으로 서명된 새 release를 제공하면 자체 재빌드보다 그 release를 우선 검토한다. Source archive hash 고정은 현재 가져온 bytes를 고정하지만 GitHub나 Go module 공급망 자체를 독립적으로 보증하지는 않는다.
 
-## 남은 필수 검증
+## 검증 기준과 확인 결과
 
 1. 네트워크가 허용된 CI에서 위 Dockerfile을 실제 build하고 모든 내부 smoke가 실행됐는지 확인한다.
-2. `go version -m /usr/local/bin/gosu`와 보존된 SHA256이 기대 값과 일치하는지 확인한다.
+2. builder에서 기록한 `gosu-build-metadata.txt`와 보존된 SHA256이 기대 값과 일치하는지 확인한다.
 3. 최신 Trivy DB로 파생 PostgreSQL image의 nonempty CycloneDX SBOM과 package inventory를 생성한다. 기존 Go 1.24.6 22행이 사라지고 HIGH/CRITICAL이 0인지 실제 결과로 판정한다.
 4. 파생 image로 Compose PostgreSQL을 기동해 공식 entrypoint, initialization, migration, service-role SCRAM login, API/worker smoke, backup/restore 회귀를 실행한다.
 5. CI artifact manifest에 파생 image ID와 `build_inputs.postgres`의 원본 PostgreSQL digest를 함께 남긴다.
 6. 현재 후보는 native linux/amd64 CI build만 대상으로 한다. 다른 architecture를 게시하려면 각 platform에서 별도 build, runtime smoke, SBOM, vulnerability scan과 digest 증거가 필요하다.
 
-이 검증이 끝나기 전에는 production image 참조나 release evidence에 이 후보를 사용하지 않는다.
+위 CI 검증은 linux/amd64에서 완료했다. artifact의 source/compiler/hash와 scanner image ID 일치를 다시 확인했다. 운영 사용에는 게시 digest·release evidence와 별도 운영 게이트가 필요하다.
