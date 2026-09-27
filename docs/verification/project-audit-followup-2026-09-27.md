@@ -2,7 +2,7 @@
 
 ## 최신 조치 상태
 
-R01~R06은 코드 `6280185`와 CI 36289935169에서 검증됐다. R07~R09도 UI 수정·단위 32개·fixture 브라우저 9개·lint/typecheck/build가 통과했으며 후속 commit의 통합 CI를 별도 확인한다. 아래 발견은 원 감사 시점의 근거로 보존한다. 기존 네 가지 승인 대기와 실제 운영 검증은 [최신 조치 장부](audit-remediation.md)를 따른다.
+R01~R06은 코드 `6280185`와 CI 36289935169에서 검증됐다. R07~R09는 코드 `3038ba4`의 [CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898) 전체 성공으로 검증됐다(backend 436, frontend 32, fixture browser 9, 실제 Nginx/API/DB browser 1, Windows 34). R04/R05의 stale fault·동일 시각 충돌·crash/lease 경계 인수 테스트도 추가해 로컬 dispatcher+pipeline 25개가 통과했다. 아래 발견은 원 감사 시점의 근거로 보존한다. 기존 네 가지 승인 대기와 실제 운영 검증은 [최신 조치 장부](audit-remediation.md)를 따른다.
 
 ## 판정과 기준
 

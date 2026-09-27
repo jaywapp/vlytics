@@ -28,6 +28,14 @@ CHECK_IDS = (
 PRIORITY = {"ok": 0, "warning": 1, "unknown": 2, "critical": 3}
 
 
+class FakeClock:
+    def __init__(self, current: datetime) -> None:
+        self.current = current
+
+    def __call__(self) -> datetime:
+        return self.current
+
+
 def _report(
     overrides: dict[str, tuple[str, dict[str, object]]] | None = None,
     *,
@@ -602,6 +610,169 @@ def test_each_sequential_alert_reserves_from_its_actual_start_time(
     assert result.sent == 2
     assert leases[0] == (NOW + timedelta(seconds=40)).timestamp()
     assert leases[1] == (NOW + timedelta(seconds=130)).timestamp()
+
+
+def test_newer_recovery_rejects_an_older_fault(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(DESTINATION_ENV, DESTINATION)
+    state = tmp_path / "state.sqlite3"
+    requests: list[httpx.Request] = []
+
+    recovered = dispatch_health_report(
+        _report(evaluated_at="2026-09-27T12:10:00+00:00"),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        transport=_success_transport(requests),
+        now=NOW,
+    )
+    stale_fault = dispatch_health_report(
+        _critical_report(evaluated_at="2026-09-27T12:05:00+00:00"),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        transport=_success_transport(requests),
+        now=NOW,
+    )
+    next_fault = dispatch_health_report(
+        _critical_report(evaluated_at="2026-09-27T12:15:00+00:00"),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        transport=_success_transport(requests),
+        now=NOW,
+    )
+
+    assert recovered.planned == 0
+    assert stale_fault.suppressed == 1
+    assert next_fault.sent == 1
+    assert len(requests) == 1
+
+
+def test_equal_evaluation_time_keeps_the_first_observation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(DESTINATION_ENV, DESTINATION)
+    state = tmp_path / "state.sqlite3"
+    requests: list[httpx.Request] = []
+    evaluated_at = "2026-09-27T12:00:00+00:00"
+
+    first = dispatch_health_report(
+        _critical_report(evaluated_at=evaluated_at),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        transport=_success_transport(requests),
+        now=NOW,
+    )
+    conflicting_status = dispatch_health_report(
+        _report(
+            {
+                "worker_heartbeat": (
+                    "warning",
+                    {
+                        "heartbeat_at": "2026-09-27T11:50:00+00:00",
+                        "age_seconds": 600,
+                    },
+                )
+            },
+            evaluated_at=evaluated_at,
+        ),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        transport=_success_transport(requests),
+        now=NOW,
+    )
+    conflicting_evidence = dispatch_health_report(
+        _report(
+            {
+                "worker_heartbeat": (
+                    "critical",
+                    {
+                        "heartbeat_at": "2026-09-27T11:49:00+00:00",
+                        "age_seconds": 660,
+                    },
+                )
+            },
+            evaluated_at=evaluated_at,
+        ),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        transport=_success_transport(requests),
+        now=NOW,
+    )
+    repeated_first = dispatch_health_report(
+        _critical_report(evaluated_at="2026-09-27T12:01:00+00:00"),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        transport=_success_transport(requests),
+        now=NOW,
+    )
+
+    assert first.sent == 1
+    assert conflicting_status.suppressed == 1
+    assert conflicting_evidence.suppressed == 1
+    assert repeated_first.suppressed == 1
+    assert len(requests) == 1
+
+
+def test_crashed_pending_delivery_retries_same_key_only_after_lease(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv(DESTINATION_ENV, DESTINATION)
+    state = tmp_path / "state.sqlite3"
+    clock = FakeClock(NOW)
+    keys: list[str] = []
+
+    class SimulatedCrash(BaseException):
+        pass
+
+    def crash(request: httpx.Request) -> httpx.Response:
+        keys.append(request.headers["Idempotency-Key"])
+        raise SimulatedCrash
+
+    with pytest.raises(SimulatedCrash):
+        dispatch_health_report(
+            _critical_report(),
+            destination_env=DESTINATION_ENV,
+            state_path=state,
+            send=True,
+            timeout_seconds=5,
+            transport=httpx.MockTransport(crash),
+            clock=clock,
+        )
+
+    clock.current = NOW + timedelta(seconds=39)
+    before_expiry = dispatch_health_report(
+        _critical_report(),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        timeout_seconds=5,
+        transport=_success_transport([]),
+        clock=clock,
+    )
+
+    retried_requests: list[httpx.Request] = []
+    clock.current = NOW + timedelta(seconds=41)
+    after_expiry = dispatch_health_report(
+        _critical_report(),
+        destination_env=DESTINATION_ENV,
+        state_path=state,
+        send=True,
+        timeout_seconds=5,
+        transport=_success_transport(retried_requests),
+        clock=clock,
+    )
+
+    assert before_expiry.suppressed == 1
+    assert after_expiry.sent == 1
+    keys.append(retried_requests[0].headers["Idempotency-Key"])
+    assert keys[0] == keys[1]
 
 
 def test_success_status_does_not_materialize_response_body(

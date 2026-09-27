@@ -5,14 +5,15 @@
 ## 최신 조치 상태
 
 - R01~R06: 코드 `6280185` 및 CI 36289935169에서 전체 성공. Backend 436, Windows 34, 실제 재시작 후 heartbeat export·browser·복구·8개 image gate 확인.
-- R07~R09: 일정 cursor/늦은 응답 방어, History/Operations 응답 검증, 문맥별 heading 보완 완료. 로컬 frontend unit 32·fixture E2E 9·lint/typecheck/build 통과, 교차 검토 추가 P1/P2 없음. 이 UI 변경의 CI는 해당 후속 commit에서 별도 판정한다.
+- R07~R09: 코드 `3038ba4`의 [CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898) 전체 성공. Backend 436, frontend 32, fixture E2E 9, 실제 Nginx/API/DB browser 1, Windows 34 및 8개 image gate 통과. 실제 merge revision `fea4c2c`와 부모 main `69585df`/후보 `3038ba4` 확인.
+- 추가 인수 검증: R04/R05의 오래된 장애·동일 시각 충돌·crash 후 lease 재전송 테스트와 A13 실제 DB 재실패 후 두 번째 retry 테스트를 보강했다. 각각 로컬 25개(dispatcher+pipeline), 29개(API), 새 PostgreSQL DB 전체 439개 통과. Ruff/format 및 mypy 81개 source file도 통과. A01 production 내부 기동과 A09 복구한 동일 DB의 API/worker smoke를 CI에 추가하며, 컨테이너 실행 결과는 이 후속 commit의 CI에서 판정한다.
 - A03/A08/A12 생성/B1: 자동 승인 거부로 미적용. 운영 host NTP/예약·백업/PITR·실제 알림·source/Provider·게시 release 증거도 미완료.
 
 아래 과거 검사 수치와 진행 중 문구는 실행 이력이며, 최신 판정은 이 요약 및 해당 commit의 CI를 우선한다.
 
 | 항목 | 코드·production 연결 | 합성 검증과 남은 조건 |
 |---|---|---|
-| A01 역할별 secret | 프로세스/배포 전체 검증 분리 | 역할별 운영 설정 회귀 통과, production runtime 필요 |
+| A01 역할별 secret | 프로세스/배포 전체 검증 분리 | 역할별 운영 설정 회귀 통과. 활성 합성 설정·빈 DB·원본 internal network의 production API/worker runtime smoke 추가, 후속 CI 판정 필요 |
 | A02 KOVO 수집 | transport/factory/worker 및 planner 연결 | 실제 worker + MockTransport·승인 scope·global lease/RPM·재시작 DB 회귀 통과 |
 | A03 네트워크 | 변경 미적용, 명시 승인 대기 | production runtime 실패 미해결 |
 | A04 현재 예측 선택 | 실제 API SQL/UI 수정 | API DB 28 tests 및 UI 회귀 통과 |
@@ -24,7 +25,7 @@
 | A10 페이지 순회 | sync handler 수정 | 페이지·재개 회귀 통과 |
 | A11 설정/마운트 일치 | enum 및 preflight 경로/hash 수정 | 경로 일치/불일치 통과. 개발 Compose 실제 CI 성공, production 전체 접근 검증은 A03 해결 후 필요 |
 | A12 Market | API eligibility 수정, 생성 연결 승인 대기 | API 회귀 통과, 생성 경로 미검증 |
-| A13 재실패 retry | UI 논리 요청 갱신 | frontend 24 tests 통과 |
+| A13 재실패 retry | UI 논리 요청 갱신 | frontend 32 및 실제 PostgreSQL API 29 tests 통과. 실제 worker finish 재실패 뒤 새 키의 두 번째 retry_wait 확인 |
 | A14 coverage/History | 실제 API/UI 계약 수정 | SQL·UI 회귀 통과 |
 | A15 CRLF | 패키지 검사 수정 | LF/CRLF PowerShell 양쪽 통과 |
 | A16 동일 경기 재선택 | 실제 browser 후속 검증에서 발견 | 동일 ID 상세 유지 수정. pending/완료 후 재클릭 회귀·실제 worker 포함 browser 1 test 통과 |

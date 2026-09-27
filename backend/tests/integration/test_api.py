@@ -17,6 +17,7 @@ from vlytics.api.repository import (
     ReadQuery,
     ReadSnapshot,
 )
+from vlytics.ops.repositories.jobs import JobRepository
 
 OPERATOR_HEADERS = {"Authorization": "Bearer synthetic-operator-secret"}
 JOB_ID = "11111111-1111-1111-1111-111111111111"
@@ -1340,6 +1341,91 @@ def test_postgres_operator_retry_function_is_idempotent_and_role_restricted(
         assert first["state"] == "retry_wait"
         assert first["idempotent_replay"] is False
         assert replay["idempotent_replay"] is True
+
+        worker_started_at = requested_at + timedelta(minutes=1)
+        worker_failed_at = worker_started_at + timedelta(seconds=30)
+        with engine.begin() as connection:
+            running = (
+                connection.execute(
+                    text(
+                        """
+                        UPDATE ops.jobs
+                        SET state = 'running',
+                            lease_owner = 'synthetic-worker',
+                            lease_started_at = :started_at,
+                            lease_until = :lease_until,
+                            attempt_no = attempt_no + 1,
+                            error_code = NULL,
+                            updated_at = :started_at
+                        WHERE id = :job_id
+                          AND state = 'retry_wait'
+                        RETURNING state, attempt_no
+                        """
+                    ),
+                    {
+                        "job_id": job_id,
+                        "started_at": worker_started_at,
+                        "lease_until": worker_started_at + timedelta(minutes=1),
+                    },
+                )
+                .mappings()
+                .one()
+            )
+            assert running == {"state": "running", "attempt_no": 1}
+            queue = JobRepository(connection)
+            assert queue.finish(
+                job_id=job_id,
+                lease_owner="synthetic-worker",
+                succeeded=False,
+                error_code="provider_timeout_again",
+                completed_at=worker_failed_at,
+            )
+            failed = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT state, attempt_no, error_code
+                        FROM ops.jobs
+                        WHERE id = :job_id
+                        """
+                    ),
+                    {"job_id": job_id},
+                )
+                .mappings()
+                .one()
+            )
+            assert failed == {
+                "state": "failed",
+                "attempt_no": 1,
+                "error_code": "provider_timeout_again",
+            }
+
+        second_requested_at = requested_at + timedelta(minutes=2)
+        second = repository.request_retry(
+            job_id=str(job_id),
+            idempotency_key=f"api-retry-request-2:{job_id}",
+            requested_at=second_requested_at,
+        )
+        assert second["state"] == "retry_wait"
+        assert second["due_at"] == second_requested_at
+        assert second["idempotent_replay"] is False
+
+        with engine.connect() as connection:
+            final = (
+                connection.execute(
+                    text(
+                        """
+                        SELECT state, attempt_no, error_code
+                        FROM ops.jobs
+                        WHERE id = :job_id
+                        """
+                    ),
+                    {"job_id": job_id},
+                )
+                .mappings()
+                .one()
+            )
+        assert final == {"state": "retry_wait", "attempt_no": 1, "error_code": None}
     finally:
         read_engine.dispose()
         engine.dispose()

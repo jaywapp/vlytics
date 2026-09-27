@@ -393,6 +393,11 @@ restore_login_query vlytics_read_api_login "$restore_read_password" \
 assert_login_denied vlytics_read_api_login "$restore_read_password" \
   "INSERT INTO engine.predictions SELECT * FROM engine.predictions WHERE false;"
 
+VLYTICS_RESTORED_READ_PASSWORD="$restore_read_password" \
+VLYTICS_RESTORED_ENGINE_PASSWORD="$restore_engine_password" \
+  bash "$repository_root/infra/scripts/ci-restored-services-smoke.sh" \
+  "$restore_container" "vlytics-backend:local"
+
 live_run_id="compose-${project}"
 live_manifest="$temporary_directory/live-e2e-manifest.json"
 export VLYTICS_LIVE_E2E_DATABASE_URL="postgresql+psycopg://vlytics_migrator:${MIGRATOR_DATABASE_PASSWORD}@127.0.0.1:${POSTGRES_PORT}/vlytics"
@@ -407,5 +412,7 @@ test -s "$live_manifest"
   VLYTICS_LIVE_E2E_SEED_MANIFEST="$live_manifest" \
     npm run test:e2e:live
 )
+
+bash "$repository_root/infra/scripts/ci-production-internal-smoke.sh"
 
 echo "Compose smoke passed: API, frontend image and proxy, worker restart, migration replay, owner/ACL restore, SCRAM role boundaries, and live browser flow."
