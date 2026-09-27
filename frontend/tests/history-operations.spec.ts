@@ -5,8 +5,10 @@ import { cleanup, render, screen, waitFor, within } from "@testing-library/react
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createHistoryApiClient } from "../src/features/history/api";
 import { HistoryPage } from "../src/features/history/HistoryPage";
 import type { HistoryApiClient, HistoryQuery, PredictionHistoryItem, PredictionHistoryResponse } from "../src/features/history/types";
+import { createOperationsApiClient } from "../src/features/operations/api";
 import { OperationsPage } from "../src/features/operations/OperationsPage";
 import type { CoverageResponse, OperationsApiClient, OperationsResponse } from "../src/features/operations/types";
 
@@ -134,6 +136,7 @@ afterEach(() => {
   cleanup();
   window.history.replaceState({}, "", "/");
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("prediction history", () => {
@@ -187,7 +190,27 @@ describe("prediction history", () => {
     window.history.replaceState({}, "", "/history");
     const client: HistoryApiClient = { getPredictions: vi.fn(() => Promise.resolve(historyResponse([], null))) };
     render(createElement(HistoryPage, { client, onNavigate: vi.fn() }));
-    expect(await screen.findByRole("heading", { name: "조건에 맞는 예측 기록이 없습니다" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "조건에 맞는 예측 기록이 없습니다", level: 2 })).toBeInTheDocument();
+    expect(screen.queryByText("openai · winner")).not.toBeInTheDocument();
+  });
+
+  it("shows a malformed successful response as an error panel", async () => {
+    window.history.replaceState({}, "", "/history");
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        metadata,
+        data: { items: [{ ...prediction, generated_at: "not-a-timestamp" }], next_cursor: null },
+      }),
+    }));
+    render(createElement(HistoryPage, {
+      client: createHistoryApiClient({ token: "fixture-token" }),
+      onNavigate: vi.fn(),
+    }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("API response does not match the prediction history envelope");
     expect(screen.queryByText("openai · winner")).not.toBeInTheDocument();
   });
 
@@ -299,6 +322,33 @@ describe("operations", () => {
     expect(retryJob.mock.calls[1][1]).not.toBe(firstKey);
   });
 
+  it("shows a malformed successful operations response as a section error", async () => {
+    vi.stubGlobal("fetch", vi.fn((input: string | URL | Request) => {
+      const requestUrl = typeof input === "string" ? input : input instanceof URL ? input.href : input.url;
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () => Promise.resolve(requestUrl.includes("/coverage")
+          ? coverageResponse
+        : {
+            ...operationsResponse(),
+            data: {
+              ...operationsResponse().data,
+              items: [{ ...operationsResponse().data.items[0], due_at: "not-a-timestamp" }],
+            },
+          }),
+      });
+    }));
+    render(createElement(OperationsPage, {
+      client: createOperationsApiClient({ token: "fixture-token" }),
+      onNavigate: vi.fn(),
+    }));
+
+    const heading = await screen.findByRole("heading", { name: "작업 상태를 불러오지 못했습니다", level: 3 });
+    expect(heading.closest('[role="alert"]')).toHaveTextContent("API response does not match the operations envelope");
+    expect(screen.queryByText("provider.openai")).not.toBeInTheDocument();
+  });
+
   it("shows independent n0 states for jobs and coverage", async () => {
     const client: OperationsApiClient = {
       getOperations: vi.fn(() => Promise.resolve({ ...operationsResponse(), data: { items: [], budgets: [], next_cursor: null } })),
@@ -306,7 +356,8 @@ describe("operations", () => {
       retryJob: vi.fn(),
     };
     render(createElement(OperationsPage, { client, onNavigate: vi.fn() }));
-    expect(await screen.findByRole("heading", { name: "조건에 맞는 작업이 없습니다" })).toBeInTheDocument();
-    expect(screen.getByRole("heading", { name: "Coverage 기록이 없습니다" })).toBeInTheDocument();
+    expect(await screen.findByRole("heading", { name: "조건에 맞는 작업이 없습니다", level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Coverage 기록이 없습니다", level: 3 })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "비용 기록이 없습니다", level: 3 })).toBeInTheDocument();
   });
 });

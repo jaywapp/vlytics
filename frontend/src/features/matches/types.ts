@@ -120,6 +120,7 @@ export type ScheduleQuery = {
   date: string;
   timezone: "Asia/Seoul";
   division?: Division;
+  cursor?: string;
 };
 
 export interface OperatorApiClient {

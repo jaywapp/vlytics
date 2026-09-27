@@ -457,7 +457,7 @@
   text-align: center;
 }
 
-.state-panel h1 {
+.state-panel :is(h1, h2, h3) {
   margin-bottom: 10px;
   font-size: 24px;
 }
@@ -573,4 +573,17 @@
   .probability-column {
     grid-template-rows: auto 92px auto;
   }
+}
+
+.schedule-pagination {
+  width: 100%;
+  margin-top: var(--space-md);
+}
+
+.schedule-pagination-error {
+  margin-top: var(--space-md);
+}
+
+.schedule-pagination-error .secondary-button {
+  margin-top: var(--space-md);
 }

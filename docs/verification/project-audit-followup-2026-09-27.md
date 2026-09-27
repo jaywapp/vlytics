@@ -1,5 +1,9 @@
 # 전체 프로젝트 후속 점검 — 2026-09-27
 
+## 최신 조치 상태
+
+R01~R06은 코드 `6280185`와 CI 36289935169에서 검증됐다. R07~R09도 UI 수정·단위 32개·fixture 브라우저 9개·lint/typecheck/build가 통과했으며 후속 commit의 통합 CI를 별도 확인한다. 아래 발견은 원 감사 시점의 근거로 보존한다. 기존 네 가지 승인 대기와 실제 운영 검증은 [최신 조치 장부](audit-remediation.md)를 따른다.
+
 ## 판정과 기준
 
 **코드·합성 통합 검증은 크게 보완됐지만, 전체 구현 완료 및 운영 활성화로 판정할 수 없다.** 특히 진행 중인 감시 기능에는 통합 전에 해결할 결함이 남아 있다. 이 보고서는 기존 감사의 해결 항목을 다시 미해결로 세지 않고, 현재 잔여 작업과 이번에 확인한 누락을 구분한다.
@@ -148,3 +152,6 @@ HTTP 200 JSON을 TypeScript 타입으로 cast할 뿐 런타임 구조는 검증�
 위 발견과 코드 hash는 점검 당시의 기록이다. 이후 R01~R06을 수정했다. R01/R02의 실제 Docker 증거는 새 CI에서 확인하며, R03~R05는 dispatcher·실제 health pipeline 22 tests, R06은 실제 DB API 29 tests로 검증했다. 깨끗한 PostgreSQL 전체 회귀 435 tests도 통과했다. export 실패 관측 시각 보완과 추가 회귀가 이어졌으며, 최종 CI 결과는 PR의 해당 commit check를 따른다.
 
 R07~R09는 UI 담당 에이전트가 진행 중이다. 최종 코드·운영 잔여 상태는 [조치 장부](audit-remediation.md)를 따른다. 전체 목표 완료나 운영 활성화를 선언하지 않는다.
+
+
+R01~R06의 [CI 36289935169](https://github.com/jaywapp/vlytics/actions/runs/36289935169)가 `6280185`에서 전체 성공했다. Backend 436 tests와 실제 재시작 후 heartbeat export를 포함한다. 기존 R01/R02의 컨테이너 검증 대기는 이 실행으로 해소됐다. R07~R09 UI는 이 commit의 범위 밖이다.

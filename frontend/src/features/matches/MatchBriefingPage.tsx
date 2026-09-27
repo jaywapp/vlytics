@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ProbabilityChart } from "../../components/ProbabilityChart";
 import { ProviderComparison } from "../../components/ProviderComparison";
@@ -18,6 +18,7 @@ import type {
   MatchSummary,
   OperatorApiClient,
   ProviderOutcome,
+  RevisionMetadata,
   ScheduleResponse,
 } from "./types";
 
@@ -31,6 +32,36 @@ type MatchBriefingPageProps = {
   onSignOut?: () => void;
   initialDate?: string;
 };
+
+type SchedulePaginationState =
+  | { state: "idle" }
+  | { state: "loading" }
+  | { state: "error"; message: string; retryable: boolean; status: number | null };
+
+function mergeUnique(left: string[], right: string[]): string[] {
+  return [...new Set([...left, ...right])];
+}
+
+function mergeMetadata(left: RevisionMetadata, right: RevisionMetadata): RevisionMetadata {
+  const providers = new Set([...Object.keys(left.model_versions), ...Object.keys(right.model_versions)]);
+  return {
+    schema_version: left.schema_version,
+    source_snapshot_ids: mergeUnique(left.source_snapshot_ids, right.source_snapshot_ids),
+    schedule_revision_ids: mergeUnique(left.schedule_revision_ids, right.schedule_revision_ids),
+    prediction_revision_ids: mergeUnique(left.prediction_revision_ids, right.prediction_revision_ids),
+    evaluation_revision_ids: mergeUnique(left.evaluation_revision_ids, right.evaluation_revision_ids),
+    model_versions: Object.fromEntries(
+      [...providers].map((provider) => [
+        provider,
+        mergeUnique(left.model_versions[provider] ?? [], right.model_versions[provider] ?? []),
+      ]),
+    ),
+  };
+}
+
+function isStaleCursorError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "cursor_revision_stale";
+}
 
 const percent = new Intl.NumberFormat("ko-KR", {
   style: "percent",
@@ -389,9 +420,12 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
   const [selectedMatchId, setSelectedMatchId] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("");
   const [schedule, setSchedule] = useState<LoadState<ScheduleResponse>>({ state: "loading" });
+  const [schedulePagination, setSchedulePagination] = useState<SchedulePaginationState>({ state: "idle" });
   const [detail, setDetail] = useState<LoadState<MatchDetailResponse>>({ state: "loading" });
+  const paginationController = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    paginationController.current?.abort();
     const controller = new AbortController();
     client
       .getSchedule(
@@ -402,12 +436,20 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
         },
         controller.signal,
       )
-      .then((value) => setSchedule({ state: "ready", value }))
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        setSchedulePagination({ state: "idle" });
+        setSchedule({ state: "ready", value });
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
+        setSchedulePagination({ state: "idle" });
         setSchedule({ state: "error", ...errorDetails(error) });
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      paginationController.current?.abort();
+    };
   }, [client, date, division, scheduleVersion]);
 
   const matches = schedule.state === "ready" ? schedule.value.data.items : [];
@@ -415,12 +457,72 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
     ? selectedMatchId
     : (matches[0]?.id ?? "");
 
+  async function loadMoreMatches() {
+    if (schedule.state !== "ready" || !schedule.value.data.next_cursor || schedulePagination.state === "loading") {
+      return;
+    }
+    const cursor = schedule.value.data.next_cursor;
+    paginationController.current?.abort();
+    const controller = new AbortController();
+    paginationController.current = controller;
+    setSchedulePagination({ state: "loading" });
+    try {
+      const next = await client.getSchedule(
+        {
+          date,
+          timezone: "Asia/Seoul",
+          division: division === "all" ? undefined : division,
+          cursor,
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if (next.data.next_cursor === cursor) {
+        setSchedulePagination({
+          state: "error",
+          message: "서버가 같은 일정 커서를 다시 반환했습니다.",
+          retryable: false,
+          status: null,
+        });
+        return;
+      }
+      setSchedule((current) => {
+        if (current.state !== "ready" || current.value.data.next_cursor !== cursor) return current;
+        const items = new Map(current.value.data.items.map((match) => [match.id, match]));
+        next.data.items.forEach((match) => items.set(match.id, match));
+        return {
+          state: "ready",
+          value: {
+            metadata: mergeMetadata(current.value.metadata, next.metadata),
+            data: {
+              ...current.value.data,
+              items: [...items.values()],
+              next_cursor: next.data.next_cursor,
+            },
+          },
+        };
+      });
+      setSchedulePagination({ state: "idle" });
+    } catch (error: unknown) {
+      if (controller.signal.aborted) return;
+      if (isStaleCursorError(error)) {
+        setSchedule({ state: "loading" });
+        setScheduleVersion((version) => version + 1);
+        return;
+      }
+      setSchedulePagination({ state: "error", ...errorDetails(error) });
+    }
+  }
+
   useEffect(() => {
     if (!effectiveMatchId) return;
     const controller = new AbortController();
     client
       .getMatch(effectiveMatchId, controller.signal)
-      .then((value) => setDetail({ state: "ready", value }))
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        setDetail({ state: "ready", value });
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setDetail({ state: "error", ...errorDetails(error) });
@@ -532,15 +634,42 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
           />
         ) : (
           <div className="brief-layout">
-            <MatchRail
-              matches={matches}
-              selectedId={effectiveMatchId}
-              onSelect={(matchId) => {
-                if (matchId === effectiveMatchId) return;
-                setDetail({ state: "loading" });
-                setSelectedMatchId(matchId);
-              }}
-            />
+            <div>
+              <MatchRail
+                matches={matches}
+                selectedId={effectiveMatchId}
+                onSelect={(matchId) => {
+                  if (matchId === effectiveMatchId) return;
+                  setDetail({ state: "loading" });
+                  setSelectedMatchId(matchId);
+                }}
+              />
+              {schedule.value.data.next_cursor ? (
+                <button
+                  type="button"
+                  className="secondary-button schedule-pagination"
+                  disabled={schedulePagination.state === "loading"}
+                  onClick={() => void loadMoreMatches()}
+                >
+                  {schedulePagination.state === "loading" ? "다음 경기 불러오는 중" : "다음 경기 불러오기"}
+                </button>
+              ) : null}
+              {schedulePagination.state === "error" ? (
+                <div className="inline-state schedule-pagination-error" role="alert">
+                  <strong>다음 일정을 불러오지 못했습니다</strong>
+                  <p>{schedulePagination.message}</p>
+                  {isAuthenticationError(schedulePagination.status) && onSignOut ? (
+                    <button type="button" className="secondary-button" onClick={onSignOut}>
+                      인증 다시 입력
+                    </button>
+                  ) : schedulePagination.retryable ? (
+                    <button type="button" className="secondary-button" onClick={() => void loadMoreMatches()}>
+                      다시 시도
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             {currentDetail.state === "loading" ? (
               <StatePanel
                 kind="loading"

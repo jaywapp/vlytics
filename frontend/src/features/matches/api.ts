@@ -67,6 +67,7 @@ export function createOperatorApiClient({ token, baseUrl = "" }: ClientOptions):
         limit: "100",
       });
       if (query.division) parameters.set("division", query.division);
+      if (query.cursor) parameters.set("cursor", query.cursor);
       return request<ScheduleResponse>(`/api/v1/schedule?${parameters.toString()}`, signal);
     },
     getMatch(matchId, signal) {

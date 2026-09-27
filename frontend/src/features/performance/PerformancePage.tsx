@@ -108,7 +108,7 @@ function CalibrationPanel({ row }: { row: PerformanceRow }) {
     <section className="performance-section" aria-labelledby="calibration-title">
       <div className="section-heading"><div><p className="eyebrow">Calibration</p><h2 id="calibration-title">예측 확률과 실제 관측률</h2></div><p>서버의 고정 구간과 95% 불확실성 범위를 그대로 표시합니다.</p></div>
       {bins.length === 0 ? (
-        <StatePanel title="보정 집계가 없습니다" description="선택된 서버 코호트가 calibration 구간을 제공하지 않았습니다." />
+        <StatePanel headingLevel={3} title="보정 집계가 없습니다" description="선택된 서버 코호트가 calibration 구간을 제공하지 않았습니다." />
       ) : (
         <>
           <div className="calibration-chart" role="img" aria-label={`${modelLabel(row)} calibration. ${bins.map((bin) => `${calibrationLabel(bin)} 예측 ${formatMetric(bin.mean_probability, "rate")}, 관측 ${formatMetric(bin.observed_rate, "rate")}, n ${bin.sample_size}`).join(". ")}`}>

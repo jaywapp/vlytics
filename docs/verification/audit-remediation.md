@@ -2,6 +2,14 @@
 
 기준: [2026-09-27 전체 프로젝트 감사](project-audit-2026-09-27.md). 현재 변경은 `codex/project-audit-20260927` 작업 브랜치에서 검증 중이며 전체 조치 완료가 아니다. A01~A16은 최초 감사 15개와 실제 브라우저 후속 발견 1개이며, B1~B7은 조건부 개선이다. 기존 테스트 통과를 운영 완료로 확대 해석하지 않는다.
 
+## 최신 조치 상태
+
+- R01~R06: 코드 `6280185` 및 CI 36289935169에서 전체 성공. Backend 436, Windows 34, 실제 재시작 후 heartbeat export·browser·복구·8개 image gate 확인.
+- R07~R09: 일정 cursor/늦은 응답 방어, History/Operations 응답 검증, 문맥별 heading 보완 완료. 로컬 frontend unit 32·fixture E2E 9·lint/typecheck/build 통과, 교차 검토 추가 P1/P2 없음. 이 UI 변경의 CI는 해당 후속 commit에서 별도 판정한다.
+- A03/A08/A12 생성/B1: 자동 승인 거부로 미적용. 운영 host NTP/예약·백업/PITR·실제 알림·source/Provider·게시 release 증거도 미완료.
+
+아래 과거 검사 수치와 진행 중 문구는 실행 이력이며, 최신 판정은 이 요약 및 해당 commit의 CI를 우선한다.
+
 | 항목 | 코드·production 연결 | 합성 검증과 남은 조건 |
 |---|---|---|
 | A01 역할별 secret | 프로세스/배포 전체 검증 분리 | 역할별 운영 설정 회귀 통과, production runtime 필요 |
@@ -116,3 +124,13 @@ R07~R09 UI 보완은 별도 진행 중이다. 승인 대기 A03/A08/A12 생성/B
 
 
 R01~R06 마감 로컬 검증: heartbeat/dispatcher/실제 health pipeline 35 tests, 전체 Ruff/format, mypy 81 source files 통과. 후속 성능 측정은 published event/projection 각 16,500행을 포함하며 전체 Performance p95 1.78초, 최근 시즌 113.03ms, History 첫 페이지 135.20ms로 기존 로컬 budget을 모두 충족했다. 새 CI가 실제 Docker export를 검증하기 전에는 R01/R02의 컨테이너 성공을 주장하지 않는다.
+
+
+[후속 CI 36289935169](https://github.com/jaywapp/vlytics/actions/runs/36289935169)가 코드 `6280185`에서 전체 성공했다. Backend **436 tests**, Windows 34, frontend 24·fixture E2E 9, 실제 Nginx/API/DB browser 1, worker 재시작 이후 heartbeat export, migration replay·owner/ACL/SCRAM restore와 8개 image gate가 통과했다. R01/R02의 실제 컨테이너 검증을 이 실행으로 확인했다. manifest의 PR merge `27fc3111`과 후보 부모 관계, 보고서 hash 16개도 검증했다. UI R07~R09 후속 변경은 이 CI에 포함되지 않으며 별도 실행으로 판정한다.
+
+
+## R07~R09 UI 보완
+
+일정 다음 페이지를 기존 필터/커서로 가져와 중복 없이 누적하고 revision metadata도 병합한다. 페이지 실패 시 기존 목록을 유지하며 stale cursor는 첫 페이지부터 다시 조회한다. 초기 일정·상세·추가 페이지 모두 abort된 늦은 응답을 무시한다. History/Operations는 200 응답의 소비 필드와 metadata를 검증해 잘못된 응답을 오류 패널로 전환한다. 공용 상태 패널은 페이지 h1/섹션 h2/하위 상태 h3로 구분했다.
+
+최종 frontend lint/typecheck/build, unit 32, fixture Playwright 9 tests가 통과했다. root가 unit 32 tests를 다시 확인했으며 교차 리뷰에서 현재 backend 응답과의 충돌을 발견하지 못했다. 실제 Nginx/API/DB 경로는 UI 후속 CI에서 확인한다.

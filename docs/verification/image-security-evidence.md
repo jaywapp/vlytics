@@ -1,5 +1,9 @@
 # 실제 이미지 보안 검사 증거
 
+## 최신 후속 검사
+
+[CI 36289935169](https://github.com/jaywapp/vlytics/actions/runs/36289935169), 후보 `6280185`의 전체 검증이 성공했다. 실제 PR merge revision은 `27fc3111c4f399102bcadbb57f246acfaef1d1b5`이며 부모 `69585df`/`6280185`를 GitHub API에서 확인했다. 8개 image가 모두 HIGH/CRITICAL 0건이고 다운로드한 artifact의 SBOM/취약점 보고서 16개 hash를 manifest와 대조했다. Trivy 0.74.0, 취약점 DB 갱신 시각은 `2026-09-27T00:40:58.172367669Z`다. scope는 `built-ci-images-not-published-release`이며 게시 release 증거로 확대하지 않는다.
+
 ## 최초 검사
 
 [CI 36283661022](https://github.com/jaywapp/vlytics/actions/runs/36283661022), commit `fad7146`의 Trivy 0.74.0 검사 결과다. 7개 이미지의 SBOM과 package inventory, image ID 일치 검증은 완료됐으나 6개 이미지에서 HIGH/CRITICAL이 검출되어 전체 CI는 실패했다. 검출 수는 image별 package/CVE 행 수이며 고유 CVE 수나 실제 공격 가능성 판정이 아니다.
