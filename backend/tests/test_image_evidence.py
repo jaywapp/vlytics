@@ -33,6 +33,7 @@ def runner(
     metadata_error=False,
     malformed_metadata=False,
     repo_digest=None,
+    gosu_builder=None,
 ):
     commands = []
 
@@ -51,6 +52,11 @@ def runner(
                         {
                             "Id": IDENTITY,
                             "RepoDigests": [repo_digest or "public/image@" + IDENTITY],
+                            "Config": {
+                                "Labels": {image_evidence.GOSU_BUILDER_LABEL: gosu_builder}
+                                if gosu_builder
+                                else None
+                            },
                         }
                     ]
                 ),
@@ -264,6 +270,23 @@ def test_release_scope_requires_and_verifies_exact_repo_digests(tmp_path, monkey
         )
 
 
+def test_release_scope_accepts_tagged_reference_for_same_repo_digest(tmp_path, monkeypatch):
+    repo_digest = "public/image@" + IDENTITY
+    tagged_digest = "public/image:stable@" + IDENTITY
+    fake_run, _ = runner(repo_digest=repo_digest)
+    monkeypatch.setattr(image_evidence, "run", fake_run)
+
+    manifest = image_evidence.collect(
+        image_inventory(tagged_digest),
+        tmp_path / "release",
+        revision="c" * 40,
+        scope=image_evidence.RELEASE_SCOPE,
+        now=NOW,
+    )
+
+    assert manifest["passed"] is True
+
+
 def test_release_scope_fails_closed_when_inspected_digest_differs(tmp_path, monkeypatch):
     requested = "public/image@" + IDENTITY
     fake_run, _ = runner(repo_digest="public/other@" + IDENTITY)
@@ -380,3 +403,74 @@ def test_cli_refuses_to_overwrite_existing_evidence_directory(tmp_path, monkeypa
     assert image_evidence.main() == 1
     assert manifest.read_text(encoding="utf-8") == original
     assert "could not be collected" in capsys.readouterr().out
+
+
+def test_gosu_compiler_image_is_scanned_and_bound_to_build_input(tmp_path, monkeypatch):
+    fake_run, _ = runner()
+    monkeypatch.setattr(image_evidence, "run", fake_run)
+    inventory = image_inventory()
+    compiler = "golang@" + IDENTITY
+    inventory["golang"] = compiler
+    manifest = image_evidence.collect(
+        inventory,
+        tmp_path / "compiler",
+        revision="c" * 40,
+        build_inputs={"golang": compiler},
+        now=NOW,
+    )
+    assert manifest["passed"] is True
+    assert {row["label"] for row in manifest["images"]} == image_evidence.BUILD_LABELS
+    assert manifest["build_inputs"]["golang"] == compiler
+
+    with pytest.raises(image_evidence.EvidenceError, match="unscanned_build_toolchain"):
+        image_evidence.collect(
+            image_inventory(),
+            tmp_path / "missing-compiler",
+            revision="c" * 40,
+            build_inputs={"golang": compiler},
+            now=NOW,
+        )
+
+
+def test_labeled_gosu_build_requires_matching_scanned_compiler(tmp_path, monkeypatch):
+    compiler = "golang@" + IDENTITY
+    tagged_compiler = "golang:1.26.8-alpine3.24@" + IDENTITY
+    fake_run, _ = runner(gosu_builder=tagged_compiler)
+    monkeypatch.setattr(image_evidence, "run", fake_run)
+
+    with pytest.raises(image_evidence.EvidenceError, match="unscanned_build_toolchain"):
+        image_evidence.collect(
+            image_inventory(),
+            tmp_path / "missing-compiler-label",
+            revision="c" * 40,
+            now=NOW,
+        )
+
+    inventory = image_inventory()
+    inventory["golang"] = compiler
+    manifest = image_evidence.collect(
+        inventory,
+        tmp_path / "matching-compiler-label",
+        revision="c" * 40,
+        build_inputs={"golang": tagged_compiler},
+        now=NOW,
+    )
+
+    assert manifest["passed"] is True
+    postgres = next(row for row in manifest["images"] if row["label"] == "postgres")
+    assert postgres["gosu_builder"] == tagged_compiler
+
+
+def test_labeled_gosu_build_rejects_different_compiler_digest(tmp_path, monkeypatch):
+    fake_run, _ = runner(gosu_builder="golang@" + OTHER_IDENTITY)
+    monkeypatch.setattr(image_evidence, "run", fake_run)
+    inventory = image_inventory()
+    inventory["golang"] = "golang@" + IDENTITY
+
+    with pytest.raises(image_evidence.EvidenceError, match="unscanned_build_toolchain"):
+        image_evidence.collect(
+            inventory,
+            tmp_path / "different-compiler-label",
+            revision="c" * 40,
+            now=NOW,
+        )

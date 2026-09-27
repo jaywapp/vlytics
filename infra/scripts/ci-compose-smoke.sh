@@ -44,6 +44,36 @@ done
 export VLYTICS_PYTHON_BUILD_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' python:3.12.14-alpine3.24)"
 export VLYTICS_UV_BUILD_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/astral-sh/uv:0.12.5)"
 export VLYTICS_POSTGRES_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' postgres:17.11-alpine)"
+postgres_source_image="$VLYTICS_POSTGRES_IMAGE"
+golang_source_image="golang:1.26.8-alpine3.24@sha256:8ac98ca534ac3f51e1f420a1dd2c15e74c75cfa0f23f3ad27eb5d7236c349a0c"
+docker pull "$golang_source_image" > /dev/null
+docker build --file "$repository_root/infra/images/postgres.Dockerfile" \
+  --build-arg POSTGRES_IMAGE="$postgres_source_image" --tag "$project-postgres:ci" "$repository_root/infra/images"
+export VLYTICS_POSTGRES_IMAGE="$project-postgres:ci"
+python3 - "$repository_root" "$VLYTICS_POSTGRES_IMAGE" "$postgres_source_image" "$golang_source_image" <<'PY'
+import json
+import pathlib
+import subprocess
+import sys
+
+root, postgres, upstream, compiler = sys.argv[1:]
+files = ["gosu.sha256", "gosu-build-metadata.txt", "gosu-module-files.sha256",
+         "gosu-module-verification.txt", "gosu-source-provenance.txt", "gosu-version.txt"]
+evidence = {
+    "schema_version": "gosu-build-provenance-v1",
+    "postgres_upstream": upstream,
+    "compiler": compiler,
+    "image_id": subprocess.check_output(["docker", "image", "inspect", "--format", "{{.Id}}", postgres], text=True).strip(),
+    "files": {
+        name: subprocess.check_output(["docker", "run", "--rm", "--entrypoint", "cat", postgres,
+                                      "/usr/local/share/vlytics/" + name], text=True)
+        for name in files
+    },
+}
+path = pathlib.Path(root) / "artifacts/operations/gosu-build-provenance.json"
+path.parent.mkdir(parents=True, exist_ok=True)
+path.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+PY
 
 compose config --quiet
 compose up --detach --build postgres migrate api worker
@@ -90,7 +120,7 @@ docker build --file "$repository_root/frontend/Dockerfile" \
   --build-arg NODE_IMAGE="$node_image" \
   --build-arg NGINX_IMAGE="$nginx_image" \
   --tag "$frontend_image" "$repository_root/frontend"
-python3 - "$repository_root" "$frontend_image" "$node_image" "$nginx_image" "$node_source_image" "$nginx_source_image" <<'PY'
+python3 - "$repository_root" "$frontend_image" "$node_image" "$nginx_image" "$node_source_image" "$nginx_source_image" "$postgres_source_image" "$golang_source_image" <<'PY'
 import json
 import os
 import pathlib
@@ -103,7 +133,7 @@ path.parent.mkdir(parents=True, exist_ok=True)
 revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
 path.write_text(json.dumps({
     "git_revision": revision,
-    "build_inputs": {"node": sys.argv[5], "nginx": sys.argv[6]},
+    "build_inputs": {"node": sys.argv[5], "nginx": sys.argv[6], "postgres": sys.argv[7], "golang": sys.argv[8]},
     "images": {
         "backend": "vlytics-backend:local",
         "frontend": sys.argv[2],
@@ -112,6 +142,7 @@ path.write_text(json.dumps({
         "postgres": os.environ["VLYTICS_POSTGRES_IMAGE"],
         "node": sys.argv[3],
         "nginx": sys.argv[4],
+        "golang": sys.argv[8],
     },
 }, indent=2) + "\n", encoding="utf-8")
 PY

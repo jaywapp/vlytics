@@ -7,14 +7,17 @@ import hashlib
 import json
 import re
 import subprocess
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
 LABELS = {"backend", "frontend", "python", "uv", "postgres", "node", "nginx"}
+BUILD_LABELS = LABELS | {"golang"}
 IMAGE_ID = re.compile(r"sha256:[a-f0-9]{64}")
 IMAGE_REFERENCE = re.compile(r"[a-z0-9][a-z0-9./:@_-]+")
 DIGEST_REFERENCE = re.compile(r"[a-z0-9][a-z0-9./:_-]+@sha256:[a-f0-9]{64}")
+GOSU_BUILDER_LABEL = "io.vlytics.gosu.builder"
 VULNERABILITY_EXIT = 23
 MAX_DATABASE_AGE = timedelta(hours=48)
 FUTURE_TOLERANCE = timedelta(minutes=5)
@@ -29,23 +32,30 @@ SCHEMAS = {
 class EvidenceError(ValueError):
     """A sanitized evidence contract failure."""
 
-    def __init__(
-        self, code: str, *, records: list[dict[str, Any]] | None = None
-    ) -> None:
+    def __init__(self, code: str, *, records: list[dict[str, Any]] | None = None) -> None:
         super().__init__(code)
         self.code = code
         self.records = records or []
 
 
 def run(arguments: list[str]) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(
-        arguments, capture_output=True, text=True, check=False, timeout=600
-    )
+    return subprocess.run(arguments, capture_output=True, text=True, check=False, timeout=600)
 
 
 def sha256(path: Path) -> str:
     with path.open("rb") as stream:
         return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def _canonical_digest_reference(reference: object) -> str | None:
+    if not isinstance(reference, str) or DIGEST_REFERENCE.fullmatch(reference) is None:
+        return None
+    name, digest = reference.rsplit("@", maxsplit=1)
+    last_slash = name.rfind("/")
+    tag_separator = name.rfind(":")
+    if tag_separator > last_slash:
+        name = name[:tag_separator]
+    return f"{name}@{digest}"
 
 
 def _json_object(value: str, error_code: str) -> dict[str, Any]:
@@ -107,14 +117,10 @@ def _sbom_components(data: dict[str, Any], image_id: str) -> list[dict[str, Any]
     metadata = data.get("metadata")
     component = metadata.get("component") if isinstance(metadata, dict) else None
     properties = component.get("properties") if isinstance(component, dict) else None
-    if not isinstance(properties, list) or any(
-        not isinstance(item, dict) for item in properties
-    ):
+    if not isinstance(properties, list) or any(not isinstance(item, dict) for item in properties):
         raise EvidenceError("invalid_sbom_image_identity")
     identities = [
-        item.get("value")
-        for item in properties
-        if item.get("name") == "aquasecurity:trivy:ImageID"
+        item.get("value") for item in properties if item.get("name") == "aquasecurity:trivy:ImageID"
     ]
     if identities != [image_id]:
         raise EvidenceError("sbom_image_identity_mismatch")
@@ -123,9 +129,7 @@ def _sbom_components(data: dict[str, Any], image_id: str) -> list[dict[str, Any]
         not isinstance(components, list)
         or not components
         or any(
-            not isinstance(item, dict)
-            or not isinstance(item.get("name"), str)
-            or not item["name"]
+            not isinstance(item, dict) or not isinstance(item.get("name"), str) or not item["name"]
             for item in components
         )
     ):
@@ -212,9 +216,22 @@ def scan_one(
             not isinstance(digest, str) for digest in repo_digests
         ):
             raise EvidenceError("invalid_repo_digests")
-        if require_repo_digest and reference not in repo_digests:
+        canonical_reference = _canonical_digest_reference(reference)
+        if require_repo_digest and canonical_reference not in {
+            _canonical_digest_reference(digest) for digest in repo_digests
+        }:
             raise EvidenceError("requested_digest_not_inspected")
         record.update(image_id=image_id, repo_digests=repo_digests)
+        if label == "postgres":
+            config = inspected.get("Config")
+            labels = config.get("Labels") if isinstance(config, dict) else None
+            if labels is not None and not isinstance(labels, dict):
+                raise EvidenceError("invalid_image_labels")
+            builder = (labels or {}).get(GOSU_BUILDER_LABEL)
+            if builder is not None:
+                if _canonical_digest_reference(builder) is None:
+                    raise EvidenceError("invalid_gosu_builder_label")
+                record["gosu_builder"] = builder
         sbom = directory / f"{label}.cdx.json"
         report = directory / f"{label}.vulnerabilities.json"
         common = [
@@ -225,14 +242,10 @@ def scan_one(
             "--image-src",
             "docker",
         ]
-        sbom_result = run(
-            [*common, "--format", "cyclonedx", "--output", str(sbom), image_id]
-        )
+        sbom_result = run([*common, "--format", "cyclonedx", "--output", str(sbom), image_id])
         if sbom_result.returncode:
             raise EvidenceError("sbom_generation_failed")
-        sbom_data = _json_object(
-            sbom.read_text(encoding="utf-8"), "invalid_sbom_format"
-        )
+        sbom_data = _json_object(sbom.read_text(encoding="utf-8"), "invalid_sbom_format")
         components = _sbom_components(sbom_data, image_id)
         record.update(sbom_sha256=sha256(sbom), sbom_components=len(components))
         scan = run(
@@ -254,9 +267,7 @@ def scan_one(
         )
         if scan.returncode not in {0, VULNERABILITY_EXIT}:
             raise EvidenceError("vulnerability_scanner_failed")
-        data = _json_object(
-            report.read_text(encoding="utf-8"), "invalid_vulnerability_report"
-        )
+        data = _json_object(report.read_text(encoding="utf-8"), "invalid_vulnerability_report")
         findings, target_count, package_count = _vulnerability_findings(data, image_id)
         if bool(findings) != (scan.returncode == VULNERABILITY_EXIT):
             raise EvidenceError("scanner_exit_report_mismatch")
@@ -277,21 +288,17 @@ def scan_one(
         AttributeError,
     ) as error:
         record["error_code"] = (
-            error.code
-            if isinstance(error, EvidenceError)
-            else "evidence_collection_failed"
+            error.code if isinstance(error, EvidenceError) else "evidence_collection_failed"
         )
     return record
 
 
-def _validate_inventory(
-    images: object, *, revision: object, scope: str
-) -> dict[str, str]:
+def _validate_inventory(images: object, *, revision: object, scope: str) -> dict[str, str]:
     if scope not in SCHEMAS:
         raise EvidenceError("invalid_evidence_scope")
     if (
         not isinstance(images, dict)
-        or set(images) != LABELS
+        or set(images) not in (LABELS, BUILD_LABELS)
         or not isinstance(revision, str)
         or re.fullmatch(r"[a-f0-9]{40}", revision) is None
         or any(not isinstance(label, str) for label in images)
@@ -314,7 +321,7 @@ def _validate_inventory(
 def _validate_build_inputs(build_inputs: object | None) -> dict[str, str]:
     if build_inputs is None:
         return {}
-    if not isinstance(build_inputs, dict) or not set(build_inputs).issubset(LABELS):
+    if not isinstance(build_inputs, dict) or not set(build_inputs).issubset(BUILD_LABELS):
         raise EvidenceError("invalid_build_inputs")
     typed_inputs = cast(dict[object, object], build_inputs)
     if any(
@@ -336,6 +343,10 @@ def _collect_prepared(
     build_inputs: dict[str, str],
     now: datetime | None,
 ) -> dict[str, Any]:
+    if "golang" in build_inputs and _canonical_digest_reference(
+        images.get("golang")
+    ) != _canonical_digest_reference(build_inputs["golang"]):
+        raise EvidenceError("unscanned_build_toolchain")
     records = [
         scan_one(
             label,
@@ -343,16 +354,20 @@ def _collect_prepared(
             directory,
             require_repo_digest=scope == RELEASE_SCOPE,
         )
-        for label in sorted(LABELS)
+        for label in sorted(images)
     ]
+    postgres = next(record for record in records if record["label"] == "postgres")
+    gosu_builder = postgres.get("gosu_builder")
+    if gosu_builder is not None and _canonical_digest_reference(
+        images.get("golang")
+    ) != _canonical_digest_reference(gosu_builder):
+        raise EvidenceError("unscanned_build_toolchain", records=records)
     current = now or datetime.now(UTC)
     try:
         trivy = _trivy_metadata(now=current)
     except Exception as error:
         error_code = (
-            error.code
-            if isinstance(error, EvidenceError)
-            else "evidence_collection_failed"
+            error.code if isinstance(error, EvidenceError) else "evidence_collection_failed"
         )
         raise EvidenceError(error_code, records=records) from error
     manifest = {
@@ -431,9 +446,7 @@ def main() -> int:
     try:
         arguments.output.mkdir(parents=True, exist_ok=False)
         output_created = True
-        inventory = _json_object(
-            arguments.input.read_text(encoding="utf-8"), "invalid_input"
-        )
+        inventory = _json_object(arguments.input.read_text(encoding="utf-8"), "invalid_input")
         inventory_revision = inventory.get("git_revision")
         if isinstance(inventory_revision, str) and re.fullmatch(
             r"[a-f0-9]{40}", inventory_revision
@@ -464,12 +477,10 @@ def main() -> int:
         )
     except Exception as error:
         error_code = (
-            error.code
-            if isinstance(error, EvidenceError)
-            else "evidence_collection_failed"
+            error.code if isinstance(error, EvidenceError) else "evidence_collection_failed"
         )
         if output_created:
-            try:
+            with suppress(Exception):
                 _write_failure_manifest(
                     arguments.output,
                     scope=arguments.scope,
@@ -478,8 +489,6 @@ def main() -> int:
                     build_inputs=build_inputs_for_failure,
                     images=error.records if isinstance(error, EvidenceError) else [],
                 )
-            except Exception:
-                pass
         print(
             "Image evidence could not be collected; inspect tool availability and input contract."
         )

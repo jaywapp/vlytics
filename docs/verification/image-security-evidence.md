@@ -31,3 +31,9 @@
 애플리케이션 의존성 근거: [FastAPI 0.141.1 Starlette 지원 범위](https://raw.githubusercontent.com/fastapi/fastapi/0.141.1/pyproject.toml), [Starlette 1.3.1](https://github.com/Kludex/starlette/releases/tag/1.3.1), [CVE-2025-62727](https://github.com/advisories/GHSA-7f5h-v6xp-fcq8), [CVE-2026-48818](https://github.com/advisories/GHSA-wqp7-x3pw-xc5r), [CVE-2026-54283](https://github.com/advisories/GHSA-82w8-qh3p-5jfq).
 
 B5 포함 commit `eca2129`의 [CI 36283848936](https://github.com/jaywapp/vlytics/actions/runs/36283848936)에서도 기능 검증(backend 390 tests, Windows 34, frontend 24, fixture E2E 9, 실제 browser 1·복구)은 통과했으며 기존 image의 동일 보안 gate에서 실패했다.
+
+## 보안 업데이트 재검사
+
+[CI 36284623462](https://github.com/jaywapp/vlytics/actions/runs/36284623462), commit `859f489`에서 FastAPI/Starlette 업데이트·Python Alpine 전환·Node/npm 및 Nginx/libexpat 파생 base를 실제 빌드했다. Backend·frontend·Python·Node·Nginx·uv 모두 package inventory/identity/DB 신선도와 HIGH/CRITICAL 0건 gate를 통과했다. 실제 Compose browser와 복구 흐름도 통과했다. 전체 CI는 PostgreSQL upstream gosu의 22행 때문에 실패 상태다.
+
+PostgreSQL의 [gosu 재빌드 후보](gosu-rebuild.md)는 동일 source commit을 고정한 patched Go compiler로만 다시 빌드한다. CI에서 compiler를 여덟 번째 이미지로 검사하고 binary/source/module/build metadata를 별도 `gosu-build-provenance` artifact에 저장한다. 후보가 실제 빌드·PostgreSQL 초기화·복구·8개 image 검사까지 통과해야 해당 항목을 닫을 수 있다.

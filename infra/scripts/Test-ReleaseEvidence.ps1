@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory = $true)][string]$BackendImage,
     [Parameter(Mandatory = $true)][string]$FrontendImage,
     [Parameter(Mandatory = $true)][string[]]$BaseImages,
-    [Parameter(Mandatory = $true)][string]$OutputDirectory
+    [Parameter(Mandatory = $true)][string]$OutputDirectory,
+    [string]$GoBuilderImage
 )
 
 Set-StrictMode -Version 2.0
@@ -17,6 +18,7 @@ foreach ($family in $requiredFamilies) {
     if ($familyImages.Count -ne 1) { throw "Exactly one base image is required for each family." }
     $images[$family] = $familyImages[0]
 }
+if ($GoBuilderImage) { $images["golang"] = $GoBuilderImage }
 foreach ($image in $images.Values) {
     if ($image -notmatch '^[a-z0-9][a-z0-9./:_-]+@sha256:[a-f0-9]{64}$') {
         throw "Every release image must be pinned by digest."
