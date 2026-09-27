@@ -4,6 +4,7 @@
 
 ## 최신 조치 상태
 
+- 최종 코드 후보 `7fa9a6d`: [CI 36291809544](https://github.com/jaywapp/vlytics/actions/runs/36291809544) 전체 성공. Backend 439, frontend 32, fixture E2E 9, 실제 browser 1, Windows 34, 재시작 heartbeat, 동일 복구 DB의 API/worker 및 활성 합성 설정의 production 내부 기동을 통과했다. 원본 internal network와 역할별 secret 주입을 유지했고 source/Provider 작업 0건을 확인했다. 이미지 8개의 HIGH/CRITICAL 0건과 보고서 hash 16개를 확인했다. 아래 CI 실패·대기 문구는 이전 실행 이력이다.
 - R01~R06: 코드 `6280185` 및 CI 36289935169에서 전체 성공. Backend 436, Windows 34, 실제 재시작 후 heartbeat export·browser·복구·8개 image gate 확인.
 - R07~R09: 코드 `3038ba4`의 [CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898) 전체 성공. Backend 436, frontend 32, fixture E2E 9, 실제 Nginx/API/DB browser 1, Windows 34 및 8개 image gate 통과. 실제 merge revision `fea4c2c`와 부모 main `69585df`/후보 `3038ba4` 확인.
 - 추가 인수 검증: R04/R05의 오래된 장애·동일 시각 충돌·crash 후 lease 재전송 테스트와 A13 실제 DB 재실패 후 두 번째 retry 테스트를 보강했다. 각각 로컬 25개(dispatcher+pipeline), 29개(API), 새 PostgreSQL DB 전체 439개 통과. Ruff/format 및 mypy 81개 source file도 통과. A01 production 내부 기동과 A09 복구한 동일 DB의 API/worker smoke를 CI에 추가하며, 컨테이너 실행 결과는 이 후속 commit의 CI에서 판정한다.
@@ -14,7 +15,7 @@
 
 | 항목 | 코드·production 연결 | 합성 검증과 남은 조건 |
 |---|---|---|
-| A01 역할별 secret | 프로세스/배포 전체 검증 분리 | 역할별 운영 설정 회귀 통과. 활성 합성 설정·빈 DB·원본 internal network의 production API/worker runtime smoke 추가, 후속 CI 판정 필요 |
+| A01 역할별 secret | 프로세스/배포 전체 검증 분리 | 역할별 운영 설정 회귀 통과. 활성 합성 설정·빈 DB·원본 internal network의 production API/worker runtime smoke를 CI 36291809544에서 통과. 실제 외부 접근은 A03에 남음 |
 | A02 KOVO 수집 | transport/factory/worker 및 planner 연결 | 실제 worker + MockTransport·승인 scope·global lease/RPM·재시작 DB 회귀 통과 |
 | A03 네트워크 | 변경 미적용, 명시 승인 대기 | production host ingress/외부 egress 검증 미해결 |
 | A04 현재 예측 선택 | 실제 API SQL/UI 수정 | API DB 28 tests 및 UI 회귀 통과 |
@@ -22,7 +23,7 @@
 | A06 경기별 호출 상한 | worker·DB 원장 연결 | 동시 예약 상한 회귀 통과 |
 | A07 결과 finality | repository/factory 수정 | finality DB 계약 8 tests 통과 |
 | A08 Elo 운영 연결 | 변경 미적용, 명시 승인 대기 | 기존 모듈 검증만 존재 |
-| A09 복구 권한 | 별도 관리자·owner/ACL·로그인 검사 연결 | 새 cluster 39 tables/13 migrations/4역할+migrator 및 ACL 통과. 두 공식 DB owner roundtrip 통과. 앞선 복구에서 실제 API 200/401/200 및 worker 1회 통과 |
+| A09 복구 권한 | 별도 관리자·owner/ACL·로그인 검사 연결 | 새 cluster 39 tables/13 migrations/4역할+migrator 및 ACL 통과. 두 공식 DB owner roundtrip 통과. CI 36291809544의 동일 복구 DB에서 실제 API 200/401/200 및 worker poll·quarantined job 불변 통과 |
 | A10 페이지 순회 | sync handler 수정 | 페이지·재개 회귀 통과 |
 | A11 설정/마운트 일치 | enum 및 preflight 경로/hash 수정 | 경로 일치/불일치 통과. 개발 Compose 실제 CI 성공, production 전체 접근 검증은 A03 해결 후 필요 |
 | A12 Market | API eligibility 수정, 생성 연결 승인 대기 | API 회귀 통과, 생성 경로 미검증 |

@@ -2,6 +2,8 @@
 
 ## 최신 조치 상태
 
+최종 코드 후보 `7fa9a6d`의 [CI 36291809544](https://github.com/jaywapp/vlytics/actions/runs/36291809544)가 전체 성공했다. Backend 439 및 추가 production 내부 기동·동일 복구 DB 서비스 재개를 포함한 인수 검증을 통과했다. 기존 네 가지 변경 승인과 실제 운영 증거는 남아 있다.
+
 R01~R06은 코드 `6280185`와 CI 36289935169에서 검증됐다. R07~R09는 코드 `3038ba4`의 [CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898) 전체 성공으로 검증됐다(backend 436, frontend 32, fixture browser 9, 실제 Nginx/API/DB browser 1, Windows 34). R04/R05의 stale fault·동일 시각 충돌·crash/lease 경계 인수 테스트도 추가해 로컬 dispatcher+pipeline 25개가 통과했다. 아래 발견은 원 감사 시점의 근거로 보존한다. 기존 네 가지 승인 대기와 실제 운영 검증은 [최신 조치 장부](audit-remediation.md)를 따른다.
 
 ## 판정과 기준

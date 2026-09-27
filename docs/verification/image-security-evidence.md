@@ -2,6 +2,8 @@
 
 ## 최신 후속 검사
 
+[CI 36291809544](https://github.com/jaywapp/vlytics/actions/runs/36291809544), 코드 후보 `7fa9a6d`도 전체 성공했다. 실제 merge revision `cef852c0d45c9ff32dd7b990b71c7d3e1f355931`의 부모 `69585df`/`7fa9a6d`를 확인했다. Trivy 0.74.0, DB 갱신 `2026-09-27T00:40:58.172367669Z`, 이미지 8개 HIGH/CRITICAL 0건과 다운로드한 보고서 hash 16개를 검증했다. scope는 `built-ci-images-not-published-release`다.
+
 [CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898), 후보 `3038ba4`의 전체 검증이 성공했다. 실제 PR merge revision은 `fea4c2ce923f5d6b90e9fc90a418ea95dbd5f87f`이며 부모 `69585df`/`3038ba4`를 GitHub API에서 확인했다. 8개 image가 모두 HIGH/CRITICAL 0건이고 다운로드한 artifact의 SBOM/취약점 보고서 16개 hash를 manifest와 대조했다. Trivy 0.74.0, 취약점 DB 갱신 시각은 `2026-09-27T00:40:58.172367669Z`다. scope는 `built-ci-images-not-published-release`이며 게시 release 증거로 확대하지 않는다. 앞선 후보 `6280185`의 CI 36289935169도 같은 gate를 통과했다.
 
 ## 최초 검사

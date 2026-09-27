@@ -8,7 +8,7 @@
 
 ## 코드·통합 검증·운영 증거 구분
 
-[CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898)는 UI 후속을 포함한 후보 `3038ba4`의 실제 PR merge commit `fea4c2c`에서 전체 성공했다. 이후 인수 테스트를 보강한 `5e1641b`는 로컬/CI backend 439개와 동일 복구 DB의 API/worker smoke를 통과했다. CI 36291329901은 production health 검사 기대값에서 실패했으며 검사 계약 수정 후 재실행으로 판정한다. 이 결과를 production 배포 완료로 표시하지 않는다.
+[CI 36291809544](https://github.com/jaywapp/vlytics/actions/runs/36291809544)는 최종 코드 후보 `7fa9a6d`의 PR merge commit `cef852c`에서 전체 성공했다. Backend 439, frontend 32, fixture E2E 9, 실제 Nginx/API/DB browser 1, Windows 34, 동일 복구 DB의 API/worker 및 활성 합성 설정을 사용한 production 내부 기동을 통과했다. 원본 internal network와 역할별 secret 주입을 유지하고 source/Provider 작업 0건을 확인했다. 이전 CI 36291329901의 health 기대값 오류는 수정·재검증됐다. 이 결과는 실제 운영 설정·외부 접근·유료 호출·배포의 증거를 대체하지 않는다.
 
 | 범위 | 코드·합성 통합 증거 | production 연결·live 잔여 |
 |---|---|---|
