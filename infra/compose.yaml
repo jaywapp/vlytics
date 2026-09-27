@@ -26,7 +26,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
       args:
-        PYTHON_IMAGE: ${VLYTICS_PYTHON_BUILD_IMAGE:-python:3.12.14-slim}
+        PYTHON_IMAGE: ${VLYTICS_PYTHON_BUILD_IMAGE:-python:3.12.14-alpine3.24}
         UV_IMAGE: ${VLYTICS_UV_BUILD_IMAGE:-ghcr.io/astral-sh/uv:0.12.5}
     environment:
       VLYTICS_MIGRATION_DATABASE_URL: ${MIGRATOR_DATABASE_URL:?MIGRATOR_DATABASE_URL is required}
@@ -45,7 +45,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
       args:
-        PYTHON_IMAGE: ${VLYTICS_PYTHON_BUILD_IMAGE:-python:3.12.14-slim}
+        PYTHON_IMAGE: ${VLYTICS_PYTHON_BUILD_IMAGE:-python:3.12.14-alpine3.24}
         UV_IMAGE: ${VLYTICS_UV_BUILD_IMAGE:-ghcr.io/astral-sh/uv:0.12.5}
     environment:
       VLYTICS_DATABASE_URL: ${READ_API_DATABASE_URL:?READ_API_DATABASE_URL is required}
@@ -69,7 +69,7 @@ services:
       context: ..
       dockerfile: backend/Dockerfile
       args:
-        PYTHON_IMAGE: ${VLYTICS_PYTHON_BUILD_IMAGE:-python:3.12.14-slim}
+        PYTHON_IMAGE: ${VLYTICS_PYTHON_BUILD_IMAGE:-python:3.12.14-alpine3.24}
         UV_IMAGE: ${VLYTICS_UV_BUILD_IMAGE:-ghcr.io/astral-sh/uv:0.12.5}
     environment:
       VLYTICS_DATABASE_URL: ${ENGINE_DATABASE_URL:?ENGINE_DATABASE_URL is required}

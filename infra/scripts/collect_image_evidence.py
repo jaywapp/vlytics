@@ -311,12 +311,29 @@ def _validate_inventory(
     return validated
 
 
+def _validate_build_inputs(build_inputs: object | None) -> dict[str, str]:
+    if build_inputs is None:
+        return {}
+    if not isinstance(build_inputs, dict) or not set(build_inputs).issubset(LABELS):
+        raise EvidenceError("invalid_build_inputs")
+    typed_inputs = cast(dict[object, object], build_inputs)
+    if any(
+        not isinstance(label, str)
+        or not isinstance(reference, str)
+        or DIGEST_REFERENCE.fullmatch(reference) is None
+        for label, reference in typed_inputs.items()
+    ):
+        raise EvidenceError("invalid_build_inputs")
+    return cast(dict[str, str], build_inputs)
+
+
 def _collect_prepared(
     images: dict[str, str],
     directory: Path,
     *,
     revision: str,
     scope: str,
+    build_inputs: dict[str, str],
     now: datetime | None,
 ) -> dict[str, Any]:
     records = [
@@ -345,6 +362,7 @@ def _collect_prepared(
         "trivy_version": trivy["version"],
         "vulnerability_database": trivy["vulnerability_database"],
         "scope": scope,
+        "build_inputs": build_inputs,
         "images": records,
         "passed": all(record["status"] == "passed" for record in records),
     }
@@ -360,15 +378,18 @@ def collect(
     *,
     revision: str,
     scope: str = CI_SCOPE,
+    build_inputs: dict[str, str] | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     validated = _validate_inventory(images, revision=revision, scope=scope)
+    validated_build_inputs = _validate_build_inputs(build_inputs)
     directory.mkdir(parents=True, exist_ok=False)
     return _collect_prepared(
         validated,
         directory,
         revision=revision,
         scope=scope,
+        build_inputs=validated_build_inputs,
         now=now,
     )
 
@@ -379,6 +400,7 @@ def _write_failure_manifest(
     scope: str,
     error_code: str,
     revision: str | None,
+    build_inputs: dict[str, str],
     images: list[dict[str, Any]],
 ) -> None:
     manifest: dict[str, Any] = {
@@ -386,6 +408,7 @@ def _write_failure_manifest(
         "git_revision": revision,
         "created_at_utc": datetime.now(UTC).isoformat(),
         "scope": scope,
+        "build_inputs": build_inputs,
         "images": images,
         "status": "error",
         "error_code": error_code,
@@ -403,6 +426,7 @@ def main() -> int:
     parser.add_argument("--scope", choices=tuple(SCHEMAS), default=CI_SCOPE)
     arguments = parser.parse_args()
     revision_for_failure: str | None = None
+    build_inputs_for_failure: dict[str, str] = {}
     output_created = False
     try:
         arguments.output.mkdir(parents=True, exist_ok=False)
@@ -415,6 +439,7 @@ def main() -> int:
             r"[a-f0-9]{40}", inventory_revision
         ):
             revision_for_failure = inventory_revision
+        build_inputs_for_failure = _validate_build_inputs(inventory.get("build_inputs"))
         revision = run(["git", "rev-parse", "HEAD"])
         changes = run(["git", "status", "--porcelain"])
         if (
@@ -434,6 +459,7 @@ def main() -> int:
             arguments.output,
             revision=cast(str, inventory_revision),
             scope=arguments.scope,
+            build_inputs=build_inputs_for_failure,
             now=None,
         )
     except Exception as error:
@@ -449,6 +475,7 @@ def main() -> int:
                     scope=arguments.scope,
                     error_code=error_code,
                     revision=revision_for_failure,
+                    build_inputs=build_inputs_for_failure,
                     images=error.records if isinstance(error, EvidenceError) else [],
                 )
             except Exception:

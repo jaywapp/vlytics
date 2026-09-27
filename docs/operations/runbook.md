@@ -144,3 +144,11 @@ CI는 실제 smoke에서 빌드한 backend/frontend와 사용한 Python/uv/Postg
 HIGH/CRITICAL 발견, scanner 오류, 비어 있거나 불완전한 보고서, image ID 불일치, 오래되거나 확인할 수 없는 취약점 DB는 CI 실패다. 도구 오류를 취약점 0건으로 처리하지 않는다. scanner의 분석 범위와 취약점 DB 갱신 시점에 따른 결과이며 완전한 보안 인증을 의미하지 않는다. [Trivy image 옵션](https://trivy.dev/docs/dev/references/configuration/cli/trivy_image/)과 [CycloneDX 생성 계약](https://www.trivy.dev/docs/v0.68/guide/supply-chain/sbom/)을 따른다.
 
 이 artifact는 빌드 후보의 검사 증거다. private registry에 게시한 release digest의 증거는 아니므로 실제 릴리스 시 `Test-ReleaseEvidence.ps1` 검증은 계속 필요하다. CI는 image를 registry에 push하거나 운영에 배포하지 않는다.
+
+### 기반 이미지 보안 갱신
+
+개발/CI Python 기본은 `python:3.12.14-alpine3.24`다. FastAPI 0.141.1/Starlette 1.3.1 및 lock의 musllinux wheel을 사용하며 전체 image 실행 검증은 CI 결과를 따른다. 운영은 계속 검증·게시한 digest를 외부 주입한다.
+
+`infra/images/node.Dockerfile`은 digest로 전달한 Node 22 위에서 npm 12.1.0을 설치하고 cache를 제거한다. `infra/images/nginx.Dockerfile`은 digest로 전달한 stable Nginx 위에서 libexpat 2.8.5-r0을 설치한다. CI는 이 파생 기반 image와 최종 frontend를 모두 검사하고 원본 digest를 build input 증거로 남긴다. 이 후보의 실제 scan 결과를 확인하기 전에는 운영용으로 승인하지 않는다.
+
+릴리스 담당자는 동일 Dockerfile과 upstream digest로 파생 base를 빌드·검증하고, 게시된 파생 digest를 frontend의 `NODE_IMAGE`/`NGINX_IMAGE`와 release 검사에 전달한다. private registry의 base repository는 `.../node@sha256:...`, `.../nginx@sha256:...`처럼 family를 식별할 수 있어야 한다. upstream image의 취약 패키지를 그대로 둔 채 이름만 바꾸거나 보고서에서 제외하지 않는다. [실제 검사 기록](../verification/image-security-evidence.md)을 함께 확인한다.

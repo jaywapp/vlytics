@@ -16,6 +16,7 @@ image_evidence = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(image_evidence)
 IDENTITY = "sha256:" + "a" * 64
 OTHER_IDENTITY = "sha256:" + "b" * 64
+UPSTREAM = "docker.io/library/node@sha256:" + "d" * 64
 NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 
 
@@ -162,6 +163,41 @@ def test_manifest_binds_nonempty_reports_to_images_and_database(tmp_path, monkey
     assert commands[-1] == ["trivy", "version", "--format", "json"]
 
 
+def test_manifest_preserves_validated_digest_build_inputs(tmp_path, monkeypatch):
+    fake_run, _ = runner()
+    monkeypatch.setattr(image_evidence, "run", fake_run)
+
+    manifest = image_evidence.collect(
+        image_inventory(),
+        tmp_path / "evidence",
+        revision="c" * 40,
+        build_inputs={"node": UPSTREAM},
+        now=NOW,
+    )
+
+    assert manifest["build_inputs"] == {"node": UPSTREAM}
+
+
+@pytest.mark.parametrize(
+    "build_inputs",
+    [
+        {"unknown": UPSTREAM},
+        {"node": "node:22-alpine"},
+        {"node": "node@sha256:not-a-digest"},
+        [UPSTREAM],
+    ],
+)
+def test_build_inputs_reject_unknown_labels_and_mutable_references(tmp_path, build_inputs):
+    with pytest.raises(image_evidence.EvidenceError, match="invalid_build_inputs"):
+        image_evidence.collect(
+            image_inventory(),
+            tmp_path / "evidence",
+            revision="c" * 40,
+            build_inputs=build_inputs,
+            now=NOW,
+        )
+
+
 @pytest.mark.parametrize(
     ("options", "status", "error"),
     [
@@ -285,6 +321,40 @@ def test_cli_writes_sanitized_manifest_when_post_scan_metadata_fails(
     assert {row["status"] for row in manifest["images"]} == {"passed"}
     assert "sensitive upstream details" not in json.dumps(manifest)
     assert "sensitive upstream details" not in capsys.readouterr().out
+
+
+def test_cli_rejects_malformed_build_inputs_without_echo(tmp_path, monkeypatch, capsys):
+    sensitive_reference = "private.example.invalid/image:secret-tag"
+    inventory = tmp_path / "inventory.json"
+    inventory.write_text(
+        json.dumps(
+            {
+                "git_revision": "c" * 40,
+                "images": image_inventory(),
+                "build_inputs": {"node": sensitive_reference},
+            }
+        ),
+        encoding="utf-8",
+    )
+    output = tmp_path / "evidence"
+    monkeypatch.setattr(
+        sys,
+        "argv",
+        [
+            str(SCRIPT),
+            "--input",
+            str(inventory),
+            "--output",
+            str(output),
+        ],
+    )
+
+    assert image_evidence.main() == 1
+    manifest = json.loads((output / "manifest.json").read_text(encoding="utf-8"))
+    assert manifest["error_code"] == "invalid_build_inputs"
+    assert manifest["build_inputs"] == {}
+    assert sensitive_reference not in json.dumps(manifest)
+    assert sensitive_reference not in capsys.readouterr().out
 
 
 def test_cli_refuses_to_overwrite_existing_evidence_directory(tmp_path, monkeypatch, capsys):

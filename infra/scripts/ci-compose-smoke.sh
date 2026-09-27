@@ -38,10 +38,10 @@ assert_running() {
   test "$(docker inspect --format '{{.State.Running}}' "$container_id")" = true
 }
 
-for image in python:3.12.14-slim ghcr.io/astral-sh/uv:0.12.5 postgres:17.11-alpine; do
+for image in python:3.12.14-alpine3.24 ghcr.io/astral-sh/uv:0.12.5 postgres:17.11-alpine; do
   docker pull "$image" > /dev/null
 done
-export VLYTICS_PYTHON_BUILD_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' python:3.12.14-slim)"
+export VLYTICS_PYTHON_BUILD_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' python:3.12.14-alpine3.24)"
 export VLYTICS_UV_BUILD_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' ghcr.io/astral-sh/uv:0.12.5)"
 export VLYTICS_POSTGRES_IMAGE="$(docker image inspect --format '{{index .RepoDigests 0}}' postgres:17.11-alpine)"
 
@@ -78,11 +78,19 @@ node_image="$(docker image inspect --format '{{index .RepoDigests 0}}' "$VLYTICS
 nginx_image="$(docker image inspect --format '{{index .RepoDigests 0}}' "$VLYTICS_CI_NGINX_IMAGE")"
 [[ "$node_image" == *@sha256:* ]]
 [[ "$nginx_image" == *@sha256:* ]]
+docker build --file "$repository_root/infra/images/node.Dockerfile" \
+  --build-arg NODE_IMAGE="$node_image" --tag "$project-node:ci" "$repository_root/infra/images"
+docker build --file "$repository_root/infra/images/nginx.Dockerfile" \
+  --build-arg NGINX_IMAGE="$nginx_image" --tag "$project-nginx:ci" "$repository_root/infra/images"
+node_source_image="$node_image"
+nginx_source_image="$nginx_image"
+node_image="$project-node:ci"
+nginx_image="$project-nginx:ci"
 docker build --file "$repository_root/frontend/Dockerfile" \
   --build-arg NODE_IMAGE="$node_image" \
   --build-arg NGINX_IMAGE="$nginx_image" \
   --tag "$frontend_image" "$repository_root/frontend"
-python3 - "$repository_root" "$frontend_image" "$node_image" "$nginx_image" <<'PY'
+python3 - "$repository_root" "$frontend_image" "$node_image" "$nginx_image" "$node_source_image" "$nginx_source_image" <<'PY'
 import json
 import os
 import pathlib
@@ -95,6 +103,7 @@ path.parent.mkdir(parents=True, exist_ok=True)
 revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
 path.write_text(json.dumps({
     "git_revision": revision,
+    "build_inputs": {"node": sys.argv[5], "nginx": sys.argv[6]},
     "images": {
         "backend": "vlytics-backend:local",
         "frontend": sys.argv[2],
