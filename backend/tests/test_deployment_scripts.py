@@ -111,3 +111,48 @@ def test_postgres_tools_preserve_tls_and_unset_absent_options(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+@pytest.mark.parametrize("invalid_input", ["duplicate_family", "mutable_backend"])
+def test_release_wrapper_rejects_incomplete_or_mutable_inventory(tmp_path, invalid_input):
+    digest = "a" * 64
+    backend = (
+        "example/backend:latest"
+        if invalid_input == "mutable_backend"
+        else f"example/backend@sha256:{digest}"
+    )
+    families = ["python", "uv", "postgres", "node", "nginx"]
+    if invalid_input == "duplicate_family":
+        families[-1] = "node"
+    bases = ",".join(f"'{family}@sha256:{digest}'" for family in families)
+    script = tmp_path / "release-input.ps1"
+    script.write_text(
+        "param($ReleaseScript, $OutputDirectory)\n"
+        f"& $ReleaseScript -BackendImage '{backend}' "
+        f"-FrontendImage 'example/frontend@sha256:{digest}' "
+        f"-BaseImages @({bases}) -OutputDirectory $OutputDirectory\n",
+        encoding="utf-8",
+    )
+    output = tmp_path / "evidence"
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-File",
+            str(script),
+            str(ROOT / "infra/scripts/Test-ReleaseEvidence.ps1"),
+            str(output),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert result.returncode != 0
+    expected = (
+        "Exactly one base image" if invalid_input == "duplicate_family" else "pinned by digest"
+    )
+    assert expected in result.stderr
+    assert not output.exists()

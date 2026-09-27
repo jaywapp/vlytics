@@ -82,6 +82,31 @@ docker build --file "$repository_root/frontend/Dockerfile" \
   --build-arg NODE_IMAGE="$node_image" \
   --build-arg NGINX_IMAGE="$nginx_image" \
   --tag "$frontend_image" "$repository_root/frontend"
+python3 - "$repository_root" "$frontend_image" "$node_image" "$nginx_image" <<'PY'
+import json
+import os
+import pathlib
+import subprocess
+import sys
+
+root = pathlib.Path(sys.argv[1])
+path = root / "artifacts/operations/ci-image-inputs.json"
+path.parent.mkdir(parents=True, exist_ok=True)
+revision = subprocess.check_output(["git", "-C", str(root), "rev-parse", "HEAD"], text=True).strip()
+path.write_text(json.dumps({
+    "git_revision": revision,
+    "images": {
+        "backend": "vlytics-backend:local",
+        "frontend": sys.argv[2],
+        "python": os.environ["VLYTICS_PYTHON_BUILD_IMAGE"],
+        "uv": os.environ["VLYTICS_UV_BUILD_IMAGE"],
+        "postgres": os.environ["VLYTICS_POSTGRES_IMAGE"],
+        "node": sys.argv[3],
+        "nginx": sys.argv[4],
+    },
+}, indent=2) + "\n", encoding="utf-8")
+PY
+
 docker run --detach --name "$frontend_container" --init \
   --network "$project"_default --read-only --user 101:101 \
   --cap-drop ALL --security-opt no-new-privileges:true \

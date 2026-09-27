@@ -111,6 +111,26 @@ jobs:
           VLYTICS_OPERATOR_AUTH_SECRET: compose-ci-operator
           VLYTICS_READONLY_AUTH_SECRET: compose-ci-readonly
         run: bash ../infra/scripts/ci-compose-smoke.sh
+      - name: Install pinned image evidence scanner
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-bin"
+          curl --fail --silent --show-error --location \
+            https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz \
+            --output "$RUNNER_TEMP/trivy.tar.gz"
+          printf '%s  %s\n' '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a' "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP/trivy-bin" trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+      - name: Record image SBOM and vulnerability gate
+        id: image_scanner
+        run: python ../infra/scripts/collect_image_evidence.py --input ../artifacts/operations/ci-image-inputs.json --output ../artifacts/operations/image-evidence
+      - name: Preserve image evidence
+        if: always() && steps.image_scanner.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-image-evidence
+          path: artifacts/operations/image-evidence/*.json
+          if-no-files-found: error
+          retention-days: 14
       - name: Preserve synthetic live browser failure evidence
         if: failure()
         uses: actions/upload-artifact@v4

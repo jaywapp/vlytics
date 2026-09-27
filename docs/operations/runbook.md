@@ -134,4 +134,13 @@ Upgrade 전 현재 image digest, config hash, migration checksum, backup hash를
 
 backend Dockerfile은 `PYTHON_IMAGE`와 `UV_IMAGE` build argument를 요구한다. production build에는 `VLYTICS_PYTHON_BUILD_IMAGE`·`VLYTICS_UV_BUILD_IMAGE`의 승인된 digest를 전달한다. Node/Nginx, PostgreSQL 및 최종 backend/frontend image도 digest로 고정한다. 개발용 Compose만 태그 기본값을 허용하며 CI smoke는 pull 결과의 digest를 실제 build에 전달한다.
 
-깨끗한 release commit에서 Docker와 Trivy가 설치된 검증 host가 `infra/scripts/Test-ReleaseEvidence.ps1 -BackendImage <backend digest> -FrontendImage <frontend digest> -BaseImages <python,uv,postgres,node,nginx digest 목록> -OutputDirectory <비공개 산출물 경로>`를 실행한다. 모든 image의 CycloneDX SBOM, HIGH/CRITICAL 취약점 보고서, 결과 hash와 git revision을 남긴다. 도구 부재·scan 실패·취약점 gate 실패를 성공으로 처리하지 않는다. 이 스크립트는 image를 push하거나 배포하지 않는다. 실제 보고서와 검토자 기록이 없으면 릴리스 증거 완료로 표시하지 않는다.
+깨끗한 release commit에서 Python 3.12 이상·Docker·Trivy가 설치된 검증 host가 `infra/scripts/Test-ReleaseEvidence.ps1 -BackendImage <backend digest> -FrontendImage <frontend digest> -BaseImages <python,uv,postgres,node,nginx digest 목록> -OutputDirectory <비공개 산출물 경로>`를 실행한다. Python 공용 collector를 `published-release` 모드로 호출하여 7개 image의 CycloneDX SBOM, HIGH/CRITICAL 취약점 보고서, 결과 hash와 git revision을 `manifest.json`에 남긴다. base image는 Python/uv/PostgreSQL/Node/Nginx 각 1개씩 정확히 5개가 필요하며 출력 디렉토리는 새 경로여야 한다. 도구 부재·scan 실패·취약점 gate 실패를 성공으로 처리하지 않는다. 이 스크립트는 image를 push하거나 배포하지 않는다. 실제 보고서와 검토자 기록이 없으면 릴리스 증거 완료로 표시하지 않는다.
+
+
+### CI image 사전 검사
+
+CI는 실제 smoke에서 빌드한 backend/frontend와 사용한 Python/uv/PostgreSQL/Node/Nginx base image를 검사한다. `infra/scripts/collect_image_evidence.py`는 tag를 한 번 Docker image ID로 해석한 뒤 그 불변 ID만 scan에 전달한다. SBOM은 CycloneDX, 취약점 보고서는 JSON으로 저장하며 SBOM과 취약점 보고서 각각의 image ID·git commit·도구 version·취약점 DB 갱신/다운로드 시각·결과 파일 hash를 `ci-image-evidence` artifact에 남긴다. official Trivy 0.74.0 Linux 배포는 확인한 SHA-256으로 고정한다.
+
+HIGH/CRITICAL 발견, scanner 오류, 비어 있거나 불완전한 보고서, image ID 불일치, 오래되거나 확인할 수 없는 취약점 DB는 CI 실패다. 도구 오류를 취약점 0건으로 처리하지 않는다. scanner의 분석 범위와 취약점 DB 갱신 시점에 따른 결과이며 완전한 보안 인증을 의미하지 않는다. [Trivy image 옵션](https://trivy.dev/docs/dev/references/configuration/cli/trivy_image/)과 [CycloneDX 생성 계약](https://www.trivy.dev/docs/v0.68/guide/supply-chain/sbom/)을 따른다.
+
+이 artifact는 빌드 후보의 검사 증거다. private registry에 게시한 release digest의 증거는 아니므로 실제 릴리스 시 `Test-ReleaseEvidence.ps1` 검증은 계속 필요하다. CI는 image를 registry에 push하거나 운영에 배포하지 않는다.
