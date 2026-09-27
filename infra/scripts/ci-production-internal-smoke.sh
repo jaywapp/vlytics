@@ -275,7 +275,7 @@ test "$(docker inspect --format '{{.State.ExitCode}}' "$migrate_id")" = 0
 api_ready=false
 for attempt in $(seq 1 60); do
   if compose exec -T api python -c \
-    "import json,urllib.request; value=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)); assert value == {'status':'ok','service':'vlytics-api'}"; then
+    "import json,urllib.request; from vlytics import __version__; value=json.load(urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)); assert value == {'status':'ok','service':'vlytics-api','version':__version__}"; then
     api_ready=true
     break
   fi

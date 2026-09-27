@@ -8,14 +8,14 @@
 
 ## 코드·통합 검증·운영 증거 구분
 
-[CI 36289935169](https://github.com/jaywapp/vlytics/actions/runs/36289935169)는 코드 후보 `6280185`의 실제 PR merge commit `27fc3111`을 검증했다. R07~R09 UI 후속 변경은 로컬 32 tests·fixture E2E 9·build를 통과했으며 해당 commit CI를 별도로 확인한다. 이 결과를 production 배포 완료로 표시하지 않는다.
+[CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898)는 UI 후속을 포함한 후보 `3038ba4`의 실제 PR merge commit `fea4c2c`에서 전체 성공했다. 이후 인수 테스트를 보강한 `5e1641b`는 로컬/CI backend 439개와 동일 복구 DB의 API/worker smoke를 통과했다. CI 36291329901은 production health 검사 기대값에서 실패했으며 검사 계약 수정 후 재실행으로 판정한다. 이 결과를 production 배포 완료로 표시하지 않는다.
 
 | 범위 | 코드·합성 통합 증거 | production 연결·live 잔여 |
 |---|---|---|
 | 설정·기동 | 서비스별 secret 검증, config/mount hash, Windows 배포 34 tests | A03 네트워크 변경 승인 후 production Compose host 접근 재검증 |
 | 수집·결과·retry | 동일 worker handler의 transport/planner·pagination·finality·deadline·호출 cap 회귀 | OP-001/003/004 및 실제 소량 source/Provider 실행 |
 | 통계·입력·Market | 독립 모듈·계약, API snapshot/eligibility 회귀 | A08 Elo, B1 roster/stats, A12 Market 생성 연결 승인 대기 |
-| API·Web | backend 436 tests, frontend 32 로컬·fixture E2E 9·실제 Nginx/API/DB browser 1(6280185 CI) | 실제 운영 데이터·production 네트워크 성능은 별도 |
+| API·Web | backend 439 tests, frontend 32·fixture E2E 9·실제 Nginx/API/DB browser 1 | 실제 운영 데이터·production 네트워크 성능은 별도 |
 | 복구·감시 | 새 cluster owner/ACL/SCRAM 복구, read-only collector, heartbeat export 및 선택적 HTTPS dispatcher 합성 회귀 | 운영 host NTP/heartbeat 전달·예약 backup/PITR·실제 알림 수신 |
 | image 보안 | compiler 포함 8개 image SBOM·identity·HIGH/CRITICAL 0건, gosu provenance 검증 | 게시 release digest 및 대상 architecture의 검사·승인 |
 | 조회 성능 | endpoint WHERE/keyset, 22시즌 경기 5,500·예측/평가 각 16,500의 실제 API 지연·Python peak 측정 및 로컬 회귀 budget 충족 | 운영 동시 쓰기·다중 사용자·서버 메모리와 production SLO 검증은 별도 |
