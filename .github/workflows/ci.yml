@@ -111,6 +111,16 @@ jobs:
           VLYTICS_OPERATOR_AUTH_SECRET: compose-ci-operator
           VLYTICS_READONLY_AUTH_SECRET: compose-ci-readonly
         run: bash ../infra/scripts/ci-compose-smoke.sh
+      - name: Preserve synthetic live browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-live-browser-failure
+          path: |
+            frontend/tests/live-e2e/artifacts/test-results/**/error-context.md
+            frontend/tests/live-e2e/artifacts/test-results/**/test-failed-*.png
+          if-no-files-found: ignore
+          retention-days: 3
 
   frontend:
     runs-on: ubuntu-latest
