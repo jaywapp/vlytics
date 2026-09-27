@@ -26,7 +26,7 @@
 | ID | 범위 | 상태 |
 |---|---|---|
 | B1 | 검증된 roster/stats Feature | 생산 입력 연결 변경이 자동 승인 검토에서 거부되어 미적용·명시 승인 대기. 미검증 source 의미는 missing |
-| B2 | 실제 browser→Nginx→API→DB | 실제 seed·browser spec·CI hook 추가. seed/실제 API 검증 통과, Nginx browser leg CI 실행 대기 |
+| B2 | 실제 browser→Nginx→API→DB | 실제 seed·browser spec·CI hook 추가. seed/실제 API 검증 통과, Nginx browser leg CI 실행 36282222862 통과 |
 | B3 | 장기 조회 성능 | endpoint SQL/keyset, 5,500 합성 경기 benchmark: 반환 99.35% 감소, scoped p50 9.23ms. API DB 28 tests 통과 |
 | B4 | TLS·일관 backup snapshot | 옵션 보존 unit 및 exported snapshot restore drill 통과 |
 | B5 | backup·alert·clock·heartbeat | 읽기 전용 감시 CLI·합성 12 tests, production poll heartbeat 연결. host 수집·예약·전송 증거 대기 |
@@ -52,7 +52,7 @@
 
 - 별도 SCRAM PostgreSQL cluster의 깨끗한 template 복제 DB에서 백엔드 전체 360 tests 통과. API 교차 검토와 DB owner 보완을 포함한 최종 전체 회귀 결과다.
 - 복구 drill은 새 cluster에서 39 tables·13 migrations, 4개 서비스 로그인과 migrator 로그인, database-level ACL·별도 cluster 경계를 통과했다. 실제 API 200/401/200 및 worker 1회 검증은 앞선 복구 실행에서 확인했다.
-- 로컬 Docker/Trivy가 없어 Nginx를 포함한 Compose browser 경로와 image SBOM/취약점 scan은 실행하지 못했다. CI hook 또는 스크립트 추가만으로 해당 항목을 통과 처리하지 않는다.
+- 로컬 Docker/Trivy는 없다. Nginx를 포함한 Compose browser 경로는 CI 36282222862에서 통과했고 image SBOM/취약점 scan은 미실행이다. 스크립트 추가만으로 release scan을 통과 처리하지 않는다.
 - API 추가 교차 검토 범위: 실패 attempt와 prediction 출처 구분, 평가에 고정된 Market snapshot 연결, lifecycle 변경에 따른 cursor 무효화, History 과거 team 식별, Performance 조회 cohort 제한, model 필터의 variant 선택 순서.
 
 - 최종 프런트엔드 lint/typecheck·단위 24 tests·production build·fixture Playwright 9 tests 통과. Backend Ruff check/format·mypy 78 source files·PowerShell syntax 통과.
@@ -68,3 +68,9 @@
 - 후속 fresh DB CI에서 이미 선택된 경기 재클릭의 loading 고착(A16)을 확인했다. 여러 경기가 있는 로컬 검증과 데이터 조건이 달랐으며, 실제 UI 수정·단일 경기 회귀로 처리한다.
 
 - A16 수정 후 실제 worker(source/Provider 비활성) + PostgreSQL + FastAPI + Vite browser 전체 1 test, 관련 실제 DB API 28 tests, frontend 24 tests 통과. seed는 production ResultEvaluator/cohort를 사용하며 worker 후 단일 평가 행 n=1을 확인했다.
+
+## 코드 검증 최종 결과
+
+[CI 36282222862](https://github.com/jaywapp/vlytics/actions/runs/36282222862)가 코드 commit `9f43bab`에서 전체 성공했다. Linux backend·frontend·Windows deployment 검사, 실제 Nginx→FastAPI→PostgreSQL browser 전체 흐름, worker 재시작, owner/ACL 보존 복구와 SCRAM 서비스 4개+migrator 로그인 검증을 포함한다. 이후 이 결과를 기록한 변경은 문서만이다.
+
+A03·A08·A12 생성·B1의 자동 승인 거부와 운영 호스트·실제 source/Provider·PITR·알림·release scan 증거는 여전히 미완료다. CI 성공을 production 활성화 승인이나 전체 목표 완료로 해석하지 않는다. 수정은 [초안 PR #12](https://github.com/jaywapp/vlytics/pull/12)에 있으며 병합하지 않았다.

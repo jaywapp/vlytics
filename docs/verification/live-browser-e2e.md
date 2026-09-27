@@ -46,3 +46,7 @@ frontend 디렉토리에서 `npm run test:e2e:live`를 실행한다. 전용 `pla
 운영 token·실제 데이터는 입력하지 않는다. 현재 로컬 환경에는 Docker CLI가 없어 Nginx container를 통한 브라우저 구간을 실행하지 못했다. seed 제약과 실제 API 응답은 검증했고, 브라우저 구간은 image 실행이 가능한 CI에서 확인해야 한다.
 
 이 검증은 production Compose의 network 문제를 해결하지 않는다. frontend origin에 접근할 수 있는 환경에서 Nginx → FastAPI → PostgreSQL 흐름을 검사하며, production ingress·egress·internal network 정책은 변경하지 않는다.
+
+## CI 실행 결과
+
+코드 commit `9f43bab`의 [CI 36282222862](https://github.com/jaywapp/vlytics/actions/runs/36282222862)에서 실제 Nginx image→FastAPI→PostgreSQL 전체 browser 흐름이 통과했다. 같은 실행에서 worker 재시작과 owner/ACL·SCRAM 복구 경계도 통과했다. production 전용 Compose의 네트워크 승인 항목은 별도 미완료 상태다.
