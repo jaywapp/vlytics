@@ -16,9 +16,10 @@
 | A10 페이지 순회 | sync handler 수정 | 페이지·재개 회귀 통과 |
 | A11 설정/마운트 일치 | enum 및 preflight 경로/hash 수정 | 경로 일치/불일치 통과, 실제 Compose 확인 필요 |
 | A12 Market | API eligibility 수정, 생성 연결 승인 대기 | API 회귀 통과, 생성 경로 미검증 |
-| A13 재실패 retry | UI 논리 요청 갱신 | frontend 23 tests 통과 |
+| A13 재실패 retry | UI 논리 요청 갱신 | frontend 24 tests 통과 |
 | A14 coverage/History | 실제 API/UI 계약 수정 | SQL·UI 회귀 통과 |
 | A15 CRLF | 패키지 검사 수정 | LF/CRLF PowerShell 양쪽 통과 |
+| A16 동일 경기 재선택 | 실제 browser 후속 검증에서 발견 | 동일 ID 상세 유지 수정. pending/완료 후 재클릭 회귀·실제 worker 포함 browser 1 test 통과 |
 
 ## 조건부 개선
 
@@ -54,7 +55,7 @@
 - 로컬 Docker/Trivy가 없어 Nginx를 포함한 Compose browser 경로와 image SBOM/취약점 scan은 실행하지 못했다. CI hook 또는 스크립트 추가만으로 해당 항목을 통과 처리하지 않는다.
 - API 추가 교차 검토 범위: 실패 attempt와 prediction 출처 구분, 평가에 고정된 Market snapshot 연결, lifecycle 변경에 따른 cursor 무효화, History 과거 team 식별, Performance 조회 cohort 제한, model 필터의 variant 선택 순서.
 
-- 최종 프런트엔드 lint/typecheck·단위 23 tests·production build·fixture Playwright 9 tests 통과. Backend Ruff check/format·mypy 78 source files·PowerShell syntax 통과.
+- 최종 프런트엔드 lint/typecheck·단위 24 tests·production build·fixture Playwright 9 tests 통과. Backend Ruff check/format·mypy 78 source files·PowerShell syntax 통과.
 
 ## 실제 CI에서 추가 확인한 배선
 
@@ -63,3 +64,7 @@
 - [CI 실행 36280349964](https://github.com/jaywapp/vlytics/actions/runs/36280349964)에서 실제 Nginx 인증 401/403/200, worker 재시작, 새 cluster owner/ACL 복구와 SCRAM 5로그인 경계를 통과했다. 마지막 브라우저 흐름은 경기 확률 제목의 기대값에서 실패해 후속 수정·실행으로 판정한다. 이 실행 전체를 성공으로 표시하지 않는다.
 
 - 후속 live spec은 지정 경기 클릭·통계 58%/GPT 64% 전환·History·retry·고유 performance cohort 평가값을 검증한다. 실제 PostgreSQL/FastAPI/Vite proxy 전체 흐름 1 test 통과. Nginx 경로는 수정 후 CI로 최종 확인한다.
+
+- 후속 fresh DB CI에서 이미 선택된 경기 재클릭의 loading 고착(A16)을 확인했다. 여러 경기가 있는 로컬 검증과 데이터 조건이 달랐으며, 실제 UI 수정·단일 경기 회귀로 처리한다.
+
+- A16 수정 후 실제 worker(source/Provider 비활성) + PostgreSQL + FastAPI + Vite browser 전체 1 test, 관련 실제 DB API 28 tests, frontend 24 tests 통과. seed는 production ResultEvaluator/cohort를 사용하며 worker 후 단일 평가 행 n=1을 확인했다.

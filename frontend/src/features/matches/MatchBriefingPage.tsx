@@ -536,6 +536,7 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
               matches={matches}
               selectedId={effectiveMatchId}
               onSelect={(matchId) => {
+                if (matchId === effectiveMatchId) return;
                 setDetail({ state: "loading" });
                 setSelectedMatchId(matchId);
               }}

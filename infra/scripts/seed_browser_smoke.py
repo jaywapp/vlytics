@@ -18,6 +18,20 @@ from zoneinfo import ZoneInfo
 
 from sqlalchemy import create_engine, text
 
+from vlytics.engine.evaluation import (
+    COHORT_POLICY_VERSION,
+    EVALUATOR_VERSION,
+    CohortKey,
+    PredictionEvaluationInput,
+    ResultEvaluator,
+    ResultRevision,
+)
+from vlytics.engine.market import (
+    EVALUATOR_VERSION as MARKET_EVALUATOR_VERSION,
+    EvaluationEligibility,
+    MarketEvaluation,
+)
+
 
 def identifier(run_id: str, name: str) -> UUID:
     return uuid5(NAMESPACE_URL, f"https://vlytics.test/live-e2e/{run_id}/{name}")
@@ -318,31 +332,66 @@ def seed(database_url: str, run_id: str) -> dict[str, object]:
             """,
                 {"id": ids["result"], "match_id": ids["match"], "now": now, "raw_id": ids["raw"]},
             )
-            for provider, probability in (("openai", 0.64), ("statistical", 0.58)):
-                metric_values = {
-                    "eligible": True,
-                    "home_win_probability": probability,
-                    "home_win_outcome": 1,
-                    "brier": (1 - probability) ** 2,
-                    "log_loss": 0.446 if provider == "openai" else 0.545,
-                    "winner_accuracy": 1.0,
-                    "cohort": {
-                        "division": "women",
-                        "competition": competition,
-                        "stage": "regular",
-                        "provider": provider,
-                        "model_version": "live-openai-model"
-                        if provider == "openai"
-                        else "live-stat-model",
-                        "prompt_version": "live-prompt-v1"
-                        if provider == "openai"
-                        else "not-applicable",
-                        "feature_version": "live-feature-v1",
-                        "availability_policy": "live_prospective",
-                        "timing_eligibility": "on_time",
-                        "result_finality": "final",
-                    },
-                }
+            result = ResultRevision(
+                result_revision_id=str(ids["result"]),
+                match_id=str(ids["match"]),
+                revision=1,
+                finality="final",
+                home_sets=3,
+                away_sets=1,
+                home_points=96,
+                away_points=84,
+            )
+            for provider, output in (
+                ("openai", output_openai),
+                ("statistical", output_statistical),
+            ):
+                model_version = (
+                    "live-openai-model" if provider == "openai" else "live-stat-model"
+                )
+                prompt_version = (
+                    "live-prompt-v1" if provider == "openai" else "not-applicable"
+                )
+                prediction = PredictionEvaluationInput(
+                    prediction_id=str(ids[f"prediction-{provider}"]),
+                    match_id=str(ids["match"]),
+                    schedule_revision_id=str(ids["schedule"]),
+                    snapshot_id=str(ids["feature"]),
+                    input_cutoff_at=cutoff,
+                    cohort=CohortKey(
+                        division="women",
+                        competition=competition,
+                        stage="regular",
+                        provider=provider,
+                        model_version=model_version,
+                        prompt_version=prompt_version,
+                        feature_version="live-feature-v1",
+                        availability_policy="live_prospective",
+                        timing_eligibility="on_time",
+                        result_finality="final",
+                    ),
+                    home_win_probability=float(output["home_win_probability"]),
+                    set_score_probabilities=(
+                        {
+                            str(item["outcome"]): float(item["probability"])
+                            for item in output.get("set_score_probabilities", [])
+                        }
+                        or None
+                    ),
+                )
+                evaluation = ResultEvaluator().evaluate(
+                    prediction,
+                    result,
+                    market_evaluation=MarketEvaluation(
+                        prediction_id=prediction.prediction_id,
+                        match_id=prediction.match_id,
+                        snapshot_id=None,
+                        evaluator_version=MARKET_EVALUATOR_VERSION,
+                        eligibility=EvaluationEligibility.MISSING,
+                        reason="no_market_evaluation_for_prediction",
+                        lines=(),
+                    ),
+                )
                 insert(
                     connection,
                     """
@@ -350,9 +399,9 @@ def seed(database_url: str, run_id: str) -> dict[str, object]:
                         id, match_id, prediction_id, result_revision_id,
                         evaluator_version, cohort_policy_version, metric_values, settlement
                     ) VALUES (:id, :match_id, :prediction_id, :result_id,
-                              'live-evaluator-v1', 'live-cohort-v1',
+                              :evaluator_version, :cohort_policy_version,
                               CAST(:metrics AS jsonb),
-                              '{"market_status":"missing","market":[]}'::jsonb)
+                              CAST(:settlement AS jsonb))
                     ON CONFLICT DO NOTHING
                 """,
                     {
@@ -360,7 +409,10 @@ def seed(database_url: str, run_id: str) -> dict[str, object]:
                         "match_id": ids["match"],
                         "prediction_id": ids[f"prediction-{provider}"],
                         "result_id": ids["result"],
-                        "metrics": json.dumps(metric_values),
+                        "evaluator_version": EVALUATOR_VERSION,
+                        "cohort_policy_version": COHORT_POLICY_VERSION,
+                        "metrics": json.dumps(evaluation.metric_values()),
+                        "settlement": json.dumps(evaluation.settlement_values()),
                     },
                 )
             insert(

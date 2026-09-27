@@ -1,7 +1,7 @@
 import "@testing-library/jest-dom/vitest";
 
 import { createElement } from "react";
-import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -66,6 +66,41 @@ describe("match briefing flow", () => {
     expect(screen.getByText("market-match-1")).toBeInTheDocument();
     expect(screen.getByText("feature-match-1")).toBeInTheDocument();
     expect(screen.getByText("이 시각까지 고정된 입력만 사용")).toBeInTheDocument();
+  });
+
+  it("keeps the selected match detail while its active button is clicked again", async () => {
+    const user = userEvent.setup();
+    let resolveDetail!: (value: MatchDetailResponse) => void;
+    const getMatch = vi.fn(
+      () =>
+        new Promise<MatchDetailResponse>((resolve) => {
+          resolveDetail = resolve;
+        }),
+    );
+    const client: OperatorApiClient = {
+      dataMode: "synthetic-test",
+      getSchedule: () => Promise.resolve(serializedApiFixture.schedule),
+      getMatch,
+    };
+    renderBriefing(client);
+
+    const selectedMatch = (await screen.findAllByRole("button", { name: /Home Club/ })).find(
+      (button) => button.getAttribute("aria-pressed") === "true",
+    );
+    if (!selectedMatch) throw new Error("the first schedule match must be selected");
+    expect(selectedMatch).toHaveAttribute("aria-pressed", "true");
+    await user.click(selectedMatch);
+    expect(getMatch).toHaveBeenCalledOnce();
+
+    act(() => {
+      resolveDetail(serializedApiFixture.match);
+    });
+    const heading = await screen.findByRole("heading", { name: /Home Club 승리 확률 60%/ });
+    await user.click(selectedMatch);
+
+    expect(heading).toBeVisible();
+    expect(screen.queryByText("경기 분석을 불러오는 중입니다")).not.toBeInTheDocument();
+    expect(getMatch).toHaveBeenCalledOnce();
   });
 
   it("supports keyboard match selection and exposes missing market without invented values", async () => {

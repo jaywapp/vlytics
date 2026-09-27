@@ -1659,7 +1659,7 @@ def test_postgres_performance_companions_stay_within_filtered_evaluation_matches
                     "feature_version": "live-feature-v1",
                     "availability_policy": "live_prospective",
                     "timing_eligibility": "on_time",
-                    "evaluator_version": "live-evaluator-v1",
+                    "evaluator_version": "result-evaluator-v1",
                     "provider": "openai",
                     "model": "live-openai-model",
                     "prediction_type": "winner",

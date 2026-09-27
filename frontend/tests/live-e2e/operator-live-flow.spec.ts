@@ -105,7 +105,7 @@ test("uses the real Nginx, FastAPI, and PostgreSQL operator flow", async ({ page
     .getByRole("row", { name: /openai · live-openai-model/ });
   await expect(performanceRow).toContainText("100.0%");
   await expect(performanceRow).toContainText("0.1296");
-  await expect(performanceRow).toContainText("0.4460");
+  await expect(performanceRow).toContainText("0.4463");
   await expect(performanceRow.getByRole("cell", { name: "1", exact: true })).toBeVisible();
   await expect(page.getByText("운영 API")).toBeVisible();
 });
