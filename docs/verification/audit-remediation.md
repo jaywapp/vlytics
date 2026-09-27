@@ -27,11 +27,11 @@
 |---|---|---|
 | B1 | 검증된 roster/stats Feature | 생산 입력 연결 변경이 자동 승인 검토에서 거부되어 미적용·명시 승인 대기. 미검증 source 의미는 missing |
 | B2 | 실제 browser→Nginx→API→DB | 실제 seed·browser spec·CI hook 추가. seed/실제 API 검증 통과, Nginx browser leg CI 실행 36282222862 통과 |
-| B3 | 장기 조회 성능 | endpoint SQL/keyset, 5,500 합성 경기 benchmark: 반환 99.35% 감소, scoped p50 9.23ms. API DB 28 tests 통과 |
+| B3 | 장기 조회 성능 | endpoint SQL/keyset·Performance 성공 예측 적재 제거. 경기 5,500/예측·평가 각 16,500의 repository·실제 API warm 20회 및 Python peak 측정, 로컬 회귀 budget 충족. [수치·재현 코드](api-performance.md), 실제 DB API 28 tests 통과 |
 | B4 | TLS·일관 backup snapshot | 옵션 보존 unit 및 exported snapshot restore drill 통과 |
 | B5 | backup·alert·clock·heartbeat | 읽기 전용 DB·파일 evidence collector와 감시 CLI 연결. health/evidence 단위 25 tests·실제 read_api DB 통합 1 test 통과. host NTP/heartbeat 전달·예약·전송 증거 대기 |
-| B6 | digest·SBOM·취약점 | .vite ignore·모든 base digest 입력·SBOM/취약점 gate 스크립트 반영. CI 빌드 후보의 immutable image ID별 SBOM/취약점 gate 연결·scanner 회귀 14 tests·Windows wrapper 포함 6 tests 통과, [실제 CI scan](image-security-evidence.md) 실행: 초기 취약점 보완 및 gosu 동일 소스 재빌드 후 CI 36285424504에서 compiler 포함 8개 image HIGH/CRITICAL 0건 통과, 게시 release digest 증거 별도 필요 |
-| B7 | 완료 장부 | plan 전체 완료 문구 철회, 이 장부에서 검증 범위 분리 |
+| B6 | digest·SBOM·취약점 | .vite ignore·모든 base digest 입력·SBOM/취약점 gate 스크립트 반영. CI 빌드 후보의 immutable image ID별 SBOM/취약점 gate 연결·scanner 회귀 24 tests·Windows wrapper 포함 6 tests 통과, [실제 CI scan](image-security-evidence.md) 실행: 초기 취약점 보완 및 gosu 동일 소스 재빌드 후 CI 36285424504에서 compiler 포함 8개 image HIGH/CRITICAL 0건 통과, 게시 release digest 증거 별도 필요 |
+| B7 | 완료 장부 | plan 전체 완료 문구 철회, 조치 장부와 release checklist에서 코드·합성 통합·운영 증거 및 승인 대기 범위를 분리 |
 
 ## plan 재검증 항목
 
@@ -94,3 +94,11 @@ B5 검증: 별도 합성 PostgreSQL에서 실제 `vlytics_read_api_login`으로 
 [CI 36285424504](https://github.com/jaywapp/vlytics/actions/runs/36285424504) 전체 성공: backend 400 tests, Windows 34, frontend 24·fixture E2E 9, 실제 browser 1·worker 재시작·새 cluster 복구, 8개 image SBOM/취약점 gate를 통과했다. 후보 head는 `90a6e41`, 검사한 PR merge commit은 `c506144`다. 원본 artifact hash와 gosu source/compiler/image ID 관계를 직접 확인했다. [이미지 상세 증거](image-security-evidence.md)를 따른다.
 
 B5의 DB/파일 collector와 평가기, B6의 실제 CI image 검사 보완은 검증됐다. **전체 감사 조치 완료는 아니다.** A03 ingress/egress, A08 운영 Elo, A12 Market 생성, B1 roster/stats 입력의 자동 승인 거부는 그대로이며 운영 host NTP/heartbeat 전달·예약 backup/PITR·알림·source/유료 Provider smoke·게시 release digest 증거가 남아 있다. PR #12는 초안으로 유지하고 병합하지 않았다.
+
+문서 기록 head `30e1ca4`의 [CI 36285846382](https://github.com/jaywapp/vlytics/actions/runs/36285846382)도 backend·frontend·Windows 모든 job이 성공했다. 이 문서 전용 후속 검증을 새로운 운영 배포 증거로 취급하지 않는다.
+
+## B3/B7 장기 데이터 검증 보완
+
+기존 일정 단독 측정에서 빠진 예측·평가·작업·coverage·예산 규모와 Python peak memory를 보완했다. Performance에서 실패 수 집계에 사용하지 않는 성공 예측 적재를 제거했고, 실제 DB API 28 tests에서 실패 수와 paired 비교 보존을 확인했다. 빈 clone에 최종 CLI를 실행한 20회 측정의 전체 기간 API p95는 1.74초, Python peak는 67.35MiB다. 최근 한 시즌 API p95는 108.53ms, peak는 3.29MiB다. [상세 수치와 한계](api-performance.md)를 따른다.
+
+실행 코드 해시·row cardinality·HTTP 200·Performance sample/revision/calibration 표본 합을 검증했다. Backend Ruff/format·mypy 79 files와 benchmark Ruff/format·mypy를 통과했다. release checklist에도 코드·합성 통합·운영 증거를 분리했다. 이 로컬 성능 검증은 승인 대기 네 변경이나 실제 운영 환경 검증을 대체하지 않는다.

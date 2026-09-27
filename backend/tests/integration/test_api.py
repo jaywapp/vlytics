@@ -1644,6 +1644,39 @@ def test_postgres_performance_companions_stay_within_filtered_evaluation_matches
     unrelated_run = f"api-performance-unrelated-{uuid4().hex}"
     selected = _seed_postgres_graph(postgres_role_urls, selected_run)
     unrelated = _seed_postgres_graph(postgres_role_urls, unrelated_run)
+    writer = create_engine(str(postgres_role_urls.migrator))
+    try:
+        with writer.begin() as connection:
+            for graph in (selected, unrelated):
+                connection.execute(
+                    text(
+                        """
+                        UPDATE ops.jobs SET stage = 'winner', match_id = :match_id,
+                            schedule_revision_id = (
+                                SELECT schedule_revision_id FROM engine.predictions
+                                WHERE match_id = :match_id LIMIT 1
+                            )
+                        WHERE id = :job_id
+                        """
+                    ),
+                    {"job_id": graph["job_id"], "match_id": graph["match_id"]},
+                )
+                connection.execute(
+                    text(
+                        """
+                        INSERT INTO engine.prediction_attempts (
+                            job_id, snapshot_id, variant_id, started_at, completed_at,
+                            status, request_hash, error_code
+                        )
+                        SELECT :job_id, snapshot_id, variant_id, generated_at, generated_at,
+                               'failed', repeat('a', 64), 'synthetic_failure'
+                        FROM engine.predictions WHERE match_id = :match_id
+                        """
+                    ),
+                    {"job_id": graph["job_id"], "match_id": graph["match_id"]},
+                )
+    finally:
+        writer.dispose()
     day = datetime.fromisoformat(str(selected["schedule_date"]))
     start_at = day.replace(tzinfo=UTC)
     end_at = start_at + timedelta(days=1)
@@ -1676,4 +1709,20 @@ def test_postgres_performance_companions_stay_within_filtered_evaluation_matches
     assert {row["match_id"] for row in snapshot.evaluations} == {selected["match_id"]}
     assert {row["match_id"] for row in snapshot.predictions} == {selected["match_id"]}
     assert {row["provider"] for row in snapshot.predictions} == {"openai", "statistical"}
+    assert len(snapshot.predictions) == 2
+    assert {row["record_type"] for row in snapshot.predictions} == {"attempt"}
+    assert {row["provider_status"] for row in snapshot.predictions} == {"failed"}
     assert unrelated["match_id"] not in {row["match_id"] for row in snapshot.predictions}
+
+    client = _postgres_client(postgres_role_urls)
+    response = client.get(
+        "/api/v1/performance",
+        params={"competition": selected["competition"], "provider": "openai"},
+        headers=OPERATOR_HEADERS,
+    )
+    assert response.status_code == 200
+    rows = response.json()["data"]["items"]
+    assert len(rows) == 1
+    assert rows[0]["sample_size"] == 1
+    assert rows[0]["failure_count"] == 1
+    assert any(item["paired_n"] == 1 for item in rows[0]["comparisons"])

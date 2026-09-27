@@ -1,10 +1,26 @@
 # Vlytics 운영 Release Checklist
 
-- 판정일: 2026-09-20 (Asia/Seoul)
-- 대상: `codex/implement-vlytics-mvp`
+- 판정 기준일: 2026-09-27 (Asia/Seoul); 아래 날짜별 증거는 해당 실행 시점의 기록이다.
+- 현재 보완 대상: `codex/project-audit-20260927`
 - 패키지 판정: **감사 후 production 통합 재검증 / 운영 활성화 NO-GO**
 
 2026-09-27 전체 감사에서 코드 연결과 복구 누락도 확인했다. [감사 조치 장부](../verification/audit-remediation.md)의 코드 잔여 작업과 외부 운영 게이트를 함께 해소해야 한다. 기존 체크는 당시의 제한된 검증 증거이며 전체 운영 완료를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
+
+## 코드·통합 검증·운영 증거 구분
+
+[CI 36285424504](https://github.com/jaywapp/vlytics/actions/runs/36285424504)는 코드 후보 `90a6e41`의 실제 PR merge commit `c506144`를 검증했다. 이 결과를 production 배포 완료로 표시하지 않는다.
+
+| 범위 | 코드·합성 통합 증거 | production 연결·live 잔여 |
+|---|---|---|
+| 설정·기동 | 서비스별 secret 검증, config/mount hash, Windows 배포 34 tests | A03 네트워크 변경 승인 후 production Compose host 접근 재검증 |
+| 수집·결과·retry | 동일 worker handler의 transport/planner·pagination·finality·deadline·호출 cap 회귀 | OP-001/003/004 및 실제 소량 source/Provider 실행 |
+| 통계·입력·Market | 독립 모듈·계약, API snapshot/eligibility 회귀 | A08 Elo, B1 roster/stats, A12 Market 생성 연결 승인 대기 |
+| API·Web | backend 400 tests, frontend 24·fixture E2E 9·실제 Nginx/API/DB browser 1 | 실제 운영 데이터·production 네트워크 성능은 별도 |
+| 복구·감시 | 새 cluster owner/ACL/SCRAM 복구, read-only health evidence collector | 운영 host NTP/heartbeat 전달·예약 backup/PITR·알림 발송 |
+| image 보안 | compiler 포함 8개 image SBOM·identity·HIGH/CRITICAL 0건, gosu provenance 검증 | 게시 release digest 및 대상 architecture의 검사·승인 |
+| 조회 성능 | endpoint WHERE/keyset, 22시즌 경기 5,500·예측/평가 각 16,500의 실제 API 지연·Python peak 측정 및 로컬 회귀 budget 충족 | 운영 동시 쓰기·다중 사용자·서버 메모리와 production SLO 검증은 별도 |
+
+아래 `[x]` 표시는 해당 항목의 구성 또는 날짜별 검증 범위만 의미한다. 운영 host를 명시한 미완료 항목은 CI 성공으로 자동 체크하지 않는다. A03/A08/A12 생성/B1은 자동 승인 검토의 구체적 변경 승인 요구로 미적용이며, OP-005 Market missing만은 기존 사용자 결정에 따른 허용 예외다.
 
 ## 활성화 차단 장부
 
@@ -15,7 +31,7 @@
 | OP-003 Provider | 실제 model/version·통화·일/월 예산·key 미확정 | 세 Provider별 pinned ID/version, token/call/금액 cap, 소량 실제 smoke ID | 차단 |
 | OP-004 live timing | 합성 replay 통과, 실제 소량 source/Provider dry-run 없음 | 활성 config hash와 일치하는 source sync·freeze·3 Provider evidence | 차단 |
 | OP-005 Market | 실제 adapter 없음 | `missing` 상태 명시 | 허용 |
-| Host clock | `W32Time` Stopped/Manual, 상태 조회 실패 | NTP service Running, 동기화 source/offset 확인 및 alert | 차단 |
+| Host clock | 2026-09-20 로컬 관측은 `W32Time` Stopped/Manual. 운영 host 증거 없음 | NTP service Running, 동기화 source/offset 확인 및 alert | 차단 |
 | Container runtime | 로컬 Docker/Podman CLI 없음 | 운영 host에서 backend/frontend digest pull, frontend 다단계 build, `docker compose config`와 same-origin smoke | 차단 |
 
 `infra/operational.production.example.toml`, `infra/.env.example`, `infra/live-dry-run-evidence.example.json`은 위 항목을 placeholder/0/false로 남겨 preflight가 성공할 수 없게 한다. 값을 임의로 채워 통과시키지 않는다.
@@ -34,7 +50,7 @@
 - [x] non-root UID, capability drop, `no-new-privileges`, 제한된 tmpfs가 적용됐다.
 - [x] DB URL은 read API/engine/migrator 역할로 분리했다.
 - [x] committed env에는 placeholder만 있고 `.env`, dump, 운영 restore report는 ignore된다.
-- [ ] 실제 backend/frontend final image와 Node/Nginx base를 digest로 고정하고 SBOM/vulnerability 결과를 승인했다.
+- [ ] 게시된 backend/frontend final image와 모든 runtime/build base·compiler digest의 SBOM/vulnerability 결과를 승인했다.
 - [ ] 운영 host에서 frontend `/healthz`, SPA route fallback, same-origin `/api` 401/200을 확인했다.
 - [ ] operator/readonly secret을 생성하고 401/403/200 경계를 운영 host에서 확인했다.
 - [ ] private tunnel/VPN 경로와 접근자·폐기 절차를 기록했다.

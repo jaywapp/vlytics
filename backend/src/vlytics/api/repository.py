@@ -337,8 +337,11 @@ class PostgresReadRepository:
             evaluation_match_ids = sorted({str(row["match_id"]) for row in evaluations})
             predictions = empty
             if evaluation_match_ids:
+                # Performance reads successful outputs from evaluations; predictions only
+                # contribute failed-attempt counts. Avoid materializing every successful output.
                 prediction_clauses = [
-                    "scoped.match_id = ANY(CAST(:evaluation_match_ids AS text[]))"
+                    "scoped.match_id = ANY(CAST(:evaluation_match_ids AS text[]))",
+                    "scoped.provider_status <> 'succeeded'",
                 ]
                 prediction_params: dict[str, object] = {
                     "evaluation_match_ids": evaluation_match_ids
