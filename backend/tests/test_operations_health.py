@@ -45,6 +45,8 @@ def _budget(provider: str, ratio: str = "0.20") -> dict[str, object]:
 def _evidence() -> dict[str, object]:
     return {
         "schema_version": "operations-health-evidence-v1",
+        "collected_at": "2026-09-27T11:59:00+00:00",
+        "expected_providers": ["openai", "anthropic", "google"],
         "worker_heartbeat_at": "2026-09-27T11:59:00+00:00",
         "ntp": {
             "synchronized": True,
@@ -253,3 +255,79 @@ def test_cli_fails_closed_when_required_evidence_is_missing(
     assert output["status"] == "unknown"
     assert output["notification_required"] is True
     assert output["notification_dispatched"] is False
+
+
+def test_evidence_provider_set_supports_disabled_providers() -> None:
+    evidence = _evidence()
+    evidence["expected_providers"] = []
+    evidence["provider_budgets"] = []
+
+    report = evaluate_operations_health(evidence, backup_manifest=_manifest(), now=NOW)
+
+    assert _check_statuses(report)["provider_budgets"] is HealthStatus.OK
+
+
+@pytest.mark.parametrize(
+    ("collected_at", "expected"),
+    [
+        (None, HealthStatus.UNKNOWN),
+        ("2026-09-27T12:01:00+00:00", HealthStatus.CRITICAL),
+        ("2026-09-27T11:40:00+00:00", HealthStatus.CRITICAL),
+    ],
+)
+def test_database_checks_require_fresh_collection_time(
+    collected_at: str | None, expected: HealthStatus
+) -> None:
+    evidence = _evidence()
+    if collected_at is None:
+        evidence.pop("collected_at")
+    else:
+        evidence["collected_at"] = collected_at
+
+    report = evaluate_operations_health(evidence, backup_manifest=_manifest(), now=NOW)
+    statuses = _check_statuses(report)
+
+    assert statuses["running_jobs"] is expected
+    assert statuses["provider_budgets"] is expected
+
+
+def test_malformed_database_rows_report_unknown_without_traceback() -> None:
+    evidence = _evidence()
+    evidence["running_jobs"] = [42]
+    evidence["provider_budgets"] = [42]
+
+    report = evaluate_operations_health(evidence, backup_manifest=_manifest(), now=NOW)
+    statuses = _check_statuses(report)
+
+    assert statuses["running_jobs"] is HealthStatus.UNKNOWN
+    assert statuses["provider_budgets"] is HealthStatus.UNKNOWN
+
+
+def test_cli_explicit_provider_overrides_collector_provider_set(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    evidence = _evidence()
+    evidence["expected_providers"] = []
+    evidence["provider_budgets"] = [_budget("openai")]
+    evidence_path = tmp_path / "evidence.json"
+    manifest_path = tmp_path / "backup.manifest.json"
+    evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
+    manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
+
+    exit_code = main(
+        [
+            "--evidence",
+            str(evidence_path),
+            "--backup-manifest",
+            str(manifest_path),
+            "--expected-provider",
+            "openai",
+            "--now",
+            NOW.isoformat(),
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["status"] == "ok"

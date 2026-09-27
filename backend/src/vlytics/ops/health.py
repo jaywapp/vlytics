@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
@@ -11,7 +12,7 @@ from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 from math import isfinite
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 class HealthStatus(StrEnum):
@@ -28,6 +29,7 @@ class HealthThresholds:
     ntp_evidence_max_age: timedelta = timedelta(minutes=10)
     ntp_max_abs_offset_ms: float = 1000.0
     running_job_max_age: timedelta = timedelta(minutes=10)
+    database_evidence_max_age: timedelta = timedelta(minutes=10)
     budget_warning_ratio: Decimal = Decimal("0.80")
 
     def __post_init__(self) -> None:
@@ -36,6 +38,7 @@ class HealthThresholds:
             self.backup_max_age,
             self.ntp_evidence_max_age,
             self.running_job_max_age,
+            self.database_evidence_max_age,
         )
         if any(value <= timedelta(0) for value in durations):
             raise ValueError("health age thresholds must be positive")
@@ -242,6 +245,9 @@ def evaluate_running_jobs(
     stale: list[dict[str, Any]] = []
     invalid: list[str] = []
     for job in jobs:
+        if not isinstance(job, Mapping):
+            invalid.append("invalid_row")
+            continue
         job_id = job.get("job_id")
         if not isinstance(job_id, str) or not job_id.strip():
             invalid.append("missing_job_id")
@@ -293,17 +299,20 @@ def evaluate_provider_budgets(
         return _unknown("provider_budgets", "provider budget evidence was not supplied")
     by_provider: dict[str, Mapping[str, Any]] = {}
     for row in budgets:
+        if not isinstance(row, Mapping):
+            return _unknown("provider_budgets", "provider budget evidence has invalid rows")
         provider = row.get("provider")
         if not isinstance(provider, str) or not provider.strip() or provider in by_provider:
             return _unknown("provider_budgets", "provider budget evidence has invalid identities")
         by_provider[provider] = row
     missing = sorted(set(expected_providers).difference(by_provider))
-    if missing:
+    unexpected = sorted(set(by_provider).difference(expected_providers))
+    if missing or unexpected:
         return HealthCheck(
             "provider_budgets",
             HealthStatus.UNKNOWN,
             "provider budget evidence is incomplete",
-            {"missing_providers": missing},
+            {"missing_providers": missing, "unexpected_providers": unexpected},
         )
     ratios: dict[str, dict[str, str]] = {}
     highest = Decimal("0")
@@ -361,17 +370,38 @@ def evaluate_operations_health(
     backup_manifest: Mapping[str, Any] | None,
     now: datetime,
     thresholds: HealthThresholds | None = None,
-    expected_providers: Sequence[str] = ("openai", "anthropic", "google"),
+    expected_providers: Sequence[str] | None = None,
 ) -> OperationsHealthReport:
     _require_aware(now, "now")
     thresholds = thresholds or HealthThresholds()
     if evidence.get("schema_version") != "operations-health-evidence-v1":
         raise ValueError("operations evidence schema is unsupported")
-    if not expected_providers or len(expected_providers) != len(set(expected_providers)):
-        raise ValueError("expected providers must be unique and non-empty")
+    resolved_providers = _resolve_expected_providers(evidence, expected_providers)
     heartbeat = _optional_datetime(evidence.get("worker_heartbeat_at"), "worker_heartbeat_at")
     running_jobs = evidence.get("running_jobs")
     budgets = evidence.get("provider_budgets")
+    database_freshness = _database_evidence_freshness(
+        evidence.get("collected_at"),
+        now=now,
+        max_age=thresholds.database_evidence_max_age,
+    )
+    if database_freshness is None:
+        running_jobs_check = evaluate_running_jobs(
+            running_jobs if isinstance(running_jobs, list) else None,
+            now=now,
+            max_age=thresholds.running_job_max_age,
+        )
+        provider_budgets_check = evaluate_provider_budgets(
+            budgets if isinstance(budgets, list) else None,
+            expected_providers=resolved_providers,
+            warning_ratio=thresholds.budget_warning_ratio,
+        )
+    else:
+        status, summary, freshness_evidence = database_freshness
+        running_jobs_check = HealthCheck("running_jobs", status, summary, freshness_evidence)
+        provider_budgets_check = HealthCheck(
+            "provider_budgets", status, summary, freshness_evidence
+        )
     return OperationsHealthReport(
         evaluated_at=now,
         checks=(
@@ -383,18 +413,76 @@ def evaluate_operations_health(
                 evidence_max_age=thresholds.ntp_evidence_max_age,
                 max_abs_offset_ms=thresholds.ntp_max_abs_offset_ms,
             ),
-            evaluate_running_jobs(
-                running_jobs if isinstance(running_jobs, list) else None,
-                now=now,
-                max_age=thresholds.running_job_max_age,
-            ),
-            evaluate_provider_budgets(
-                budgets if isinstance(budgets, list) else None,
-                expected_providers=expected_providers,
-                warning_ratio=thresholds.budget_warning_ratio,
-            ),
+            running_jobs_check,
+            provider_budgets_check,
         ),
     )
+
+
+def _resolve_expected_providers(
+    evidence: Mapping[str, Any], explicit: Sequence[str] | None
+) -> tuple[str, ...]:
+    raw: object = explicit if explicit is not None else evidence.get("expected_providers")
+    if raw is None:
+        raw = ("openai", "anthropic", "google")
+    if not isinstance(raw, Sequence) or isinstance(raw, str):
+        raise ValueError("expected providers must be an array")
+    providers = tuple(raw)
+    if any(
+        not isinstance(provider, str)
+        or re.fullmatch(r"[a-z0-9][a-z0-9._-]{0,63}", provider) is None
+        for provider in providers
+    ):
+        raise ValueError("expected providers contain an invalid identity")
+    if len(providers) != len(set(providers)):
+        raise ValueError("expected providers must be unique")
+    return cast(tuple[str, ...], providers)
+
+
+def _database_evidence_freshness(
+    value: object,
+    *,
+    now: datetime,
+    max_age: timedelta,
+) -> tuple[HealthStatus, str, Mapping[str, Any]] | None:
+    if value is None:
+        return (
+            HealthStatus.UNKNOWN,
+            "database evidence collection time was not supplied",
+            {"evidence_present": False},
+        )
+    if not isinstance(value, str):
+        return (
+            HealthStatus.UNKNOWN,
+            "database evidence collection time is invalid",
+            {"evidence_present": False},
+        )
+    try:
+        collected_at = _parse_datetime(value, "collected_at")
+    except ValueError:
+        return (
+            HealthStatus.UNKNOWN,
+            "database evidence collection time is invalid",
+            {"evidence_present": False},
+        )
+    age = now - collected_at
+    freshness_evidence = {
+        "collected_at": _iso(collected_at),
+        "age_seconds": age.total_seconds(),
+    }
+    if age < timedelta(0):
+        return (
+            HealthStatus.CRITICAL,
+            "database evidence collection time is in the future",
+            freshness_evidence,
+        )
+    if age > max_age:
+        return (
+            HealthStatus.CRITICAL,
+            "database evidence is stale",
+            freshness_evidence,
+        )
+    return None
 
 
 def load_latest_backup_manifest(path: Path | None) -> Mapping[str, Any] | None:
@@ -425,6 +513,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--ntp-evidence-max-age-seconds", type=int, default=600)
     parser.add_argument("--ntp-max-abs-offset-ms", type=float, default=1000.0)
     parser.add_argument("--running-job-max-age-seconds", type=int, default=600)
+    parser.add_argument("--database-evidence-max-age-seconds", type=int, default=600)
     parser.add_argument("--budget-warning-ratio", default="0.80")
     parser.add_argument(
         "--expected-provider",
@@ -444,6 +533,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ntp_evidence_max_age=timedelta(seconds=args.ntp_evidence_max_age_seconds),
             ntp_max_abs_offset_ms=args.ntp_max_abs_offset_ms,
             running_job_max_age=timedelta(seconds=args.running_job_max_age_seconds),
+            database_evidence_max_age=timedelta(seconds=args.database_evidence_max_age_seconds),
             budget_warning_ratio=_decimal(args.budget_warning_ratio, "budget_warning_ratio"),
         )
         report = evaluate_operations_health(
@@ -451,7 +541,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             backup_manifest=load_latest_backup_manifest(args.backup_manifest),
             now=now,
             thresholds=thresholds,
-            expected_providers=args.expected_providers or ("openai", "anthropic", "google"),
+            expected_providers=args.expected_providers,
         )
         print(json.dumps(report.to_dict(), sort_keys=True, separators=(",", ":")))
         return report.exit_code

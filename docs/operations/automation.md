@@ -1,6 +1,6 @@
 # 운영 상태 감시 자동화 템플릿
 
-이 문서는 `python -m vlytics.ops.health`를 주기적으로 실행하기 위한 운영 설계와 템플릿을 정의한다. CLI는 이미 수집된 JSON 증거와 백업 manifest를 **읽고 판정만** 한다. production worker heartbeat는 별도 `vlytics.ops.heartbeat` 모듈로 기록·검사한다. 알림 전송, 데이터베이스 갱신, worker heartbeat 기록, 호스트 예약 등록은 수행하지 않는다.
+이 문서는 `python -m vlytics.ops.health_evidence`로 읽기 전용 증거를 수집하고 `python -m vlytics.ops.health`로 판정하기 위한 운영 설계와 템플릿을 정의한다. production worker heartbeat는 별도 `vlytics.ops.heartbeat` 모듈로 기록한다. 수집기는 DB 트랜잭션을 `READ ONLY`로 강제하고 기존 heartbeat 및 외부 NTP 증거 파일만 읽는다. 알림 전송, 데이터베이스 갱신, worker heartbeat 기록, NTP 상태 변경, 호스트 예약 등록은 수행하지 않는다.
 
 ## 판정 계약
 
@@ -9,14 +9,17 @@
 ```json
 {
   "schema_version": "operations-health-evidence-v1",
+  "collected_at": "2026-09-27T00:00:00+00:00",
   "worker_heartbeat_at": null,
   "ntp": null,
   "running_jobs": null,
-  "provider_budgets": null
+  "provider_budgets": null,
+  "expected_providers": [],
+  "diagnostics": []
 }
 ```
 
-`null`은 해당 증거 수집 경로가 아직 연결되지 않았다는 뜻이다. 빈 배열은 수집이 성공했고 현재 행이 없다는 뜻이므로 서로 바꾸어 쓰지 않는다. CLI는 누락되거나 형식이 잘못된 증거를 `unknown`으로 판정하고 실패 상태로 종료한다.
+`null`은 해당 증거 생산자가 실패했거나 의존 증거가 없다는 뜻이다. 빈 배열은 수집이 성공했고 현재 행이 없다는 뜻이므로 서로 바꾸어 쓰지 않는다. `diagnostics`는 고정된 producer, status, code만 기록하며 DSN, 토큰, 예외 원문을 기록하지 않는다. 설정에 없는 provider 또는 설정과 다른 currency가 DB에서 발견되면 `provider_budgets`를 `null`로 닫고 provider 이름을 진단에 남긴다. 판정 CLI는 누락되거나 형식이 잘못된 증거를 `unknown`으로 판정하고 실패 상태로 종료한다.
 
 기본 임계값은 다음과 같다.
 
@@ -36,40 +39,64 @@
 
 | 증거 | 제안 생산 주체 | 현재 운영 연결 증거 |
 | --- | --- | --- |
-| `worker_heartbeat_at` | worker가 별도 heartbeat 저장소에 기록하고 읽기 전용 collector가 조회 | production worker가 성공한 poll 뒤 `/tmp/vlytics-worker-heartbeat.json`에 원자 기록. 컨테이너 healthcheck는 300초 경과를 실패로 판정. 호스트 collector 연결은 대기 |
+| `worker_heartbeat_at` | worker가 별도 heartbeat 저장소에 기록하고 읽기 전용 collector가 조회 | 컨테이너 내부 `/tmp/vlytics-worker-heartbeat.json` 기록은 구현됨. 호스트 collector용 shared read-only export/mount와 최근 운영 산출물은 미연결 |
 | 최신 백업 manifest | 승인된 백업 작업이 원자적으로 생성한 `*.manifest.json` | 수동 백업 코드 존재, 호스트 예약 실행 증거 없음 |
-| `ntp` | 호스트의 `timedatectl` 또는 Windows Time 상태를 읽는 collector | 미연결 — 예약 실행 및 최근 산출물 없음 |
-| `running_jobs` | 읽기 전용 DB 역할로 `ops.jobs`의 `state = 'running'` 조회 | collector 미연결 |
-| `provider_budgets` | 읽기 전용 DB 집계와 승인된 provider 한도 설정 결합 | collector 미연결 |
+| `ntp` | 호스트 관리자가 만든 `host-ntp-evidence-v1` JSON | `health_evidence` 읽기 경로 구현. 호스트 producer와 최근 운영 산출물은 미연결 |
+| `running_jobs` | 읽기 전용 DB 역할로 `ops.jobs`의 `state = 'running'` 조회 | `health_evidence`가 read-only transaction에서 lease 조회. 운영 예약 실행 증거는 없음 |
+| `provider_budgets` | 읽기 전용 DB 집계와 승인된 provider 한도 설정 결합 | `health_evidence`가 UTC 일/월 reservation 집계와 설정을 결합. 운영 예약 실행 증거는 없음 |
 | 알림 발송 | 종료 코드와 JSON을 소비하는 별도 dispatcher | 미연결 — 이 CLI는 발송하지 않음 |
 
-DB collector는 최소한 다음 의미를 보존해야 한다.
+DB collector는 다음 의미를 보존한다.
 
 - `running_jobs`: `job_id`, `lease_started_at`, `lease_until`. 조회 성공 시 결과가 없어도 `[]`을 쓴다.
 - `provider_budgets`: provider별 `daily_used_amount`, `daily_limit_amount`, `daily_used_calls`, `daily_limit_calls`, `monthly_used_amount`, `monthly_limit_amount`, `monthly_used_calls`, `monthly_limit_calls`. 사용 금액은 `COALESCE(settled_amount, reserved_amount)`의 합, 호출 수는 reservation 수다.
-- 한도는 현재 활성 provider registry의 동일 currency 설정에서 읽는다. 증거 JSON에 자격 증명, API key, DSN을 넣지 않는다.
+- 한도는 검증된 운영 설정의 활성 provider와 동일 currency에서 읽는다. 설정에 없는 안전한 provider 이름은 진단에 남기고 예산 전체를 `null`로 닫는다. 자격 증명, API key, DSN은 evidence나 예외에 넣지 않는다.
+- `collected_at`이 없거나 잘못되면 DB 두 점검은 `unknown`, 미래 또는 10분 초과이면 `critical`이다.
 
-## 실행 예시
+NTP 증거 파일은 호스트 관리 주체가 다음 계약으로 원자 생성해야 한다. 수집기는 `timedatectl`, `w32tm` 같은 명령을 직접 실행하거나 결과를 추정하지 않는다.
 
-backend 가상환경에서 다음과 같이 판정한다.
+```json
+{
+  "schema_version": "host-ntp-evidence-v1",
+  "observed_at": "2026-09-27T00:00:00+00:00",
+  "synchronized": true,
+  "offset_ms": 0.5
+}
+```
+
+## 증거 수집과 판정 예시
+
+DB URL은 CLI 인수에 넣지 않고 환경 변수 **이름**만 전달한다. 해당 계정은 필요한 테이블에 SELECT만 가진 `vlytics_read_api_login` 역할을 사용한다. 운영 설정과 schema는 검토·승인한 동일 revision을 사용한다.
 
 ```powershell
+python -m vlytics.ops.health_evidence `
+  --database-url-env VLYTICS_HEALTH_DATABASE_URL `
+  --operational-config C:\ProgramData\Vlytics\operational.toml `
+  --operational-schema D:\Vlytics\contracts\config.schema.json `
+  --heartbeat C:\ProgramData\Vlytics\health\worker-heartbeat.json `
+  --ntp-evidence C:\ProgramData\Vlytics\health\ntp.json `
+  --output C:\ProgramData\Vlytics\health\evidence.json
+
 python -m vlytics.ops.health `
   --evidence C:\ProgramData\Vlytics\health\evidence.json `
-  --backup-manifest D:\VlyticsBackups\manifests `
-  --expected-provider openai `
-  --expected-provider anthropic `
-  --expected-provider google
+  --backup-manifest D:\VlyticsBackups\manifests
 ```
 
 ```sh
+python -m vlytics.ops.health_evidence \
+  --database-url-env VLYTICS_HEALTH_DATABASE_URL \
+  --operational-config /etc/vlytics/operational.toml \
+  --operational-schema /opt/vlytics/contracts/config.schema.json \
+  --heartbeat /var/lib/vlytics/health/worker-heartbeat.json \
+  --ntp-evidence /var/lib/vlytics/health/ntp.json \
+  --output /var/lib/vlytics/health/evidence.json
+
 python -m vlytics.ops.health \
   --evidence /var/lib/vlytics/health/evidence.json \
-  --backup-manifest /var/lib/vlytics/backups/manifests \
-  --expected-provider openai \
-  --expected-provider anthropic \
-  --expected-provider google
+  --backup-manifest /var/lib/vlytics/backups/manifests
 ```
+
+수집 CLI는 일부 producer가 실패해도 `null`과 비밀 없는 진단을 포함한 evidence를 원자 출력하고 `0`으로 종료한다. evidence 파일 자체를 쓰지 못하면 고정된 오류만 출력하고 `3`으로 종료한다. 따라서 수집 직후 판정 CLI를 실행해 `unknown`을 실패로 전파해야 한다. 판정 CLI는 기본적으로 evidence의 `expected_providers`를 사용한다. `--expected-provider`를 하나 이상 주면 명시한 목록을 우선한다.
 
 `--now`은 합성 검증 전용으로 고정 시각을 주입할 때 사용할 수 있다. 운영에서는 생략하여 현재 UTC를 사용한다. 임계값 변경은 CLI 옵션으로 명시하고 변경 승인 기록과 함께 관리한다.
 
@@ -90,7 +117,7 @@ After=network-online.target
 Type=oneshot
 User=vlytics-monitor
 WorkingDirectory=/opt/vlytics/backend
-ExecStart=/opt/vlytics/backend/.venv/bin/python -m vlytics.ops.health --evidence /var/lib/vlytics/health/evidence.json --backup-manifest /var/lib/vlytics/backups/manifests --expected-provider openai --expected-provider anthropic --expected-provider google
+ExecStart=/bin/sh -c '/opt/vlytics/backend/.venv/bin/python -m vlytics.ops.health_evidence --database-url-env VLYTICS_HEALTH_DATABASE_URL --operational-config /etc/vlytics/operational.toml --operational-schema /opt/vlytics/contracts/config.schema.json --heartbeat /var/lib/vlytics/health/worker-heartbeat.json --ntp-evidence /var/lib/vlytics/health/ntp.json --output /var/lib/vlytics/health/evidence.json && /opt/vlytics/backend/.venv/bin/python -m vlytics.ops.health --evidence /var/lib/vlytics/health/evidence.json --backup-manifest /var/lib/vlytics/backups/manifests'
 StandardOutput=append:/var/log/vlytics/health.jsonl
 StandardError=append:/var/log/vlytics/health-error.log
 ```
@@ -117,7 +144,7 @@ WantedBy=timers.target
 | 항목 | 템플릿 값 |
 | --- | --- |
 | 프로그램 | `D:\Vlytics\backend\.venv\Scripts\python.exe` |
-| 인수 | `-m vlytics.ops.health --evidence C:\ProgramData\Vlytics\health\evidence.json --backup-manifest D:\VlyticsBackups\manifests --expected-provider openai --expected-provider anthropic --expected-provider google` |
+| 인수 | 승인된 wrapper에서 위 `health_evidence` 명령 성공 직후 `health` 명령 실행 |
 | 시작 위치 | `D:\Vlytics\backend` |
 | 트리거 | 시작 후 5분, 이후 5분마다 무기한 반복 |
 | 계정 | DB와 파일에 읽기 권한만 있는 전용 monitor 계정 |
@@ -136,4 +163,4 @@ WantedBy=timers.target
 4. dispatcher 실패가 health JSON을 정상으로 바꾸지 않는다.
 5. 합성 검증이 끝날 때까지 실제 수신자와 운영 webhook은 비워 둔다.
 
-현재 이 저장소에는 dispatcher와 호스트 예약 등록이 없으므로 실제 알림 도달과 주기 실행은 검증되지 않은 운영 증거로 남는다.
+현재 이 저장소에는 호스트 NTP evidence producer, dispatcher, 호스트 예약 등록이 없으므로 실제 NTP 산출, 알림 도달, 주기 실행은 검증되지 않은 운영 증거로 남는다.

@@ -29,7 +29,7 @@
 | B2 | 실제 browser→Nginx→API→DB | 실제 seed·browser spec·CI hook 추가. seed/실제 API 검증 통과, Nginx browser leg CI 실행 36282222862 통과 |
 | B3 | 장기 조회 성능 | endpoint SQL/keyset, 5,500 합성 경기 benchmark: 반환 99.35% 감소, scoped p50 9.23ms. API DB 28 tests 통과 |
 | B4 | TLS·일관 backup snapshot | 옵션 보존 unit 및 exported snapshot restore drill 통과 |
-| B5 | backup·alert·clock·heartbeat | 읽기 전용 감시 CLI·합성 12 tests, production poll heartbeat 연결. host 수집·예약·전송 증거 대기 |
+| B5 | backup·alert·clock·heartbeat | 읽기 전용 DB·파일 evidence collector와 감시 CLI 연결. health/evidence 단위 25 tests·실제 read_api DB 통합 1 test 통과. host NTP/heartbeat 전달·예약·전송 증거 대기 |
 | B6 | digest·SBOM·취약점 | .vite ignore·모든 base digest 입력·SBOM/취약점 gate 스크립트 반영. CI 빌드 후보의 immutable image ID별 SBOM/취약점 gate 연결·scanner 회귀 14 tests·Windows wrapper 포함 6 tests 통과, 실제 CI scan 대기. 게시 release digest 증거 별도 필요 |
 | B7 | 완료 장부 | plan 전체 완료 문구 철회, 이 장부에서 검증 범위 분리 |
 
@@ -77,8 +77,10 @@ A03·A08·A12 생성·B1의 자동 승인 거부와 운영 호스트·실제 sou
 
 ## B5/B6 후속 검토
 
-- 상태 수집기와 health 평가기를 연결하면서 수집 시각, 비활성 Provider, 잘못된 입력 행 처리를 함께 검토한다. 실제 DB 읽기 권한 검증과 합성 회귀는 운영 host 예약·NTP 수집·알림 발송 증거를 대체하지 않는다.
+- 상태 수집기와 health 평가기를 연결하면서 수집 시각, 비활성 Provider, 잘못된 입력 행 처리를 함께 보완했다. 실제 DB 읽기 권한 검증과 합성 회귀는 운영 host 예약·NTP 수집·알림 발송 증거를 대체하지 않는다.
 - 이미지 검사의 빈 SBOM/scan 결과 수용, SBOM 내부 image ID 누락, 취약점 DB provenance 누락, 전역 도구 오류의 artifact 누락을 후속 검토에서 발견하여 보완했다. CI와 release는 같은 Python collector를 사용하고 release는 게시 digest와 로컬 image identity 연결을 추가 확인한다.
 - uv 0.12.5의 최종 image는 scratch 기반이며 cargo-auditable binary를 포함한다. OS package가 없다는 이유로 검사를 생략하지 않고 검출 가능한 언어 package inventory의 검사 범위를 실제 CI에서 확인한다.
 
 B6 공용 collector는 기존 출력 경로를 거부해 과거 manifest를 보존하고, 실패 시 이미 수집한 image 기록과 sanitized error code를 남긴다. SBOM·취약점 보고서의 image ID, package inventory, 취약점 DB metadata와 48시간 신선도를 검증한다. CI scanner 이전 단계의 설치 실패는 scan artifact가 없음을 그대로 표시한다.
+
+B5 검증: 별도 합성 PostgreSQL에서 실제 `vlytics_read_api_login`으로 실행 중 job lease와 Provider 예산 조회 1 test 통과. health/evidence 25 tests 및 이미지/Windows wrapper를 포함한 로컬 회귀 45 tests 통과. Ruff 전체, mypy 79 source files 통과. 테스트용 PostgreSQL은 종료했다.
