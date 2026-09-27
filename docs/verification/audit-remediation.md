@@ -29,7 +29,7 @@
 | B2 | 실제 browser→Nginx→API→DB | 실제 seed·browser spec·CI hook 추가. seed/실제 API 검증 통과, Nginx browser leg CI 실행 36282222862 통과 |
 | B3 | 장기 조회 성능 | endpoint SQL/keyset·Performance 성공 예측 적재 제거. 경기 5,500/예측·평가 각 16,500의 repository·실제 API warm 20회 및 Python peak 측정, 로컬 회귀 budget 충족. [수치·재현 코드](api-performance.md), 실제 DB API 28 tests 통과 |
 | B4 | TLS·일관 backup snapshot | 옵션 보존 unit 및 exported snapshot restore drill 통과 |
-| B5 | backup·alert·clock·heartbeat | 읽기 전용 DB·파일 evidence collector와 감시 CLI 연결. health/evidence 단위 25 tests·실제 read_api DB 통합 1 test 통과. host NTP/heartbeat 전달·예약·전송 증거 대기 |
+| B5 | backup·alert·clock·heartbeat | DB/파일 collector·평가기 및 heartbeat export·선택적 HTTPS dispatcher 구현. 회차/보고서 순서/lease 회귀 보완. 실제 host NTP·예약·수신·backup/PITR 증거는 대기. 아래 후속 감사 검증 참조 |
 | B6 | digest·SBOM·취약점 | .vite ignore·모든 base digest 입력·SBOM/취약점 gate 스크립트 반영. CI 빌드 후보의 immutable image ID별 SBOM/취약점 gate 연결·scanner 회귀 24 tests·Windows wrapper 포함 6 tests 통과, [실제 CI scan](image-security-evidence.md) 실행: 초기 취약점 보완 및 gosu 동일 소스 재빌드 후 CI 36285424504에서 compiler 포함 8개 image HIGH/CRITICAL 0건 통과, 게시 release digest 증거 별도 필요 |
 | B7 | 완료 장부 | plan 전체 완료 문구 철회, 조치 장부와 release checklist에서 코드·합성 통합·운영 증거 및 승인 대기 범위를 분리 |
 
@@ -102,3 +102,17 @@ B5의 DB/파일 collector와 평가기, B6의 실제 CI image 검사 보완은 �
 기존 일정 단독 측정에서 빠진 예측·평가·작업·coverage·예산 규모와 Python peak memory를 보완했다. Performance에서 실패 수 집계에 사용하지 않는 성공 예측 적재를 제거했고, 실제 DB API 28 tests에서 실패 수와 paired 비교 보존을 확인했다. 빈 clone에 최종 CLI를 실행한 20회 측정의 전체 기간 API p95는 1.74초, Python peak는 67.35MiB다. 최근 한 시즌 API p95는 108.53ms, peak는 3.29MiB다. [상세 수치와 한계](api-performance.md)를 따른다.
 
 실행 코드 해시·row cardinality·HTTP 200·Performance sample/revision/calibration 표본 합을 검증했다. Backend Ruff/format·mypy 79 files와 benchmark Ruff/format·mypy를 통과했다. release checklist에도 코드·합성 통합·운영 증거를 분리했다. 이 로컬 성능 검증은 승인 대기 네 변경이나 실제 운영 환경 검증을 대체하지 않는다.
+
+
+## 후속 감사 R01~R06 보완
+
+[후속 감사](project-audit-followup-2026-09-27.md)의 미커밋 초안에서 확인한 감시 결함을 보완했다. 개발 Compose의 heartbeat 출력 경로와 재시작 이후 poll 시각을 CI에 연결했고, export 실패 시각은 실제 실패 완료 시점으로 기록한다. dispatcher는 상태 generation·복구 tombstone·보고서 순서·각 예약 시각을 유지한다. 실제 collector/evaluator 출력과 dispatcher dry-run/MockTransport도 연결 검증했다.
+
+API는 projection이 없을 때 최신 관측 lifecycle event로 복원하며 event도 없으면 현재 예측으로 간주하지 않는다. published와 voided projection 삭제 전후가 같은 상태를 반환하는 실제 DB 회귀를 포함해 API 29 tests가 통과했다. 깨끗한 PostgreSQL 복제 DB의 전체 435 tests가 통과했고, 이후 export 실패 완료 시각 회귀를 추가했다. 새 CI 결과는 이 변경 commit의 PR check에서 별도 확인한다. 이전 commit의 CI 성공을 이번 작업 트리의 성공으로 대체하지 않는다.
+
+성능 fixture의 기존 prediction에는 게시 event/projection이 빠져 있었다. 정상 게시 lifecycle을 각 16,500행 추가하고 fixture cardinality를 검사하도록 수정했다. [후속 측정 결과](api-performance-followup-results.json)는 같은 22시즌 fixture를 빈 clone에 다시 생성해 얻는다. 최초 측정 JSON은 당시 코드/fixture의 이력으로 보존한다.
+
+R07~R09 UI 보완은 별도 진행 중이다. 승인 대기 A03/A08/A12 생성/B1과 실제 운영 게이트는 이 코드 보완으로 해제되지 않는다.
+
+
+R01~R06 마감 로컬 검증: heartbeat/dispatcher/실제 health pipeline 35 tests, 전체 Ruff/format, mypy 81 source files 통과. 후속 성능 측정은 published event/projection 각 16,500행을 포함하며 전체 Performance p95 1.78초, 최근 시즌 113.03ms, History 첫 페이지 135.20ms로 기존 로컬 budget을 모두 충족했다. 새 CI가 실제 Docker export를 검증하기 전에는 R01/R02의 컨테이너 성공을 주장하지 않는다.

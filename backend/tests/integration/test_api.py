@@ -1548,6 +1548,113 @@ def test_postgres_history_cursor_ignores_jobs_and_tracks_lifecycle(
         engine.dispose()
 
 
+def test_postgres_missing_projection_uses_latest_lifecycle_event(
+    postgres_role_urls: object,
+) -> None:
+    run_id = f"api-lifecycle-fallback-{uuid4().hex}"
+    manifest = _seed_postgres_graph(postgres_role_urls, run_id)
+    engine = create_engine(str(postgres_role_urls.migrator))
+    try:
+        with engine.begin() as connection:
+            predictions = {
+                row["provider"]: row
+                for row in connection.execute(
+                    text(
+                        """
+                        SELECT p.id, p.schedule_revision_id, v.provider,
+                               event.occurred_at, event.observed_at
+                        FROM engine.predictions AS p
+                        JOIN engine.model_variants AS v ON v.id = p.variant_id
+                        JOIN engine.prediction_events AS event
+                          ON event.prediction_id = p.id
+                         AND event.event_type = 'published'
+                        WHERE p.match_id = CAST(:match_id AS uuid)
+                        """
+                    ),
+                    {"match_id": manifest["match_id"]},
+                )
+                .mappings()
+                .all()
+            }
+            voided = predictions["openai"]
+            published = predictions["statistical"]
+            event_id = connection.execute(
+                text(
+                    """
+                    INSERT INTO engine.prediction_events (
+                        prediction_id, event_type, reason, occurred_at,
+                        observed_at, schedule_revision_id
+                    ) VALUES (
+                        :prediction_id, 'voided', 'api_projection_fallback',
+                        :occurred_at, :observed_at, :schedule_revision_id
+                    )
+                    RETURNING id
+                    """
+                ),
+                {
+                    "prediction_id": voided["id"],
+                    "occurred_at": voided["occurred_at"],
+                    "observed_at": voided["observed_at"] + timedelta(seconds=1),
+                    "schedule_revision_id": voided["schedule_revision_id"],
+                },
+            ).scalar_one()
+            connection.execute(
+                text(
+                    """
+                    UPDATE engine.prediction_status_projection
+                    SET latest_event_id = :event_id,
+                        current_status = 'voided',
+                        refreshed_at = :refreshed_at
+                    WHERE prediction_id = :prediction_id
+                    """
+                ),
+                {
+                    "event_id": event_id,
+                    "refreshed_at": voided["observed_at"] + timedelta(seconds=1),
+                    "prediction_id": voided["id"],
+                },
+            )
+
+        client = _postgres_client(postgres_role_urls)
+        projected = client.get(f"/api/v1/matches/{manifest['match_id']}", headers=OPERATOR_HEADERS)
+        assert projected.status_code == 200
+        assert [
+            (row["provider"], row["lifecycle_status"])
+            for row in projected.json()["data"]["provider_outcomes"]
+        ] == [("statistical", "published")]
+
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    """
+                    DELETE FROM engine.prediction_status_projection
+                    WHERE prediction_id IN (:voided_id, :published_id)
+                    """
+                ),
+                {"voided_id": voided["id"], "published_id": published["id"]},
+            )
+    finally:
+        engine.dispose()
+
+    detail = client.get(f"/api/v1/matches/{manifest['match_id']}", headers=OPERATOR_HEADERS)
+    assert detail.status_code == 200
+    outcomes = detail.json()["data"]["provider_outcomes"]
+    assert [(row["provider"], row["lifecycle_status"]) for row in outcomes] == [
+        ("statistical", "published")
+    ]
+
+    history = client.get(
+        "/api/v1/predictions",
+        params={"competition": manifest["competition"]},
+        headers=OPERATOR_HEADERS,
+    )
+    assert history.status_code == 200
+    assert {row["provider"]: row["status"] for row in history.json()["data"]["items"]} == {
+        "openai": "voided",
+        "statistical": "published",
+    }
+
+
 def test_postgres_history_team_keyset_uses_prediction_schedule_revision(
     postgres_role_urls: object,
 ) -> None:

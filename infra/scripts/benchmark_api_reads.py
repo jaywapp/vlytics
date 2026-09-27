@@ -271,6 +271,20 @@ CROSS JOIN LATERAL (
         + (match_no - 1) * interval '1 day' AS scheduled_at
 ) AS timing;
 
+INSERT INTO engine.prediction_events (
+    id, prediction_id, event_type, reason, occurred_at, observed_at, schedule_revision_id
+)
+SELECT md5('benchmark-published-' || p.id::text)::uuid, p.id, 'published',
+       'synthetic benchmark publication', p.generated_at, p.generated_at,
+       p.schedule_revision_id
+FROM engine.predictions p;
+
+INSERT INTO engine.prediction_status_projection (
+    prediction_id, latest_event_id, current_status, refreshed_at
+)
+SELECT prediction_id, id, event_type, observed_at
+FROM engine.prediction_events;
+
 INSERT INTO engine.evaluations (
     id, match_id, prediction_id, result_revision_id, evaluator_version,
     cohort_policy_version, metric_values, settlement
@@ -420,6 +434,8 @@ def _analyze_fixture(engine: Engine) -> None:
         "mirror.source_coverage",
         "engine.feature_snapshots",
         "engine.predictions",
+        "engine.prediction_events",
+        "engine.prediction_status_projection",
         "engine.evaluations",
         "ops.jobs",
         "ops.provider_budget_reservations",
@@ -433,6 +449,12 @@ def _fixture_counts(engine: Engine) -> dict[str, int]:
     statements = {
         "matches": "SELECT count(*) FROM mirror.matches WHERE source = :source",
         "predictions": """SELECT count(*) FROM engine.predictions p
+            JOIN mirror.matches m ON m.id = p.match_id WHERE m.source = :source""",
+        "prediction_events": """SELECT count(*) FROM engine.prediction_events e
+            JOIN engine.predictions p ON p.id = e.prediction_id
+            JOIN mirror.matches m ON m.id = p.match_id WHERE m.source = :source""",
+        "prediction_projections": """SELECT count(*) FROM engine.prediction_status_projection ps
+            JOIN engine.predictions p ON p.id = ps.prediction_id
             JOIN mirror.matches m ON m.id = p.match_id WHERE m.source = :source""",
         "evaluations": """SELECT count(*) FROM engine.evaluations e
             JOIN mirror.matches m ON m.id = e.match_id WHERE m.source = :source""",
@@ -815,6 +837,8 @@ def main() -> int:
         expected = {
             "matches": MATCHES,
             "predictions": PREDICTIONS,
+            "prediction_events": PREDICTIONS,
+            "prediction_projections": PREDICTIONS,
             "evaluations": PREDICTIONS,
             "operations": MATCHES,
             "coverage": MATCHES,

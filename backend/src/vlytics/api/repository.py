@@ -509,8 +509,8 @@ SELECT p.id::text, 'prediction'::text AS record_type,
        mr.home_team_id::text, prediction_home.source_team_code AS home_team_code,
        mr.away_team_id::text, prediction_away.source_team_code AS away_team_code,
        p.input_cutoff_at, p.generated_at,
-       coalesce(ps.current_status, 'published') AS status,
-       coalesce(ps.current_status, 'published') AS lifecycle_status,
+       coalesce(ps.current_status, lifecycle_event.event_type) AS status,
+       coalesce(ps.current_status, lifecycle_event.event_type) AS lifecycle_status,
        'succeeded'::text AS provider_status, NULL::text AS error_code,
        market_evaluation.eligibility AS market_eligibility,
        market_evaluation.reason AS market_reason,
@@ -528,6 +528,13 @@ JOIN mirror.team_identities prediction_home ON prediction_home.id = mr.home_team
 JOIN mirror.team_identities prediction_away ON prediction_away.id = mr.away_team_id
 LEFT JOIN engine.prediction_status_projection ps ON ps.prediction_id = p.id
 LEFT JOIN LATERAL (
+    SELECT event.event_type
+    FROM engine.prediction_events AS event
+    WHERE event.prediction_id = p.id
+    ORDER BY event.observed_at DESC, event.occurred_at DESC, event.created_at DESC, event.id DESC
+    LIMIT 1
+) AS lifecycle_event ON ps.prediction_id IS NULL
+LEFT JOIN LATERAL (
     SELECT evaluation.market_snapshot_id, evaluation.eligibility, evaluation.reason
     FROM market.market_evaluations AS evaluation
     WHERE evaluation.prediction_id = p.id
@@ -536,6 +543,7 @@ LEFT JOIN LATERAL (
 ) AS market_evaluation ON true
 LEFT JOIN market.market_snapshots AS market_snapshot
     ON market_snapshot.id = coalesce(market_evaluation.market_snapshot_id, p.market_snapshot_id)
+WHERE ps.prediction_id IS NOT NULL OR lifecycle_event.event_type IS NOT NULL
 UNION ALL
 SELECT a.id::text, 'attempt'::text AS record_type,
        NULL::text AS prediction_revision_id, a.id::text AS attempt_id,

@@ -75,6 +75,7 @@ services:
       VLYTICS_DATABASE_URL: ${ENGINE_DATABASE_URL:?ENGINE_DATABASE_URL is required}
       VLYTICS_OPERATIONAL_CONFIG_PATH: /app/config/example.toml
       VLYTICS_OPERATIONAL_SCHEMA_PATH: /app/contracts/config.schema.json
+      VLYTICS_WORKER_HEARTBEAT_PATH: /tmp/vlytics-worker-heartbeat.json
     command: ["vlytics-worker"]
     volumes:
       - ../config/example.toml:/app/config/example.toml:ro

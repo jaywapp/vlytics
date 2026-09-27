@@ -80,3 +80,20 @@ B3 근거로 일정 측정만 제시한 이전 문서는 충분하지 않았다.
 전체 22시즌 Performance는 SQL에서 성공 prediction 16,500개를 제거한 뒤에도 evaluation 16,500개를 Python으로 materialize하고, service가 group·calibration을 계산하며 revision ID를 모두 직렬화한다. warm p95 1.74초, peak 67.35MiB, 응답 2.81MB인 비용 경계는 유지된다. 사용자가 느끼는 응답이나 동시 부하에서 이 비용이 허용되지 않으면 허용 기간·비동기 사전 집계·응답 provenance 축약 중 제품 계약에 맞는 방식을 선택하고 별도 SLO로 다시 측정해야 한다.
 
 이 결과는 단일 client 로컬 측정이며 production ingress/network, 동시 쓰기, PostgreSQL server memory, 다중 사용자 부하를 입증하지 않는다. 최종 실행은 빈 clone의 seed·ANALYZE부터 CLI로 수행했으며 prediction은 cutoff+5초 시작·+10초 완료로 생성했다. 저장된 evaluation cohort를 조회하는 성능 검증이며 실제 예측 생성이나 timing eligibility 재평가를 검증하지 않는다. 세 Provider가 성공한 fixture이고 실패 집중 부하나 통계 기준선·Market의 전체 규모 비교는 포함하지 않는다.
+
+
+## R06 상태 복원 변경 후 재측정
+
+projection 누락을 published로 간주하던 동작을 고치면서, 기존 benchmark fixture의 게시 event/projection 누락도 보완했다. 정상 게시 event와 projection을 각 16,500행 생성·검증하고 빈 clone에서 seed/ANALYZE/전체 CLI를 다시 실행했다. 최초 JSON과 위 표는 당시 이력으로 보존하며, 현재 코드의 결과는 [후속 원본 JSON](api-performance-followup-results.json)을 따른다. 코드 SHA256을 현재 source와 다시 대조했다.
+
+| 실제 API | warm p95 | Python peak |
+|---|---:|---:|
+| Schedule | 45.38ms | 0.08MiB |
+| History 첫 페이지 | 135.20ms | 0.35MiB |
+| History 다음 페이지 | 114.51ms | 0.35MiB |
+| Performance 전체 22시즌 | 1,778.01ms | 67.35MiB |
+| Performance 최근 1시즌 | 113.03ms | 3.29MiB |
+| Operations | 17.62ms | 0.10MiB |
+| Coverage | 53.72ms | 5.81MiB |
+
+기존 로컬 p95/peak budget을 모두 충족했다. fixture와 SQL이 함께 바뀌었으므로 수치 차이를 코드만의 인과 효과로 해석하지 않는다. 정상 projection이 있는 표준 경로의 규모 측정이며, 전체 projection 유실 상황의 부하·운영 동시성·실제 source/Provider 검증은 포함하지 않는다.

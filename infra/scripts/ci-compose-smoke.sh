@@ -200,9 +200,42 @@ test "$job_state" = "quarantined:1:1"
 test "$(database_query "SELECT error_code FROM ops.jobs WHERE job_key = 'ci-disabled-source';")" = source_collection_disabled_by_config
 
 compose restart worker
+worker_restart_boundary="$(date --utc +%Y-%m-%dT%H:%M:%S.%NZ)"
 sleep 5
 assert_running worker
 test "$(database_query "$job_query")" = "quarantined:1:1"
+
+worker_container_id="$(compose ps -q worker)"
+exported_heartbeat="$temporary_directory/worker-heartbeat.json"
+heartbeat_export_verified=false
+for attempt in $(seq 1 10); do
+  if (
+    cd "$repository_root/backend"
+    uv run python -m vlytics.ops.heartbeat_export \
+      --container "$worker_container_id" --output "$exported_heartbeat"
+  ) && python3 - "$exported_heartbeat" "$worker_restart_boundary" <<'PY'
+import json
+import sys
+from datetime import datetime
+from pathlib import Path
+
+heartbeat = json.loads(Path(sys.argv[1]).read_text())
+completed = datetime.fromisoformat(heartbeat["completed_at"])
+restarted = datetime.fromisoformat(sys.argv[2])
+raise SystemExit(0 if completed > restarted else 1)
+PY
+  then
+    heartbeat_export_verified=true
+    break
+  fi
+  sleep 1
+done
+test "$heartbeat_export_verified" = true
+(
+  cd "$repository_root/backend"
+  uv run python -m vlytics.ops.heartbeat --path "$exported_heartbeat" --max-age-seconds 180
+)
+echo "Worker heartbeat export passed after restart."
 
 compose run --rm migrate
 test "$(database_query 'SELECT count(*) FROM public.vlytics_schema_migrations;')" = "$migration_count"

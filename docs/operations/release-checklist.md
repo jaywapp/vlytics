@@ -16,7 +16,7 @@
 | 수집·결과·retry | 동일 worker handler의 transport/planner·pagination·finality·deadline·호출 cap 회귀 | OP-001/003/004 및 실제 소량 source/Provider 실행 |
 | 통계·입력·Market | 독립 모듈·계약, API snapshot/eligibility 회귀 | A08 Elo, B1 roster/stats, A12 Market 생성 연결 승인 대기 |
 | API·Web | backend 400 tests, frontend 24·fixture E2E 9·실제 Nginx/API/DB browser 1 | 실제 운영 데이터·production 네트워크 성능은 별도 |
-| 복구·감시 | 새 cluster owner/ACL/SCRAM 복구, read-only health evidence collector | 운영 host NTP/heartbeat 전달·예약 backup/PITR·알림 발송 |
+| 복구·감시 | 새 cluster owner/ACL/SCRAM 복구, read-only collector, heartbeat export 및 선택적 HTTPS dispatcher 합성 회귀 | 운영 host NTP/heartbeat 전달·예약 backup/PITR·실제 알림 수신 |
 | image 보안 | compiler 포함 8개 image SBOM·identity·HIGH/CRITICAL 0건, gosu provenance 검증 | 게시 release digest 및 대상 architecture의 검사·승인 |
 | 조회 성능 | endpoint WHERE/keyset, 22시즌 경기 5,500·예측/평가 각 16,500의 실제 API 지연·Python peak 측정 및 로컬 회귀 budget 충족 | 운영 동시 쓰기·다중 사용자·서버 메모리와 production SLO 검증은 별도 |
 
