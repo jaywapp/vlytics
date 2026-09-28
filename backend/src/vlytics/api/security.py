@@ -23,6 +23,14 @@ class Authenticator:
     operator_secret: SecretStr | None
     readonly_secret: SecretStr | None = None
 
+    def __post_init__(self) -> None:
+        if self.operator_secret is None or self.readonly_secret is None:
+            return
+        operator = self.operator_secret.get_secret_value().encode("utf-8")
+        readonly = self.readonly_secret.get_secret_value().encode("utf-8")
+        if hmac.compare_digest(operator, readonly):
+            raise ValueError("operator and read-only authentication secrets must be distinct")
+
     def require_operator(
         self,
         credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],

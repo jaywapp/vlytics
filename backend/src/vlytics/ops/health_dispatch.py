@@ -29,6 +29,7 @@ CHECK_IDS = frozenset(
     {
         "worker_heartbeat",
         "backup_freshness",
+        "backup_integrity",
         "ntp_sync",
         "running_jobs",
         "provider_budgets",

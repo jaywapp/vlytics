@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol, cast
 from uuid import UUID
@@ -23,6 +23,7 @@ from vlytics.engine.evaluation.repository import EvaluationStore
 from vlytics.engine.market import (
     EvaluationEligibility,
     LineProbabilities,
+    MarketContractError,
     MarketEvaluation,
     MarketLine,
     MarketLineEvaluation,
@@ -31,9 +32,7 @@ from vlytics.engine.market import (
     MarketSnapshot,
     MarketType,
     MarketUnit,
-    default_market_adapter,
 )
-from vlytics.engine.market.runtime import MarketComparisonUnitOfWork
 from vlytics.ops.repositories import JobRepository
 from vlytics.ops.scheduler import TerminalJobError
 
@@ -52,7 +51,7 @@ class EvaluationWorkItem:
 
 @dataclass(frozen=True)
 class ResultEvaluationWork:
-    """The exact result revision and all currently published eligible predictions."""
+    """The exact result revision and selected published predictions."""
 
     result: ResultRevision
     predictions: tuple[EvaluationWorkItem, ...]
@@ -67,7 +66,12 @@ class EvaluationRunSummary:
 
 
 class EvaluationWorkReader(Protocol):
-    def load(self, result_revision_id: UUID) -> ResultEvaluationWork: ...
+    def load(
+        self,
+        result_revision_id: UUID,
+        *,
+        trigger_prediction_id: UUID | None = None,
+    ) -> ResultEvaluationWork: ...
 
 
 class EvaluationWriter(Protocol):
@@ -75,7 +79,7 @@ class EvaluationWriter(Protocol):
 
 
 class ResultEvaluationService:
-    """Evaluate all published predictions against one exact immutable result."""
+    """Evaluate selected published predictions against one exact immutable result."""
 
     def __init__(
         self,
@@ -88,8 +92,16 @@ class ResultEvaluationService:
         self._writer = writer
         self._evaluator = evaluator or ResultEvaluator()
 
-    def evaluate_result(self, result_revision_id: UUID) -> EvaluationRunSummary:
-        work = self._reader.load(result_revision_id)
+    def evaluate_result(
+        self,
+        result_revision_id: UUID,
+        *,
+        trigger_prediction_id: UUID | None = None,
+    ) -> EvaluationRunSummary:
+        work = self._reader.load(
+            result_revision_id,
+            trigger_prediction_id=trigger_prediction_id,
+        )
         created = 0
         existing = 0
         for item in work.predictions:
@@ -118,7 +130,12 @@ class PostgresEvaluationWorkReader:
     def __init__(self, connection: Connection) -> None:
         self._connection = connection
 
-    def load(self, result_revision_id: UUID) -> ResultEvaluationWork:
+    def load(
+        self,
+        result_revision_id: UUID,
+        *,
+        trigger_prediction_id: UUID | None = None,
+    ) -> ResultEvaluationWork:
         result_row = (
             self._connection.execute(
                 text(
@@ -155,14 +172,33 @@ class PostgresEvaluationWorkReader:
                     JOIN engine.model_variants v ON v.id = p.variant_id
                     JOIN engine.feature_snapshots s ON s.id = p.snapshot_id
                     WHERE p.match_id = :match_id
+                      AND EXISTS (
+                          SELECT 1
+                          FROM market.market_evaluations market_evaluation
+                          WHERE market_evaluation.prediction_id = p.id
+                            AND market_evaluation.evaluator_version = :market_evaluator_version
+                      )
+                      AND (
+                          CAST(:trigger_prediction_id AS uuid) IS NULL
+                          OR p.id = CAST(:trigger_prediction_id AS uuid)
+                      )
                     ORDER BY p.input_cutoff_at, p.id
                     """
                 ),
-                {"match_id": UUID(result.match_id)},
+                {
+                    "match_id": UUID(result.match_id),
+                    "market_evaluator_version": MARKET_EVALUATOR_VERSION,
+                    "trigger_prediction_id": trigger_prediction_id,
+                },
             )
             .mappings()
             .all()
         )
+        if trigger_prediction_id is not None and not prediction_rows:
+            raise LookupError(
+                f"published prediction {trigger_prediction_id} does not belong to "
+                f"result revision {result_revision_id}"
+            )
         return ResultEvaluationWork(
             result=result,
             predictions=tuple(
@@ -208,8 +244,6 @@ class PostgresEvaluationWorkReader:
     def _market_context(
         self,
         prediction: PredictionEvaluationInput,
-        *,
-        create_missing: bool = True,
     ) -> tuple[MarketEvaluation, MarketSnapshot | None]:
         row = (
             self._connection.execute(
@@ -237,14 +271,7 @@ class PostgresEvaluationWorkReader:
             .one_or_none()
         )
         if row is None:
-            if not create_missing:
-                raise LookupError("persisted Market comparison was not created")
-            MarketComparisonUnitOfWork(
-                self._connection,
-                default_market_adapter(),
-                max_age=timedelta(0),
-            ).compare_prediction(UUID(prediction.prediction_id))
-            return self._market_context(prediction, create_missing=False)
+            raise LookupError("persisted Market comparison was not created")
         eligibility = EvaluationEligibility(str(row["eligibility"]))
         if eligibility is not EvaluationEligibility.ELIGIBLE:
             market_snapshot_id = row["market_snapshot_id"]
@@ -281,7 +308,7 @@ class PostgresEvaluationWorkReader:
 
 
 class EvaluationUnitOfWork:
-    """Commit one result revision's complete evaluation batch atomically."""
+    """Commit one result revision's selected evaluation batch atomically."""
 
     def __init__(
         self,
@@ -295,8 +322,16 @@ class EvaluationUnitOfWork:
             evaluator=evaluator,
         )
 
-    def evaluate_result(self, result_revision_id: UUID) -> EvaluationRunSummary:
-        return self._service.evaluate_result(result_revision_id)
+    def evaluate_result(
+        self,
+        result_revision_id: UUID,
+        *,
+        trigger_prediction_id: UUID | None = None,
+    ) -> EvaluationRunSummary:
+        return self._service.evaluate_result(
+            result_revision_id,
+            trigger_prediction_id=trigger_prediction_id,
+        )
 
 
 class EvaluationJobPlanner:
@@ -423,13 +458,17 @@ class EvaluationJobHandler:
     def handle(self, job: Mapping[str, Any], *, now: datetime) -> None:
         del now
         try:
-            result_revision_id = result_revision_id_from_job(job)
+            result_revision_id, trigger_prediction_id = _evaluation_identity_from_job(job)
         except ValueError as error:
             raise TerminalJobError("unsupported_evaluation_job_contract") from error
-        with self._engine.begin() as connection:
-            EvaluationUnitOfWork(connection, evaluator=self._evaluator).evaluate_result(
-                result_revision_id
-            )
+        try:
+            with self._engine.begin() as connection:
+                EvaluationUnitOfWork(connection, evaluator=self._evaluator).evaluate_result(
+                    result_revision_id,
+                    trigger_prediction_id=trigger_prediction_id,
+                )
+        except (LookupError, MarketContractError, ValueError) as error:
+            raise TerminalJobError("ineligible_evaluation_input") from error
 
 
 def evaluation_handlers(engine: Engine) -> dict[str, EvaluationJobHandler]:
@@ -450,6 +489,10 @@ def evaluation_job_key(
 
 
 def result_revision_id_from_job(job: Mapping[str, Any]) -> UUID:
+    return _evaluation_identity_from_job(job)[0]
+
+
+def _evaluation_identity_from_job(job: Mapping[str, Any]) -> tuple[UUID, UUID | None]:
     if str(job.get("job_type")) != EVALUATION_JOB_TYPE:
         raise ValueError("job is not a result evaluation job")
     payload = job.get("payload")
@@ -460,9 +503,16 @@ def result_revision_id_from_job(job: Mapping[str, Any]) -> UUID:
     if payload.get("cohort_policy_version") != COHORT_POLICY_VERSION:
         raise ValueError("evaluation job cohort_policy_version is unsupported")
     try:
-        return UUID(str(payload["result_revision_id"]))
+        result_revision_id = UUID(str(payload["result_revision_id"]))
     except (KeyError, ValueError, TypeError) as error:
         raise ValueError("evaluation job result_revision_id is invalid") from error
+    trigger_prediction_id = payload.get("trigger_prediction_id")
+    if trigger_prediction_id is None:
+        return result_revision_id, None
+    try:
+        return result_revision_id, UUID(str(trigger_prediction_id))
+    except (ValueError, TypeError) as error:
+        raise ValueError("evaluation job trigger_prediction_id is invalid") from error
 
 
 def _result_from_row(row: RowMapping) -> ResultRevision:

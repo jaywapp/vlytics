@@ -188,3 +188,23 @@ def test_role_bootstrap_creates_missing_official_bootstrap_owner(monkeypatch):
     assert len(created) == 1
     assert "Identifier('vlytics_bootstrap_admin')" in repr(created[0])
     assert "NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE" in repr(created[0])
+
+
+def test_database_acl_warnings_identify_non_migration_create_grants():
+    from vlytics.storage.recovery import database_acl_warnings
+
+    security = {
+        "owner": "vlytics_bootstrap_admin",
+        "grants": [
+            ["vlytics_migrator", "CREATE", False],
+            ["vlytics_migration_owner", "CREATE", False],
+            ["vlytics_read_api", "CREATE", False],
+            ["PUBLIC", "CREATE", False],
+            ["PUBLIC", "CONNECT", False],
+        ],
+    }
+
+    assert database_acl_warnings(security) == [
+        "database CREATE privilege granted to PUBLIC",
+        "database CREATE privilege granted to vlytics_read_api",
+    ]

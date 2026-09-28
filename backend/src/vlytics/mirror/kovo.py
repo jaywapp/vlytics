@@ -18,18 +18,25 @@ from vlytics.config import OperationalConfig
 from vlytics.mirror.backfill import (
     BackfillRunner,
     BackfillScope,
+    BulkCollectionBlocked,
     CollectionGate,
+    InvalidObservationTime,
     PostgresCheckpointStore,
     PostgresScopeLease,
     RequestRateLimiter,
+    RetryBudgetExceeded,
     RetryPolicy,
+    ScopeLeaseUnavailable,
+    SourceContractError,
     SourcePage,
+    SourceRequestFailed,
 )
 from vlytics.mirror.ingestion import MirrorIngestionService
 from vlytics.mirror.models import SourceEndpoint, SourceRequestKey, SourceResponse
 from vlytics.mirror.parser import KovoParser
 from vlytics.mirror.repositories.facts import MirrorFactRepository
 from vlytics.mirror.repositories.raw_snapshots import RawSnapshotRepository
+from vlytics.ops.scheduler import RetryableJobError, TerminalJobError
 from vlytics.ops.sync import scope_from_payload
 
 KOVO_BASE_URL = "https://user-api.kovo.co.kr"
@@ -102,6 +109,7 @@ class KovoSourceAdapter:
         page_size: int,
         *,
         requested_at: datetime,
+        timeout_seconds: float | None = None,
     ) -> SourcePage:
         if scope.source != "kovo":
             raise ValueError("KOVO adapter requires the kovo source scope")
@@ -114,6 +122,7 @@ class KovoSourceAdapter:
                 KOVO_BASE_URL + path,
                 params=params,
                 headers={"Accept": "application/json"},
+                timeout=30.0 if timeout_seconds is None else timeout_seconds,
             )
         except httpx.TimeoutException as error:
             raise TimeoutError("KOVO request timed out") from error
@@ -262,6 +271,22 @@ class KovoSyncJobHandler:
         )
 
     def handle(self, job: Mapping[str, Any], *, now: datetime) -> None:
+        try:
+            self._handle(job, now=now)
+        except (ScopeLeaseUnavailable, RetryBudgetExceeded) as error:
+            raise RetryableJobError("source_temporarily_unavailable") from error
+        except (
+            BulkCollectionBlocked,
+            InvalidObservationTime,
+            SourceContractError,
+            ValueError,
+            TypeError,
+        ) as error:
+            raise TerminalJobError("invalid_source_job_contract") from error
+        except SourceRequestFailed as error:
+            raise RetryableJobError("source_request_failed") from error
+
+    def _handle(self, job: Mapping[str, Any], *, now: datetime) -> None:
         del now
         payload = job.get("payload")
         if not isinstance(payload, Mapping):

@@ -1,5 +1,6 @@
 """Application and operational settings shared by API and worker processes."""
 
+import hmac
 import json
 import os
 import tomllib
@@ -31,6 +32,21 @@ _PLACEHOLDERS = frozenset(
 
 class OperationalConfigError(RuntimeError):
     """Raised when the operational contract is missing or unsafe to activate."""
+
+
+def validate_api_auth_secrets(environ: Mapping[str, str]) -> None:
+    """Reject deployments that collapse operator and read-only roles."""
+
+    operator = environ.get("VLYTICS_OPERATOR_AUTH_SECRET")
+    readonly = environ.get("VLYTICS_READONLY_AUTH_SECRET")
+    if (
+        operator
+        and readonly
+        and hmac.compare_digest(operator.encode("utf-8"), readonly.encode("utf-8"))
+    ):
+        raise OperationalConfigError(
+            "API operator and read-only authentication secrets must be distinct"
+        )
 
 
 @dataclass(frozen=True)
@@ -248,6 +264,8 @@ def _validate_cross_fields(
     component: RuntimeComponent | None,
 ) -> None:
     errors: list[str] = []
+    if component in {None, "api"}:
+        validate_api_auth_secrets(environ)
     environment = _string(config, "environment")
     live_enabled = _boolean(config, "live_operations_enabled")
     deployment = _section(config, "deployment")

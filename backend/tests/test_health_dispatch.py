@@ -21,6 +21,7 @@ NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 CHECK_IDS = (
     "worker_heartbeat",
     "backup_freshness",
+    "backup_integrity",
     "ntp_sync",
     "running_jobs",
     "provider_budgets",
@@ -51,6 +52,7 @@ def _report(
             "created_at_utc": "2026-09-27T10:00:00+00:00",
             "age_seconds": 7200.0,
         },
+        "backup_integrity": {"byte_length": 1024, "sha256": "a" * 64},
         "ntp_sync": {
             "observed_at": "2026-09-27T11:59:30+00:00",
             "age_seconds": 30.0,

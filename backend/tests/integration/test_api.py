@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from runpy import run_path
+from threading import Event, Timer
+from time import perf_counter
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
@@ -344,6 +347,44 @@ def test_operator_routes_require_authentication_and_role() -> None:
         ).status_code
         == 401
     )
+
+
+def test_slow_read_does_not_block_health_on_the_event_loop() -> None:
+    read_started = Event()
+    release_read = Event()
+
+    class SlowRepository(InMemoryReadRepository):
+        def load_query(self, query: ReadQuery) -> ReadSnapshot:
+            del query
+            read_started.set()
+            if not release_read.wait(timeout=3):
+                raise RuntimeError("test read was not released")
+            return self.load()
+
+    application = create_app(
+        repository=SlowRepository(),
+        environ={"VLYTICS_OPERATOR_AUTH_SECRET": "synthetic-operator-secret"},
+    )
+    with TestClient(application) as client, ThreadPoolExecutor(max_workers=1) as executor:
+        slow_request = executor.submit(
+            client.get,
+            "/api/v1/performance",
+            headers=OPERATOR_HEADERS,
+        )
+        assert read_started.wait(timeout=1)
+        safety_release = Timer(1.5, release_read.set)
+        safety_release.start()
+        try:
+            started_at = perf_counter()
+            health = client.get("/health")
+            elapsed = perf_counter() - started_at
+        finally:
+            release_read.set()
+            safety_release.cancel()
+
+        assert health.status_code == 200
+        assert elapsed < 0.75
+        assert slow_request.result(timeout=2).status_code == 200
 
 
 def test_invalid_filters_and_cursor_are_rejected() -> None:

@@ -40,7 +40,7 @@ def test_real_missing_evidence_report_dry_run_and_delivery_are_separate(
     dry_run = json.loads(capsys.readouterr().out)
     assert dry_run["report_status"] == "unknown"
     assert dry_run["mode"] == "dry_run"
-    assert dry_run["planned"] == 5
+    assert dry_run["planned"] == 6
     assert dry_run["sent"] == 0
     assert not state.exists()
 
@@ -59,13 +59,14 @@ def test_real_missing_evidence_report_dry_run_and_delivery_are_separate(
         now=now,
         transport=httpx.MockTransport(receive),
     )
-    assert result.sent == 5
-    assert len(requests) == 5
+    assert result.sent == 6
+    assert len(requests) == 6
     assert path.read_bytes() == original
     assert report["notification_dispatched"] is False
     assert {json.loads(request.content)["check"]["check_id"] for request in requests} == {
         "worker_heartbeat",
         "backup_freshness",
+        "backup_integrity",
         "ntp_sync",
         "running_jobs",
         "provider_budgets",

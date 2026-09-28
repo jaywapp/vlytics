@@ -345,6 +345,32 @@ describe("match briefing flow", () => {
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeEnabled();
   });
 
+  it("shows a malformed successful schedule response as an error panel", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        ...serializedApiFixture.schedule,
+        data: {
+          ...serializedApiFixture.schedule.data,
+          items: [
+            {
+              ...serializedApiFixture.schedule.data.items[0],
+              provider_outcomes: null,
+            },
+          ],
+        },
+      }),
+    }));
+
+    renderBriefing(createOperatorApiClient({ token: "fixture-token" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "API response does not match the operator envelope",
+    );
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeEnabled();
+  });
+
 
   it("does not fill unsupported provider targets from another model", async () => {
     const user = userEvent.setup();
@@ -411,7 +437,7 @@ describe("operator API client", () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
-      json: () => Promise.resolve({ metadata: {}, data: {} }),
+      json: () => Promise.resolve(serializedApiFixture.schedule),
     });
     vi.stubGlobal("fetch", fetchMock);
     const client = createOperatorApiClient({ token: "fixture-token" });

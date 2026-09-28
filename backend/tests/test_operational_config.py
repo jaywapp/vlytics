@@ -125,6 +125,18 @@ def test_complete_synthetic_live_config_passes_without_bulk_source() -> None:
     validate_operational_config(values, _schema(), environ=environ, component="api")
 
 
+def test_api_config_rejects_equal_operator_and_readonly_secrets() -> None:
+    values = _values()
+    environ = _activate(values)
+    environ["VLYTICS_READONLY_AUTH_SECRET"] = environ["VLYTICS_OPERATOR_AUTH_SECRET"]
+
+    with pytest.raises(OperationalConfigError, match="must be distinct"):
+        validate_operational_config(values, _schema(), environ=environ, component="api")
+
+    with pytest.raises(OperationalConfigError, match="must be distinct"):
+        create_app(repository=None, environ=environ)
+
+
 def test_live_config_rejects_placeholders_and_unset_model_ids() -> None:
     values = _values()
     values["environment"] = "production"

@@ -24,7 +24,7 @@ from vlytics.engine.evaluation import (
 )
 from vlytics.engine.evaluation.runtime import EvaluationJobHandler
 from vlytics.engine.market import EvaluationEligibility, MarketEvaluation
-from vlytics.ops.scheduler import TerminalJobError
+from vlytics.ops.scheduler import PredictionJobDispatcher, TerminalJobError
 
 ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 9, 20, 3, tzinfo=UTC)
@@ -34,6 +34,7 @@ SCHEDULE_ID = "33333333-3333-3333-3333-333333333333"
 SNAPSHOT_ID = "44444444-4444-4444-4444-444444444444"
 RESULT_ID = UUID("55555555-5555-5555-5555-555555555555")
 CORRECTED_RESULT_ID = UUID("66666666-6666-6666-6666-666666666666")
+TAMPERED_PREDICTION_ID = UUID("88888888-8888-8888-8888-888888888888")
 
 
 @dataclass(frozen=True)
@@ -51,6 +52,9 @@ class _QueryResult:
     def one_or_none(self) -> object:
         return self.value
 
+    def all(self) -> object:
+        return self.value
+
 
 class _QueryConnection:
     def __init__(self, value: object) -> None:
@@ -64,8 +68,113 @@ class _Reader:
     def __init__(self, work: dict[UUID, ResultEvaluationWork]) -> None:
         self.work = work
 
-    def load(self, result_revision_id: UUID) -> ResultEvaluationWork:
+    def load(
+        self,
+        result_revision_id: UUID,
+        *,
+        trigger_prediction_id: UUID | None = None,
+    ) -> ResultEvaluationWork:
+        del trigger_prediction_id
         return self.work[result_revision_id]
+
+
+class _ScopedQueryConnection:
+    def __init__(self) -> None:
+        self.prediction_queries: list[tuple[str, dict[str, object]]] = []
+
+    def execute(
+        self,
+        statement: object,
+        parameters: dict[str, object] | None = None,
+    ) -> _QueryResult:
+        sql = str(statement)
+        values = parameters or {}
+        if "FROM mirror.result_revisions rr" in sql:
+            return _QueryResult(
+                {
+                    "id": RESULT_ID,
+                    "match_id": UUID(MATCH_ID),
+                    "revision": 1,
+                    "finality": "final",
+                    "home_sets": 3,
+                    "away_sets": 1,
+                    "home_points": 75,
+                    "away_points": 63,
+                    "division": "men",
+                    "competition": "regular-vleague",
+                    "stage": "regular",
+                }
+            )
+        if "FROM engine.predictions p" in sql and "match_id" in values:
+            self.prediction_queries.append((sql, values))
+            rows = [
+                _prediction_row(UUID(PREDICTION_ID)),
+                _prediction_row(TAMPERED_PREDICTION_ID),
+            ]
+            if "FROM market.market_evaluations market_evaluation" in sql:
+                rows = [row for row in rows if row["id"] == UUID(PREDICTION_ID)]
+            if "p.id = CAST(:trigger_prediction_id AS uuid)" in sql:
+                trigger_prediction_id = values.get("trigger_prediction_id")
+                if trigger_prediction_id is not None:
+                    rows = [row for row in rows if row["id"] == trigger_prediction_id]
+            return _QueryResult(rows)
+        if "FROM market.market_evaluations me" in sql:
+            prediction_id = values["prediction_id"]
+            if prediction_id == UUID(PREDICTION_ID):
+                return _QueryResult(
+                    {
+                        "market_snapshot_id": None,
+                        "evaluator_version": "market-evaluator-v1",
+                        "eligibility": EvaluationEligibility.MISSING.value,
+                        "reason": "no_market_evaluation_for_prediction",
+                        "derived_probabilities": {},
+                    }
+                )
+            return _QueryResult(None)
+        raise AssertionError(f"unexpected SQL: {sql}")
+
+
+class _Transaction:
+    def __init__(self, connection: _ScopedQueryConnection) -> None:
+        self.connection = connection
+
+    def __enter__(self) -> _ScopedQueryConnection:
+        return self.connection
+
+    def __exit__(self, *_args: object) -> None:
+        return None
+
+
+class _Engine:
+    def __init__(self, connection: _ScopedQueryConnection) -> None:
+        self.connection = connection
+
+    def begin(self) -> _Transaction:
+        return _Transaction(self.connection)
+
+
+class _RecordingJobRepository:
+    quarantined: list[tuple[UUID, str]] = []
+    retries: list[UUID] = []
+
+    def __init__(self, _connection: object) -> None:
+        pass
+
+    def quarantine(
+        self,
+        *,
+        job_id: UUID,
+        lease_owner: str,
+        error_code: str,
+        now: datetime,
+    ) -> bool:
+        del lease_owner, now
+        self.quarantined.append((job_id, error_code))
+        return True
+
+    def schedule_retry(self, *, job_id: UUID, **_kwargs: object) -> bool:
+        self.retries.append(job_id)
+        return True
 
 
 class _Writer:
@@ -84,6 +193,26 @@ class _Writer:
         self.keys.add(key)
         self.evaluations.append(evaluation)
         return _Stored(created)
+
+
+def _prediction_row(prediction_id: UUID) -> dict[str, object]:
+    return {
+        "id": prediction_id,
+        "match_id": UUID(MATCH_ID),
+        "schedule_revision_id": UUID(SCHEDULE_ID),
+        "snapshot_id": UUID(SNAPSHOT_ID),
+        "input_cutoff_at": NOW,
+        "resolved_model_id": "resolved-model-v1",
+        "output_json": {
+            "home_win_probability": 0.7,
+            "set_score_probabilities": _prediction().set_score_probabilities,
+        },
+        "provider": "openai",
+        "pinned_model_version": "pinned-model-v1",
+        "prompt_version": "prompt-v1",
+        "feature_version": "feature-v1",
+        "availability_policy": "live_prospective",
+    }
 
 
 def _prediction(finality: str = "final") -> PredictionEvaluationInput:
@@ -191,6 +320,69 @@ def test_runtime_preserves_exact_provenance_and_missing_market() -> None:
         "result_revision": 1,
         "result_finality": "provisional",
     }
+
+
+def test_manual_and_trigger_scoped_evaluation_exclude_bad_hash_peer() -> None:
+    connection = _ScopedQueryConnection()
+    reader = PostgresEvaluationWorkReader(connection)  # type: ignore[arg-type]
+
+    manual_writer = _Writer()
+    manual_summary = ResultEvaluationService(reader, manual_writer).evaluate_result(RESULT_ID)
+
+    scoped_writer = _Writer()
+    scoped_summary = ResultEvaluationService(reader, scoped_writer).evaluate_result(
+        RESULT_ID,
+        trigger_prediction_id=UUID(PREDICTION_ID),
+    )
+
+    assert manual_summary.published_predictions == 1
+    assert manual_summary.evaluations_created == 1
+    assert manual_writer.evaluations[0].prediction.prediction_id == PREDICTION_ID
+    manual_sql, manual_parameters = connection.prediction_queries[-2]
+    assert "FROM market.market_evaluations market_evaluation" in manual_sql
+    assert manual_parameters["trigger_prediction_id"] is None
+    assert scoped_summary.published_predictions == 1
+    assert scoped_summary.evaluations_created == 1
+    assert scoped_writer.evaluations[0].prediction.prediction_id == PREDICTION_ID
+    _, scoped_parameters = connection.prediction_queries[-1]
+    assert scoped_parameters["trigger_prediction_id"] == UUID(PREDICTION_ID)
+
+
+def test_bad_hash_trigger_is_quarantined_without_retry_loop(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    connection = _ScopedQueryConnection()
+    engine = _Engine(connection)
+    handler = EvaluationJobHandler(engine)  # type: ignore[arg-type]
+    job_id = UUID("99999999-9999-9999-9999-999999999999")
+    job = {
+        "id": job_id,
+        "job_type": EVALUATION_JOB_TYPE,
+        "attempt_no": 1,
+        "payload": {
+            "result_revision_id": str(RESULT_ID),
+            "trigger_prediction_id": str(TAMPERED_PREDICTION_ID),
+            "evaluator_version": EVALUATOR_VERSION,
+            "cohort_policy_version": COHORT_POLICY_VERSION,
+        },
+    }
+    _RecordingJobRepository.quarantined = []
+    _RecordingJobRepository.retries = []
+    monkeypatch.setattr(
+        "vlytics.ops.scheduler.JobRepository",
+        _RecordingJobRepository,
+    )
+    dispatcher = PredictionJobDispatcher(
+        engine,  # type: ignore[arg-type]
+        {EVALUATION_JOB_TYPE: handler},
+        lease_owner="evaluation-test-worker",
+        now=lambda: NOW,
+    )
+
+    dispatcher._execute(job, NOW)
+
+    assert _RecordingJobRepository.quarantined == [(job_id, "ineligible_evaluation_input")]
+    assert _RecordingJobRepository.retries == []
 
 
 def test_evaluation_job_contract_is_versioned_and_fail_closed() -> None:

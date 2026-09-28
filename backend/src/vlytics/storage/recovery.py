@@ -55,7 +55,19 @@ def database_security(connection: psycopg.Connection[Any]) -> dict[str, Any]:
     return {"owner": row[0], "grants": [list(grant) for grant in grants]}
 
 
-def restore_database_security(admin_url: str, manifest_path: Path) -> None:
+def database_acl_warnings(security: dict[str, Any]) -> list[str]:
+    """Surface restored database CREATE grants outside the migration boundary."""
+    migration_roles = DATABASE_OWNERS | {"vlytics_migration_owner"}
+    return sorted(
+        {
+            "database CREATE privilege granted to " + grantee
+            for grantee, privilege, _ in security["grants"]
+            if privilege == "CREATE" and grantee not in migration_roles
+        }
+    )
+
+
+def restore_database_security(admin_url: str, manifest_path: Path) -> list[str]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     security = manifest["database_security"]
     allowed_roles = {
@@ -99,6 +111,7 @@ def restore_database_security(admin_url: str, manifest_path: Path) -> None:
             )
         if database_security(connection) != security:
             raise RuntimeError("Restored database ownership or privileges differ")
+    return database_acl_warnings(security)
 
 
 def _set_role_password(connection: psycopg.Connection[Any], role: str, password: str) -> None:
@@ -353,8 +366,19 @@ def verify_roles(admin_url: str) -> dict[str, str]:
                     pass
                 else:
                     raise RuntimeError("Recovered API role permits writes")
+            try:
+                with connection.transaction():
+                    connection.execute(
+                        sql.SQL("CREATE SCHEMA {}").format(
+                            sql.Identifier("recovery_probe_" + uuid4().hex)
+                        )
+                    )
+            except psycopg.errors.InsufficientPrivilege:
+                pass
+            else:
+                raise RuntimeError("Recovered service role permits schema creation: " + group)
             connection.rollback()
-        result[group] = "authenticated-select-insert-boundaries-passed"
+        result[group] = "authenticated-select-insert-schema-boundaries-passed"
     return result
 
 
@@ -381,8 +405,8 @@ def main() -> int:
         elif args.action == "restore-acl":
             if args.manifest is None:
                 raise ValueError("Backup manifest is required")
-            restore_database_security(url, args.manifest)
-            result = {"database_acl": "restored-and-verified"}
+            warnings = restore_database_security(url, args.manifest)
+            result = {"database_acl": "restored-and-verified", "warnings": warnings}
         else:
             result = verify_roles(url)
         print(json.dumps(result))

@@ -13,10 +13,18 @@ import pytest
 from sqlalchemy import Engine
 
 from vlytics.config import OperationalConfig
-from vlytics.mirror.backfill import BackfillScope, BulkCollectionBlocked, CollectionGate
+from vlytics.mirror.backfill import (
+    BackfillRunner,
+    BackfillScope,
+    BulkCollectionBlocked,
+    CollectionGate,
+    ScopeLeaseUnavailable,
+    SourceRequestFailed,
+)
 from vlytics.mirror.kovo import KOVO_BASE_URL, KovoSourceAdapter, KovoSyncJobHandler
 from vlytics.mirror.models import SourceEndpoint
 from vlytics.mirror.parser import KovoParser
+from vlytics.ops.scheduler import RetryableJobError, TerminalJobError
 
 NOW = datetime(2026, 9, 27, 12, tzinfo=UTC)
 SCOPE = BackfillScope("kovo", "001", "023", "201")
@@ -55,13 +63,14 @@ def test_production_adapter_pins_host_get_shape_and_cursor() -> None:
     )
     adapter = KovoSourceAdapter(SourceEndpoint.GAME_SCHEDULE, client=client, now=lambda: NOW)
 
-    first = adapter.fetch_page(SCOPE, None, 2, requested_at=NOW)
+    first = adapter.fetch_page(SCOPE, None, 2, requested_at=NOW, timeout_seconds=4.5)
     second = adapter.fetch_page(SCOPE, first.next_cursor, 2, requested_at=NOW)
 
     assert first.next_cursor == "1"
     assert second.next_cursor is None
     assert [request.method for request in requests] == ["GET", "GET"]
     assert all(request.url.host == "user-api.kovo.co.kr" for request in requests)
+    assert requests[0].extensions["timeout"]["read"] == 4.5
     assert requests[0].url == httpx.URL(
         KOVO_BASE_URL + "/stat/game-schedule?gcode=001&seasonCode=023&leagueCode=201&page=0&size=2"
     )
@@ -176,7 +185,7 @@ def test_handler_rejects_a_job_outside_approved_scopes_before_http() -> None:
         client=client,
     )
 
-    with pytest.raises(ValueError, match="not approved"):
+    with pytest.raises(TerminalJobError, match="invalid_source_job_contract"):
         handler.handle(
             {
                 "job_type": "mirror.current_schedule",
@@ -202,7 +211,7 @@ def test_handler_resolves_match_id_only_inside_payload_scope() -> None:
         client=httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200))),
     )
 
-    with pytest.raises(ValueError, match="outside its approved scope"):
+    with pytest.raises(TerminalJobError, match="invalid_source_job_contract"):
         handler.handle(
             {
                 "job_type": "mirror.pre_cutoff_sync",
@@ -221,3 +230,48 @@ def test_handler_resolves_match_id_only_inside_payload_scope() -> None:
     assert "source_season_code=:season_code" in engine.connection.statement
     assert "source_competition_code=:competition_code" in engine.connection.statement
     assert engine.connection.parameters["group_code"] == SCOPE.group_code
+
+
+@pytest.mark.parametrize(
+    ("source_error", "error_code"),
+    (
+        (ScopeLeaseUnavailable("busy"), "source_temporarily_unavailable"),
+        (SourceRequestFailed("429 retries exhausted"), "source_request_failed"),
+    ),
+)
+def test_handler_classifies_transient_source_failures_for_dispatcher(
+    monkeypatch: pytest.MonkeyPatch,
+    source_error: Exception,
+    error_code: str,
+) -> None:
+    def fail_sync(
+        _runner: BackfillRunner,
+        _scope: BackfillScope,
+        *,
+        page_size: int = 2,
+        deadline_at: datetime | None = None,
+    ) -> int:
+        del page_size, deadline_at
+        raise source_error
+
+    monkeypatch.setattr(BackfillRunner, "sync_once", fail_sync)
+    handler = KovoSyncJobHandler(
+        cast(Engine, _CapturingEngine()),
+        _operational_config(),
+        KovoParser(),
+        client=httpx.Client(transport=httpx.MockTransport(lambda _: httpx.Response(200))),
+    )
+
+    with pytest.raises(RetryableJobError, match=error_code):
+        handler.handle(
+            {
+                "job_type": "mirror.current_schedule",
+                "payload": {
+                    "source": SCOPE.source,
+                    "group_code": SCOPE.group_code,
+                    "season_code": SCOPE.season_code,
+                    "competition_code": SCOPE.competition_code,
+                },
+            },
+            now=NOW,
+        )

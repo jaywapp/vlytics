@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import re
 from collections.abc import Mapping, Sequence
@@ -184,6 +185,52 @@ def evaluate_backup_manifest(
             evidence,
         )
     return HealthCheck("backup_freshness", HealthStatus.OK, "latest backup is fresh", evidence)
+
+
+def evaluate_backup_artifact(
+    manifest: Mapping[str, Any] | None, *, artifact_path: Path | None
+) -> HealthCheck:
+    if manifest is None or artifact_path is None:
+        return _unknown("backup_integrity", "backup artifact evidence was not supplied")
+    sha256 = manifest.get("sha256")
+    byte_length = manifest.get("byte_length")
+    if (
+        not isinstance(sha256, str)
+        or len(sha256) != 64
+        or any(character not in "0123456789abcdef" for character in sha256)
+        or isinstance(byte_length, bool)
+        or not isinstance(byte_length, int)
+        or byte_length <= 0
+    ):
+        return _unknown("backup_integrity", "backup manifest integrity evidence is incomplete")
+    evidence = {"byte_length": byte_length, "sha256": sha256}
+    try:
+        if not artifact_path.is_file() or artifact_path.stat().st_size != byte_length:
+            return HealthCheck(
+                "backup_integrity",
+                HealthStatus.CRITICAL,
+                "backup artifact is missing or has the wrong size",
+                evidence,
+            )
+        with artifact_path.open("rb") as stream:
+            actual_sha256 = hashlib.file_digest(stream, "sha256").hexdigest()
+    except OSError:
+        return HealthCheck(
+            "backup_integrity",
+            HealthStatus.CRITICAL,
+            "backup artifact could not be verified",
+            evidence,
+        )
+    if actual_sha256 != sha256:
+        return HealthCheck(
+            "backup_integrity",
+            HealthStatus.CRITICAL,
+            "backup artifact hash does not match the manifest",
+            evidence,
+        )
+    return HealthCheck(
+        "backup_integrity", HealthStatus.OK, "backup artifact matches the manifest", evidence
+    )
 
 
 def evaluate_ntp(
@@ -369,6 +416,7 @@ def evaluate_operations_health(
     *,
     backup_manifest: Mapping[str, Any] | None,
     now: datetime,
+    backup_artifact: Path | None = None,
     thresholds: HealthThresholds | None = None,
     expected_providers: Sequence[str] | None = None,
 ) -> OperationsHealthReport:
@@ -406,7 +454,12 @@ def evaluate_operations_health(
         evaluated_at=now,
         checks=(
             evaluate_heartbeat(heartbeat, now=now, max_age=thresholds.heartbeat_max_age),
-            evaluate_backup_manifest(backup_manifest, now=now, max_age=thresholds.backup_max_age),
+            evaluate_backup_manifest(
+                backup_manifest,
+                now=now,
+                max_age=thresholds.backup_max_age,
+            ),
+            evaluate_backup_artifact(backup_manifest, artifact_path=backup_artifact),
             evaluate_ntp(
                 evidence.get("ntp") if isinstance(evidence.get("ntp"), Mapping) else None,
                 now=now,
@@ -485,28 +538,36 @@ def _database_evidence_freshness(
     return None
 
 
-def load_latest_backup_manifest(path: Path | None) -> Mapping[str, Any] | None:
+def _latest_backup_manifest_with_path(
+    path: Path | None,
+) -> tuple[Mapping[str, Any], Path] | None:
     if path is None:
         return None
     candidates = [path] if path.is_file() else sorted(path.glob("*.manifest.json"))
-    manifests: list[Mapping[str, Any]] = []
+    manifests: list[tuple[Mapping[str, Any], Path]] = []
     for candidate in candidates:
         document = json.loads(candidate.read_text(encoding="utf-8"))
         if isinstance(document, Mapping):
-            manifests.append(document)
+            manifests.append((document, candidate))
     if not manifests:
         return None
     return max(
         manifests,
-        key=lambda item: _optional_datetime(item.get("created_at_utc"), "created_at_utc")
+        key=lambda item: _optional_datetime(item[0].get("created_at_utc"), "created_at_utc")
         or datetime.min.replace(tzinfo=UTC),
     )
+
+
+def load_latest_backup_manifest(path: Path | None) -> Mapping[str, Any] | None:
+    selected = _latest_backup_manifest_with_path(path)
+    return None if selected is None else selected[0]
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Evaluate read-only vlytics operations evidence")
     parser.add_argument("--evidence", required=True, type=Path)
     parser.add_argument("--backup-manifest", type=Path)
+    parser.add_argument("--backup-artifacts", type=Path)
     parser.add_argument("--now", help="UTC/offset ISO timestamp; defaults to current UTC")
     parser.add_argument("--heartbeat-max-age-seconds", type=int, default=180)
     parser.add_argument("--backup-max-age-hours", type=int, default=25)
@@ -536,9 +597,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             database_evidence_max_age=timedelta(seconds=args.database_evidence_max_age_seconds),
             budget_warning_ratio=_decimal(args.budget_warning_ratio, "budget_warning_ratio"),
         )
+        selected_backup = _latest_backup_manifest_with_path(args.backup_manifest)
+        backup_manifest = None if selected_backup is None else selected_backup[0]
+        backup_artifact = None
+        if selected_backup is not None:
+            manifest_path = selected_backup[1]
+            if not manifest_path.name.endswith(".manifest.json"):
+                raise ValueError("backup manifest filename is invalid")
+            artifact_root = args.backup_artifacts or manifest_path.parent
+            backup_artifact = artifact_root / manifest_path.name.removesuffix(".manifest.json")
         report = evaluate_operations_health(
             evidence,
-            backup_manifest=load_latest_backup_manifest(args.backup_manifest),
+            backup_manifest=backup_manifest,
+            backup_artifact=backup_artifact,
             now=now,
             thresholds=thresholds,
             expected_providers=args.expected_providers,

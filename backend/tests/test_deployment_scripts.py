@@ -85,6 +85,78 @@ def test_preflight_rejects_a_different_compose_mount(tmp_path):
 
 
 @pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+def test_preflight_rejects_equal_role_secrets_and_unsafe_windows_clock(tmp_path):
+    script = tmp_path / "preflight-guards.ps1"
+    script.write_text(
+        "param($Preflight)\n"
+        "$tokens = $null\n"
+        "$parseErrors = $null\n"
+        "$ast = [System.Management.Automation.Language.Parser]::ParseFile("
+        "$Preflight, [ref]$tokens, [ref]$parseErrors)\n"
+        "if ($parseErrors.Count -ne 0) { throw 'Preflight script has parse errors' }\n"
+        "$names = @('Assert-DistinctRoleSecrets', 'Assert-WindowsClockStatus')\n"
+        "$functions = $ast.FindAll({ param($node) "
+        "$node -is [System.Management.Automation.Language.FunctionDefinitionAst] "
+        "-and $names -contains $node.Name }, $true)\n"
+        "if ($functions.Count -ne $names.Count) { throw 'Preflight guard functions are missing' }\n"
+        "foreach ($function in $functions) { Invoke-Expression $function.Extent.Text }\n"
+        "$distinct = @{ VLYTICS_OPERATOR_AUTH_SECRET = 'operator'; "
+        "VLYTICS_READONLY_AUTH_SECRET = 'readonly' }\n"
+        "Assert-DistinctRoleSecrets $distinct\n"
+        "$same = @{ VLYTICS_OPERATOR_AUTH_SECRET = 'shared'; "
+        "VLYTICS_READONLY_AUTH_SECRET = 'shared' }\n"
+        "$rejected = $false\n"
+        "try { Assert-DistinctRoleSecrets $same } catch { $rejected = $true }\n"
+        "if (-not $rejected) { throw 'Equal role secrets were accepted' }\n"
+        "$healthy = @(\n"
+        "  'Localized Field A: 0(no warning)',\n"
+        "  'Localized Field B: 3',\n"
+        "  'Localized Field C: -23',\n"
+        "  'Localized Field D: 0.01s',\n"
+        "  'Localized Field E: 0.02s',\n"
+        "  'Localized Field F: 0x01020304',\n"
+        "  'Localized Field G: 2026-09-28 10:00:00 +09:00',\n"
+        "  'Localized Field H: time.example.invalid',\n"
+        "  'Localized Field I: 10'\n"
+        ")\n"
+        "$now = [DateTimeOffset]::Parse('2026-09-28T10:30:00+09:00')\n"
+        "Assert-WindowsClockStatus $healthy @('10:30:00, +0.2500000s') $now\n"
+        "$badLeap = $healthy.Clone()\n"
+        "$badLeap[0] = 'Localized Field A: 3(not synchronized)'\n"
+        "$rejected = $false\n"
+        "try { Assert-WindowsClockStatus $badLeap @('10:30:00, +0.1s') $now } "
+        "catch { $rejected = $true }\n"
+        "if (-not $rejected) { throw 'Unsynchronized leap indicator was accepted' }\n"
+        "$stale = $healthy.Clone()\n"
+        "$stale[6] = 'Localized Field G: 2026-09-28 08:00:00 +09:00'\n"
+        "$rejected = $false\n"
+        "try { Assert-WindowsClockStatus $stale @('10:30:00, +0.1s') $now } "
+        "catch { $rejected = $true }\n"
+        "if (-not $rejected) { throw 'Stale synchronization was accepted' }\n"
+        "$rejected = $false\n"
+        "try { Assert-WindowsClockStatus $healthy @('10:30:00, +1.5000000s') $now } "
+        "catch { $rejected = $true }\n"
+        "if (-not $rejected) { throw 'Excessive clock offset was accepted' }\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-File",
+            str(script),
+            str(ROOT / "infra/scripts/Invoke-Preflight.ps1"),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
 def test_postgres_tools_preserve_tls_and_unset_absent_options(tmp_path):
     script = tmp_path / "postgres-options.ps1"
     script.write_text(

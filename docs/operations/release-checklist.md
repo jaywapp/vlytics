@@ -65,8 +65,10 @@
 - [x] API/worker는 migration 성공 후에만 시작된다.
 - [x] local PostgreSQL 17.11에서 실제 custom `pg_dump`와 `pg_restore`를 수행했다.
 - [x] restore DB의 migration checksum, schema/table set, 모든 table row count를 원본과 비교했다.
+- [x] 합성 복구 드릴에서 서비스 로그인 4개의 `CREATE SCHEMA` 거부를 검사하고 원본 DB ACL의 과잉 `CREATE` grant를 보고서 경고로 기록하도록 구현했다. 운영 원본 ACL 경고 0건과 실제 별도 cluster 실행 결과는 아직 필요하다.
 - [x] duplicate prediction identity/job attempt/published event와 orphan projection이 0임을 확인했다.
 - [x] restore 임시 DB와 dump를 자동 제거했고 종료 후 임시 DB 수가 0이었다.
+- [x] 최신 manifest와 대응하는 로컬 dump의 존재·크기·SHA-256을 health에서 별도로 평가한다. 이 검사는 원격 보관과 PITR 검증을 대체하지 않는다.
 - [ ] 외부 암호화 backup 목적지, 보존, RPO/RTO를 승인했다.
 - [ ] WAL archive/관리형 PITR를 활성화하고 목표 시각 복구를 검증했다.
 - [ ] restore drill 주기와 실패 alert 담당자를 정했다.

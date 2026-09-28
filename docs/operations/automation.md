@@ -26,7 +26,8 @@
 | 점검 | 정상 기준 | 비정상 판정 |
 | --- | --- | --- |
 | worker heartbeat | 3분 이내 | 누락 `unknown`, 미래 또는 3분 초과 `critical` |
-| 백업 manifest | 25시간 이내, schema `2.0`, owner/ACL 보존 및 무결성 필드 존재 | 누락·불완전 `unknown`, 미래·노후·ACL 미보존 `critical` |
+| 백업 신선도 | 25시간 이내, schema `2.0`, owner/ACL 보존 및 무결성 필드 존재 | 누락·불완전 `unknown`, 미래·노후·ACL 미보존 `critical` |
+| 백업 파일 무결성 | 최신 manifest와 이름이 대응하는 dump가 존재하며 실제 크기·SHA-256 일치 | 증거 누락·불완전 `unknown`, 파일 누락·손상·읽기 실패 `critical` |
 | NTP | 관측 10분 이내, 동기화됨, 절대 offset 1,000 ms 이하 | 누락 `unknown`, 미래·노후·비동기·offset 초과 `critical` |
 | 실행 중 job | 시작 10분 이내이고 lease가 유효함 | 누락 `unknown`, 행 불완전 `unknown`, 노후·만료 `critical` |
 | provider 예산 | 모든 구성 provider의 일/월 금액 및 호출 수가 존재함 | 누락 `unknown`, 80% 이상 `warning`, 100% 이상 `critical` |
@@ -79,7 +80,8 @@ python -m vlytics.ops.health_evidence `
 
 python -m vlytics.ops.health `
   --evidence C:\ProgramData\Vlytics\health\evidence.json `
-  --backup-manifest D:\VlyticsBackups\manifests
+  --backup-manifest D:\VlyticsBackups\manifests `
+  --backup-artifacts D:\VlyticsBackups\dumps
 ```
 
 ```sh
@@ -93,8 +95,11 @@ python -m vlytics.ops.health_evidence \
 
 python -m vlytics.ops.health \
   --evidence /var/lib/vlytics/health/evidence.json \
-  --backup-manifest /var/lib/vlytics/backups/manifests
+  --backup-manifest /var/lib/vlytics/backups/manifests \
+  --backup-artifacts /var/lib/vlytics/backups/dumps
 ```
+
+백업 판정기는 최신 `*.manifest.json`에서 `.manifest.json`을 제거한 이름의 dump를 `--backup-artifacts` 디렉터리에서 찾는다. 이 옵션을 생략하면 manifest와 같은 디렉터리에서 찾는다. 최신 manifest가 있어도 dump가 없거나 크기·SHA-256이 다르면 `backup_integrity=critical` 및 종료 코드 3이다. 실제 외부 백업/PITR과 복구 drill 증거는 이 로컬 파일 검사와 별개로 확보한다.
 
 수집 CLI는 일부 producer가 실패해도 `null`과 비밀 없는 진단을 포함한 evidence를 원자 출력하고 `0`으로 종료한다. evidence 파일 자체를 쓰지 못하면 고정된 오류만 출력하고 `3`으로 종료한다. 따라서 수집 직후 판정 CLI를 실행해 `unknown`을 실패로 전파해야 한다. 판정 CLI는 기본적으로 evidence의 `expected_providers`를 사용한다. `--expected-provider`를 하나 이상 주면 명시한 목록을 우선한다.
 
@@ -117,7 +122,7 @@ After=network-online.target
 Type=oneshot
 User=vlytics-monitor
 WorkingDirectory=/opt/vlytics/backend
-ExecStart=/bin/sh -c '/opt/vlytics/backend/.venv/bin/python -m vlytics.ops.health_evidence --database-url-env VLYTICS_HEALTH_DATABASE_URL --operational-config /etc/vlytics/operational.toml --operational-schema /opt/vlytics/contracts/config.schema.json --heartbeat /var/lib/vlytics/health/worker-heartbeat.json --ntp-evidence /var/lib/vlytics/health/ntp.json --output /var/lib/vlytics/health/evidence.json && /opt/vlytics/backend/.venv/bin/python -m vlytics.ops.health --evidence /var/lib/vlytics/health/evidence.json --backup-manifest /var/lib/vlytics/backups/manifests'
+ExecStart=/bin/sh -c '/opt/vlytics/backend/.venv/bin/python -m vlytics.ops.health_evidence --database-url-env VLYTICS_HEALTH_DATABASE_URL --operational-config /etc/vlytics/operational.toml --operational-schema /opt/vlytics/contracts/config.schema.json --heartbeat /var/lib/vlytics/health/worker-heartbeat.json --ntp-evidence /var/lib/vlytics/health/ntp.json --output /var/lib/vlytics/health/evidence.json && /opt/vlytics/backend/.venv/bin/python -m vlytics.ops.health --evidence /var/lib/vlytics/health/evidence.json --backup-manifest /var/lib/vlytics/backups/manifests --backup-artifacts /var/lib/vlytics/backups/dumps'
 StandardOutput=append:/var/log/vlytics/health.jsonl
 StandardError=append:/var/log/vlytics/health-error.log
 ```
@@ -153,7 +158,7 @@ WantedBy=timers.target
 
 ## 합성 dry-run
 
-배포 전에는 실제 provider나 알림 endpoint를 호출하지 않고 임시 evidence와 manifest로 CLI를 실행한다. 모든 점검이 최신인 fixture는 종료 코드 `0`과 `notification_dispatched: false`를 반환해야 한다. heartbeat 시각을 임계값 밖으로 옮긴 fixture는 종료 코드 `3`, `worker_heartbeat = critical`, `notification_required: true`, `notification_dispatched: false`를 반환해야 한다.
+배포 전에는 실제 provider나 알림 endpoint를 호출하지 않고 임시 evidence, manifest와 대응하는 dump 파일로 CLI를 실행한다. 모든 점검이 최신인 fixture는 종료 코드 `0`과 `notification_dispatched: false`를 반환해야 한다. heartbeat 시각을 임계값 밖으로 옮긴 fixture는 종료 코드 `3`, `worker_heartbeat = critical`, `notification_required: true`, `notification_dispatched: false`를 반환해야 한다.
 
 ## 컨테이너 heartbeat 전달
 
@@ -183,7 +188,7 @@ python -m vlytics.ops.health_dispatch \
 
 목적지 값은 환경변수에만 보관하며 HTTPS URL이어야 한다. TLS 검증을 사용하고 redirect와 ambient proxy 환경변수를 사용하지 않는다. payload는 `operations-health-webhook-v1`의 channel/report 상태/평가 시각/check ID·상태·허용된 evidence 시각/멱등키만 포함한다. 원본 evidence·summary·URL·credential은 전송하지 않는다. 이 JSON 계약을 받는 endpoint가 필요하며 Slack/Teams 등의 다른 webhook payload와 직접 호환된다고 가정하지 않는다.
 
-- 정상 check는 발송하지 않으며 복구 상태를 저장한다. 비정상 check별 발송이므로 한 보고서에서 최대 5회 요청한다.
+- 정상 check는 발송하지 않으며 복구 상태를 저장한다. 비정상 check별 발송이므로 한 보고서에서 최대 6회 요청한다.
 - SQLite state는 목적지 URL hash와 check ID로 분리한다. 상태 디렉터리는 monitor 전용 로컬 영속 저장소에 두고 프로세스 재시작 때 유지한다.
 - 같은 장애 회차의 재전송은 같은 `Idempotency-Key`를 쓴다. 복구 후 재발과 stable observation 변경은 새로운 generation/키로 구분한다. A→B→A 상태 변화도 이전 키를 재사용하지 않는다. 오래된 보고서는 최신 상태를 덮어쓰지 않는다.
 - HTTP 2xx만 성공으로 기록한다. 전송 실패는 종료 코드 3이며 health 보고서를 정상으로 바꾸지 않는다.
@@ -197,7 +202,8 @@ python -m vlytics.ops.health_dispatch \
 health_status=0
 python -m vlytics.ops.health \
   --evidence "$health_dir/evidence.json" \
-  --backup-manifest "$backup_manifest_dir" > "$health_dir/report.next.json" || health_status=$?
+  --backup-manifest "$backup_manifest_dir" \
+  --backup-artifacts "$backup_artifact_dir" > "$health_dir/report.next.json" || health_status=$?
 case "$health_status" in 0|2|3) ;; *) exit "$health_status" ;; esac
 mv -- "$health_dir/report.next.json" "$health_dir/report.json"
 dispatch_status=0

@@ -26,6 +26,10 @@ class SourceRequestFailed(RuntimeError):
     """A source page could not be obtained inside the retry policy."""
 
 
+class SourceContractError(SourceRequestFailed):
+    """A source response permanently violated the approved collection contract."""
+
+
 class RetryBudgetExceeded(SourceRequestFailed):
     """A server delay would cross the approved policy or job deadline."""
 
@@ -89,6 +93,7 @@ class SourceAdapter(Protocol):
         page_size: int,
         *,
         requested_at: datetime,
+        timeout_seconds: float | None = None,
     ) -> SourcePage: ...
 
 
@@ -457,12 +462,15 @@ class BackfillRunner:
         now: Callable[[], datetime] = lambda: datetime.now(UTC),
         sleep: Callable[[float], None] = time.sleep,
         jitter: Callable[[int], float] = lambda _attempt: 0.0,
+        request_timeout_seconds: float = 30.0,
         retry_exceptions: tuple[type[Exception], ...] = (
             TimeoutError,
             ConnectionError,
             OSError,
         ),
     ) -> None:
+        if request_timeout_seconds <= 0:
+            raise ValueError("request_timeout_seconds must be positive")
         self._adapter = adapter
         self._ingestion = ingestion
         self._checkpoints = checkpoints
@@ -482,6 +490,7 @@ class BackfillRunner:
         self._now = now
         self._sleep = sleep
         self._jitter = jitter
+        self._request_timeout_seconds = request_timeout_seconds
         self._retry_exceptions = retry_exceptions
 
     def run(
@@ -539,19 +548,21 @@ class BackfillRunner:
                 page, _, _ = self._fetch_with_retry(scope, cursor, page_size, deadline_at)
                 for response in page.responses:
                     result = self._ingestion.ingest(response)
-                    if getattr(result, "action", None) in {
-                        IngestAction.RETRY_LATER,
-                        IngestAction.QUARANTINE,
-                    }:
+                    action = getattr(result, "action", None)
+                    if action is IngestAction.RETRY_LATER:
                         raise SourceRequestFailed(
                             f"ingestion did not accept {response.request_key.fingerprint()}"
+                        )
+                    if action is IngestAction.QUARANTINE:
+                        raise SourceContractError(
+                            f"ingestion quarantined {response.request_key.fingerprint()}"
                         )
                     accepted += 1
                 cursor = page.next_cursor
                 if cursor is None:
                     break
                 if cursor in seen_cursors:
-                    raise SourceRequestFailed("source pagination cursor repeated")
+                    raise SourceContractError("source pagination cursor repeated")
                 seen_cursors.add(cursor)
             return accepted
         finally:
@@ -584,12 +595,14 @@ class BackfillRunner:
             accepted = 0
             for response in page.responses:
                 result = self._ingestion.ingest(response)
-                if getattr(result, "action", None) in {
-                    IngestAction.RETRY_LATER,
-                    IngestAction.QUARANTINE,
-                }:
+                action = getattr(result, "action", None)
+                if action is IngestAction.RETRY_LATER:
                     raise SourceRequestFailed(
                         f"ingestion did not accept {response.request_key.fingerprint()}"
+                    )
+                if action is IngestAction.QUARANTINE:
+                    raise SourceContractError(
+                        f"ingestion quarantined {response.request_key.fingerprint()}"
                     )
                 accepted += 1
             phase = "batch" if checkpoint.phase == "validation" else checkpoint.phase
@@ -622,8 +635,20 @@ class BackfillRunner:
         for attempt in range(1, self._retry_policy.max_attempts + 1):
             self._rate_limiter.wait()
             requested_at = self._now()
+            timeout_seconds = self._request_timeout_seconds
+            if deadline_at is not None:
+                remaining_seconds = (deadline_at - requested_at).total_seconds()
+                if remaining_seconds <= 0:
+                    raise RetryBudgetExceeded("rate-limit wait reached or crossed the job deadline")
+                timeout_seconds = min(timeout_seconds, remaining_seconds)
             try:
-                page = self._adapter.fetch_page(scope, cursor, page_size, requested_at=requested_at)
+                page = self._adapter.fetch_page(
+                    scope,
+                    cursor,
+                    page_size,
+                    requested_at=requested_at,
+                    timeout_seconds=timeout_seconds,
+                )
             except self._retry_exceptions as error:
                 last_error = error
                 if attempt == self._retry_policy.max_attempts:
@@ -680,6 +705,7 @@ class SyntheticSourceAdapter:
             for cursor, value in pages.items()
         }
         self.calls: list[tuple[str | None, int, datetime]] = []
+        self.request_timeouts: list[float | None] = []
 
     def fetch_page(
         self,
@@ -688,9 +714,11 @@ class SyntheticSourceAdapter:
         page_size: int,
         *,
         requested_at: datetime,
+        timeout_seconds: float | None = None,
     ) -> SourcePage:
         del scope
         self.calls.append((cursor, page_size, requested_at))
+        self.request_timeouts.append(timeout_seconds)
         scripted = self._pages.get(cursor)
         if not scripted:
             raise SourceRequestFailed(f"no synthetic page scripted for cursor {cursor!r}")

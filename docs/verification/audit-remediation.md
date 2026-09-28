@@ -40,7 +40,7 @@
 
 | ID | 범위 | 상태 |
 |---|---|---|
-| B1 | 검증된 roster/stats Feature | 생산 factory에 cutoff·최신 available coverage·원문 해시·확정 schema 조건의 입력 경로 연결. 현재 KOVO roster/metrics 의미는 미검증이므로 missing을 유지한다. 실제 PostgreSQL CI 및 원천 계약 검증 대기 |
+| B1 | 검증된 roster/stats Feature | 생산 factory에 cutoff·최신 available coverage·원문 해시·확정 schema 조건의 입력 경로 연결. 현재 KOVO roster/metrics 의미는 미검증이므로 missing을 유지한다. 실제 PostgreSQL CI 36401801182 통과, 원천 계약 검증 대기 |
 | B2 | 실제 browser→Nginx→API→DB | 실제 seed·browser spec·CI hook 추가. seed/실제 API 검증 통과, Nginx browser leg CI 실행 36282222862 통과 |
 | B3 | 장기 조회 성능 | endpoint SQL/keyset·Performance 성공 예측 적재 제거. 경기 5,500/예측·평가 각 16,500의 repository·실제 API warm 20회 및 Python peak 측정, 로컬 회귀 budget 충족. [수치·재현 코드](api-performance.md), 실제 DB API 28 tests 통과 |
 | B4 | TLS·일관 backup snapshot | 옵션 보존 unit 및 exported snapshot restore drill 통과 |
@@ -61,7 +61,7 @@
 
 전체 live 검증은 미실행이다. 실제 source 접근·유료 Provider 호출·운영 배포를 이 합성 검증에 포함하지 않는다. 실제 Market adapter 부재는 UC-005의 허용 예외다.
 
-자동 승인 검토가 A03 ingress/egress 추가, A08 운영 Elo 계산식 변경, A12 Market 비교 생성, B1 검증된 roster/stats 입력 연결 변경을 각각 거부했다. 구체적 사용자 승인을 기다리며 해당 변경은 우회 적용하지 않는다. 운영 host·NTP·backup/PITR·실제 alert 및 OP-001~004 증거도 별도로 필요하다.
+이전 자동 승인 검토는 A03 ingress/egress 추가, A08 운영 Elo 계산식 변경, A12 Market 비교 생성, B1 검증된 roster/stats 입력 연결 변경을 각각 거부했다. 이후 사용자가 해당 방향을 명시적으로 승인하여 코드에 반영했고 CI 36401801182에서 검증했다. 이는 과거 승인 이력이며 현재의 코드 적용 차단 상태가 아니다. 운영 host·NTP·backup/PITR·실제 alert 및 OP-001~004 증거는 별도로 필요하다.
 
 ## 통합 검증 기록
 
@@ -88,7 +88,7 @@
 
 [CI 36282222862](https://github.com/jaywapp/vlytics/actions/runs/36282222862)가 코드 commit `9f43bab`에서 전체 성공했다. Linux backend·frontend·Windows deployment 검사, 실제 Nginx→FastAPI→PostgreSQL browser 전체 흐름, worker 재시작, owner/ACL 보존 복구와 SCRAM 서비스 4개+migrator 로그인 검증을 포함한다. 문서 기록 commit `c200fc1`의 [CI 36282540490](https://github.com/jaywapp/vlytics/actions/runs/36282540490)도 성공했다. 아래 B5/B6 후속 변경은 별도 검증한다.
 
-A03·A08·A12 생성·B1의 자동 승인 거부와 운영 호스트·실제 source/Provider·PITR·알림·release scan 증거는 여전히 미완료다. CI 성공을 production 활성화 승인이나 전체 목표 완료로 해석하지 않는다. 수정은 [초안 PR #12](https://github.com/jaywapp/vlytics/pull/12)에 있으며 병합하지 않았다.
+당시에는 A03·A08·A12 생성·B1의 자동 승인 거부와 운영 호스트·실제 source/Provider·PITR·알림·release scan 증거가 미완료였다. CI 성공을 production 활성화 승인이나 전체 목표 완료로 해석하지 않는다. 수정은 [초안 PR #12](https://github.com/jaywapp/vlytics/pull/12)에 있으며 병합하지 않았다.
 
 ## B5/B6 후속 검토
 
@@ -108,7 +108,7 @@ B5 검증: 별도 합성 PostgreSQL에서 실제 `vlytics_read_api_login`으로 
 
 [CI 36285424504](https://github.com/jaywapp/vlytics/actions/runs/36285424504) 전체 성공: backend 400 tests, Windows 34, frontend 24·fixture E2E 9, 실제 browser 1·worker 재시작·새 cluster 복구, 8개 image SBOM/취약점 gate를 통과했다. 후보 head는 `90a6e41`, 검사한 PR merge commit은 `c506144`다. 원본 artifact hash와 gosu source/compiler/image ID 관계를 직접 확인했다. [이미지 상세 증거](image-security-evidence.md)를 따른다.
 
-B5의 DB/파일 collector와 평가기, B6의 실제 CI image 검사 보완은 검증됐다. **전체 감사 조치 완료는 아니다.** A03 ingress/egress, A08 운영 Elo, A12 Market 생성, B1 roster/stats 입력의 자동 승인 거부는 그대로이며 운영 host NTP/heartbeat 전달·예약 backup/PITR·알림·source/유료 Provider smoke·게시 release digest 증거가 남아 있다. PR #12는 초안으로 유지하고 병합하지 않았다.
+B5의 DB/파일 collector와 평가기, B6의 실제 CI image 검사 보완은 검증됐다. **전체 감사 조치 완료는 아니다.** 당시에는 A03 ingress/egress, A08 운영 Elo, A12 Market 생성, B1 roster/stats 입력의 자동 승인 거부가 유지됐고 운영 host NTP/heartbeat 전달·예약 backup/PITR·알림·source/유료 Provider smoke·게시 release digest 증거가 남아 있었다. PR #12는 초안으로 유지하고 병합하지 않았다.
 
 문서 기록 head `30e1ca4`의 [CI 36285846382](https://github.com/jaywapp/vlytics/actions/runs/36285846382)도 backend·frontend·Windows 모든 job이 성공했다. 이 문서 전용 후속 검증을 새로운 운영 배포 증거로 취급하지 않는다.
 
@@ -127,7 +127,7 @@ API는 projection이 없을 때 최신 관측 lifecycle event로 복원하며 ev
 
 성능 fixture의 기존 prediction에는 게시 event/projection이 빠져 있었다. 정상 게시 lifecycle을 각 16,500행 추가하고 fixture cardinality를 검사하도록 수정했다. [후속 측정 결과](api-performance-followup-results.json)는 같은 22시즌 fixture를 빈 clone에 다시 생성해 얻는다. 최초 측정 JSON은 당시 코드/fixture의 이력으로 보존한다.
 
-R07~R09 UI 보완은 별도 진행 중이다. 승인 대기 A03/A08/A12 생성/B1과 실제 운영 게이트는 이 코드 보완으로 해제되지 않는다.
+당시 R07~R09 UI 보완은 별도 진행 중이었고 A03/A08/A12 생성/B1은 승인을 기다렸다. 이후 사용자 승인과 CI 결과는 위 최신 조치 상태 및 아래 2026-09-28 기록을 따른다.
 
 
 R01~R06 마감 로컬 검증: heartbeat/dispatcher/실제 health pipeline 35 tests, 전체 Ruff/format, mypy 81 source files 통과. 후속 성능 측정은 published event/projection 각 16,500행을 포함하며 전체 Performance p95 1.78초, 최근 시즌 113.03ms, History 첫 페이지 135.20ms로 기존 로컬 budget을 모두 충족했다. 새 CI가 실제 Docker export를 검증하기 전에는 R01/R02의 컨테이너 성공을 주장하지 않는다.
@@ -149,6 +149,6 @@ R01~R06 마감 로컬 검증: heartbeat/dispatcher/실제 health pipeline 35 tes
 - A08: statistical runner의 임시 승률 평균을 versioned Elo 재생으로 교체했다. source/division/competition/stage, schedule/result cutoff, 검증된 franchise identity를 제한하고 누락 시 실패한다. 기존 예측은 건드리지 않으며 새 모델 `elo-p5-joint-v2`와 새 variant UUID를 사용한다.
 - A12: 게시 예측마다 Market 비교 job을 영속적으로 생성하고 비교 평가가 저장된 뒤 결과 평가를 예약한다. 기본 어댑터는 `missing`이며 결과 평가가 먼저 실행돼도 동일 트랜잭션에서 missing 비교를 저장한다. 해시가 맞지 않거나 이미 게시되지 않은 예측은 해당 Market 작업만 격리한다. 실제 adapter는 OP-005 source/schema/권한과 `max_age`가 버전 식별자에 포함되기 전까지 운영 설정에서 거부한다. 평가 코호트는 `performance-cohort-v2`로 분리했고 이전 v1 대기 작업은 격리한다.
 - B1: 검증된 schema와 최신 available coverage만 로스터·팀/선수 통계 Feature 입력으로 전달한다. 미검증 KOVO 약어와 공개 시점은 `unverified`/missing으로 유지한다. Feature lineage에는 선택된 revision ID·원문 SHA·roster batch·metric schema가 남지만 coverage row ID/evidence는 현재 `feature-v1` 계약에 없어 직접 저장되지 않는다. 원천 의미 검증과 lineage 확장은 후속 조건이다.
-- 통합 로컬 검사: backend Ruff 전체·format, strict mypy 83 source files, pytest 전체 401 passed/53 skipped 통과. PostgreSQL 포함 전체 454 tests와 production Compose smoke는 CI 36401801182에서 통과했다. 프런트엔드 코드는 변경하지 않았다. PostgreSQL 포함 전체 454 tests와 production Compose smoke는 CI 36401801182에서 통과했다. 프런트엔드 코드는 변경하지 않았다.
+- 통합 로컬 검사: backend Ruff 전체·format, strict mypy 83 source files, pytest 전체 401 passed/53 skipped 통과. PostgreSQL 포함 전체 454 tests와 production Compose smoke는 CI 36401801182에서 통과했다. 프런트엔드 코드는 변경하지 않았다.
 
 이 후보는 코드·합성 검증 결과다. 실제 source·유료 Provider·Market 호출, 운영 호스트 배포·NTP·백업/PITR·알림·릴리스 digest 확인은 수행하지 않았으며 전체 감사 조치 완료로 표시하지 않는다.

@@ -145,6 +145,23 @@ def test_retry_after_and_rate_limit_are_honored_before_checkpoint() -> None:
     assert result.checkpoint.completed
 
 
+def test_429_retry_exhaustion_is_reported_as_source_request_failure() -> None:
+    adapter = SyntheticSourceAdapter(
+        {
+            None: (
+                SourcePage((_response("001", status=429),), None),
+                SourcePage((_response("001", status=429),), None),
+                SourcePage((_response("001", status=429),), None),
+            )
+        }
+    )
+
+    with pytest.raises(SourceRequestFailed, match="failed after 3 attempts"):
+        _runner(adapter, _Sink(), InMemoryCheckpointStore(), _Clock()).run(SCOPE)
+
+    assert len(adapter.calls) == 3
+
+
 def test_real_adapter_is_fail_closed_while_op_001_is_unresolved() -> None:
     adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
     adapter.synthetic = False
@@ -162,8 +179,9 @@ def test_backdated_observation_is_rejected() -> None:
             page_size: int,
             *,
             requested_at: datetime,
+            timeout_seconds: float | None = None,
         ) -> SourcePage:
-            del scope, cursor, page_size
+            del scope, cursor, page_size, timeout_seconds
             return SourcePage(
                 (replace(_response("001"), received_at=requested_at - timedelta(seconds=1)),),
                 None,
@@ -218,6 +236,40 @@ def test_retry_after_above_policy_stops_without_sleeping() -> None:
         _runner(adapter, _Sink(), InMemoryCheckpointStore(), clock).run(SCOPE)
 
     assert clock.seconds == 0
+
+
+def test_rate_limit_wait_rechecks_deadline_before_request() -> None:
+    adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
+    clock = _Clock()
+    limiter = RequestRateLimiter(60, monotonic=clock.monotonic, sleep=clock.sleep)
+    limiter.wait()
+    runner = BackfillRunner(
+        adapter=adapter,
+        ingestion=_Sink(),
+        checkpoints=InMemoryCheckpointStore(),
+        gate=CollectionGate(False, "__REQUIRED_BY_OP_001__", 0, 0),
+        rate_limiter=limiter,
+        scope_lease=InMemoryScopeLease(),
+        now=clock.now,
+        sleep=clock.sleep,
+    )
+
+    with pytest.raises(RetryBudgetExceeded, match="rate-limit wait"):
+        runner.run(SCOPE, deadline_at=NOW + timedelta(milliseconds=500))
+
+    assert adapter.calls == []
+
+
+def test_request_timeout_is_clamped_to_remaining_deadline() -> None:
+    adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
+
+    result = _runner(adapter, _Sink(), InMemoryCheckpointStore(), _Clock()).run(
+        SCOPE,
+        deadline_at=NOW + timedelta(seconds=5),
+    )
+
+    assert result.checkpoint.completed
+    assert adapter.request_timeouts == [5.0]
 
 
 def test_timeout_uses_bounded_deterministic_jitter() -> None:

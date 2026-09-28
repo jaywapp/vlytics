@@ -38,6 +38,72 @@ function Read-EnvironmentFile {
     return $values
 }
 
+function Assert-DistinctRoleSecrets {
+    param([hashtable]$Values)
+
+    if ([string]::Equals(
+        [string]$Values["VLYTICS_OPERATOR_AUTH_SECRET"],
+        [string]$Values["VLYTICS_READONLY_AUTH_SECRET"],
+        [System.StringComparison]::Ordinal
+    )) {
+        throw "Operator and read-only authentication secrets must be distinct."
+    }
+}
+
+function Assert-WindowsClockStatus {
+    param(
+        [string[]]$StatusOutput,
+        [string[]]$OffsetOutput,
+        [DateTimeOffset]$Now = [DateTimeOffset]::Now
+    )
+
+    # w32tm localizes labels but preserves the status field order.
+    $statusLines = @($StatusOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    if ($statusLines.Count -lt 9) {
+        throw "Windows time synchronization status is incomplete."
+    }
+
+    $leapMatch = [regex]::Match($statusLines[0], '^.*?:\s*([0-3])(?:\s|\(|$)')
+    if (-not $leapMatch.Success -or $leapMatch.Groups[1].Value -eq "3") {
+        throw "Host clock reports an unsynchronized leap indicator."
+    }
+
+    $lastSyncSeparator = $statusLines[6].IndexOf(":")
+    if ($lastSyncSeparator -lt 0) {
+        throw "Windows last successful synchronization time is unavailable."
+    }
+    $lastSyncText = $statusLines[6].Substring($lastSyncSeparator + 1).Trim()
+    $lastSync = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+        $lastSyncText,
+        [System.Globalization.CultureInfo]::CurrentCulture,
+        [System.Globalization.DateTimeStyles]::AllowWhiteSpaces,
+        [ref]$lastSync
+    )) {
+        throw "Windows last successful synchronization time is invalid."
+    }
+    $syncAge = $Now - $lastSync
+    if ($syncAge -gt [TimeSpan]::FromHours(1) -or $syncAge -lt [TimeSpan]::FromMinutes(-5)) {
+        throw "Windows time synchronization is stale or reports a future timestamp."
+    }
+
+    $offsetText = $OffsetOutput -join "`n"
+    $offsetMatch = [regex]::Match($offsetText, '(?m)(?<offset>[+-]\d+(?:[\.,]\d+)?)s\s*$')
+    if (-not $offsetMatch.Success) {
+        throw "Windows time offset could not be verified."
+    }
+    $offsetSeconds = 0.0
+    $normalizedOffset = $offsetMatch.Groups["offset"].Value.Replace(",", ".")
+    if (-not [double]::TryParse(
+        $normalizedOffset,
+        [System.Globalization.NumberStyles]::Float,
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [ref]$offsetSeconds
+    ) -or [Math]::Abs($offsetSeconds) -gt 1.0) {
+        throw "Windows time offset exceeds the one-second activation limit."
+    }
+}
+
 function Assert-ClockSynchronized {
     if ($env:OS -eq "Windows_NT") {
         $service = Get-Service -Name W32Time -ErrorAction SilentlyContinue
@@ -48,10 +114,23 @@ function Assert-ClockSynchronized {
         if ($LASTEXITCODE -ne 0) {
             throw "Windows time synchronization status could not be read."
         }
-        $joined = $clockStatus -join "`n"
-        if ($joined -match '(?i)(local cmos clock|free-running system clock)') {
+        $clockSource = & w32tm /query /source 2>&1
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($clockSource -join "").Trim())) {
+            throw "Windows time synchronization source could not be read."
+        }
+        $sourceName = ($clockSource -join "").Trim()
+        if ($sourceName -match '(?i)(local cmos clock|free-running system clock)') {
             throw "Host clock is using an unsynchronized local source."
         }
+        $measurementSource = ($sourceName -split ',')[0].Trim()
+        if ([string]::IsNullOrWhiteSpace($measurementSource)) {
+            throw "Windows time synchronization source is invalid."
+        }
+        $offsetSamples = & w32tm /stripchart "/computer:$measurementSource" /dataonly /samples:1 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Windows time offset could not be measured."
+        }
+        Assert-WindowsClockStatus -StatusOutput $clockStatus -OffsetOutput $offsetSamples
         return
     }
 
@@ -87,6 +166,7 @@ foreach ($name in $required) {
         throw "Deployment value still contains a placeholder: $name"
     }
 }
+Assert-DistinctRoleSecrets $values
 
 foreach ($imageKey in @("VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE", "VLYTICS_POSTGRES_IMAGE", "VLYTICS_PYTHON_BUILD_IMAGE", "VLYTICS_UV_BUILD_IMAGE")) {
     if ($values[$imageKey] -notmatch '@sha256:[a-f0-9]{64}$') {

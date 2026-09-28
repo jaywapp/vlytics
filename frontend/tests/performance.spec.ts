@@ -89,11 +89,36 @@ describe("performance dashboard", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("synthetic outage");
     expect(screen.getByRole("button", { name: "다시 시도" })).toBeEnabled();
   });
+
+  it("shows a malformed successful response as an error panel", async () => {
+    const valid = await createSyntheticPerformanceClient().getPerformance({});
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: () => Promise.resolve({
+        ...valid,
+        data: {
+          ...valid.data,
+          items: [{ ...valid.data.items[0], cohort: null }],
+        },
+      }),
+    }));
+
+    render(createElement(PerformancePage, {
+      client: createPerformanceApiClient({ token: "fixture-token" }),
+    }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "API response does not match the performance envelope",
+    );
+    expect(screen.getByRole("button", { name: "다시 시도" })).toBeEnabled();
+  });
 });
 
 describe("performance API client", () => {
   it("uses bearer auth and documented server-side filters without exposing the token", async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve({ metadata: {}, data: { cohort_policy_version: "v1", items: [] } }) });
+    const payload = await createSyntheticPerformanceClient().getPerformance({});
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200, json: () => Promise.resolve(payload) });
     vi.stubGlobal("fetch", fetchMock);
     const client = createPerformanceApiClient({ token: "fixture-token" });
     await client.getPerformance({ division: "women", competition: "regular-2026", model: "model-v2" });

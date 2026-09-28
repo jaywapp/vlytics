@@ -696,6 +696,55 @@ def test_concurrent_claim_and_expired_lease_restart_recovery(
         assert [tuple(row) for row in attempts] == [(1, "abandoned", "lease_expired")]
 
 
+def test_owned_lease_renewal_prevents_reclaim_until_extended_expiry(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    engine = create_engine(postgres_role_urls.engine)
+    with engine.begin() as connection:
+        queued = JobRepository(connection).enqueue(
+            job_key=f"lease-renewal-{uuid4()}",
+            job_type="synthetic",
+            payload={},
+            due_at=NOW,
+            deadline_at=NOW + timedelta(minutes=5),
+        )
+        leased = JobRepository(connection).lease_next(
+            lease_owner="worker-1",
+            now=NOW,
+            lease_duration=timedelta(seconds=30),
+        )
+        assert leased is not None
+        assert leased["id"] == queued["id"]
+
+    with engine.begin() as connection:
+        assert JobRepository(connection).renew_lease(
+            job_id=queued["id"],
+            lease_owner="worker-1",
+            now=NOW + timedelta(seconds=20),
+            lease_duration=timedelta(seconds=30),
+        )
+
+    with engine.begin() as connection:
+        assert (
+            JobRepository(connection).lease_next(
+                lease_owner="worker-2",
+                now=NOW + timedelta(seconds=30),
+                lease_duration=timedelta(seconds=30),
+            )
+            is None
+        )
+
+    with engine.begin() as connection:
+        recovered = JobRepository(connection).lease_next(
+            lease_owner="worker-2",
+            now=NOW + timedelta(seconds=50),
+            lease_duration=timedelta(seconds=30),
+        )
+        assert recovered is not None
+        assert recovered["id"] == queued["id"]
+        assert recovered["attempt_no"] == 2
+
+
 def test_replay_freezes_one_snapshot_runs_four_independent_variants_and_never_recalls_success(
     postgres_role_urls: PostgresRoleUrls,
 ) -> None:

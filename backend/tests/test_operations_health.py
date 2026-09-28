@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -26,6 +27,18 @@ def _manifest(created_at: str = "2026-09-27T11:00:00+00:00") -> dict[str, object
         "sha256": "a" * 64,
         "byte_length": 1024,
     }
+
+
+def _write_backup_fixture(directory: Path) -> Path:
+    artifact = directory / "backup"
+    content = b"synthetic backup artifact"
+    artifact.write_bytes(content)
+    manifest = _manifest()
+    manifest["sha256"] = hashlib.sha256(content).hexdigest()
+    manifest["byte_length"] = len(content)
+    manifest_path = directory / "backup.manifest.json"
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+    return manifest_path
 
 
 def _budget(provider: str, ratio: str = "0.20") -> dict[str, object]:
@@ -72,8 +85,14 @@ def _check_statuses(report: object) -> dict[str, HealthStatus]:
     return {check.check_id: check.status for check in report.checks}  # type: ignore[attr-defined]
 
 
-def test_healthy_evidence_reports_ok_without_claiming_notification_delivery() -> None:
-    report = evaluate_operations_health(_evidence(), backup_manifest=_manifest(), now=NOW)
+def test_healthy_evidence_reports_ok_without_claiming_notification_delivery(
+    tmp_path: Path,
+) -> None:
+    manifest_path = _write_backup_fixture(tmp_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    report = evaluate_operations_health(
+        _evidence(), backup_manifest=manifest, backup_artifact=tmp_path / "backup", now=NOW
+    )
 
     assert report.status is HealthStatus.OK
     assert report.exit_code == 0
@@ -172,7 +191,7 @@ def test_missing_provider_and_fractional_call_usage_are_unknown() -> None:
     assert missing_report.exit_code == 3
 
 
-def test_budget_warning_uses_distinct_exit_code() -> None:
+def test_budget_warning_uses_distinct_exit_code(tmp_path: Path) -> None:
     evidence = _evidence()
     evidence["provider_budgets"] = [
         _budget("openai", "0.80"),
@@ -180,9 +199,11 @@ def test_budget_warning_uses_distinct_exit_code() -> None:
         _budget("google"),
     ]
 
+    manifest_path = _write_backup_fixture(tmp_path)
     report = evaluate_operations_health(
         evidence,
-        backup_manifest=_manifest(),
+        backup_manifest=json.loads(manifest_path.read_text(encoding="utf-8")),
+        backup_artifact=tmp_path / "backup",
         now=NOW,
         thresholds=HealthThresholds(budget_warning_ratio=Decimal("0.80")),
     )
@@ -216,9 +237,8 @@ def test_cli_emits_machine_readable_report_without_sending_alert(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     evidence_path = tmp_path / "evidence.json"
-    manifest_path = tmp_path / "backup.manifest.json"
+    manifest_path = _write_backup_fixture(tmp_path)
     evidence_path.write_text(json.dumps(_evidence()), encoding="utf-8")
-    manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
 
     exit_code = main(
         [
@@ -236,6 +256,101 @@ def test_cli_emits_machine_readable_report_without_sending_alert(
     assert output["status"] == "ok"
     assert output["notification_required"] is False
     assert output["notification_dispatched"] is False
+
+
+@pytest.mark.parametrize(
+    ("mutation", "expected_summary"),
+    [
+        ("missing", "missing or has the wrong size"),
+        ("truncated", "missing or has the wrong size"),
+        ("changed", "hash does not match"),
+    ],
+)
+def test_backup_artifact_integrity_is_required(
+    tmp_path: Path, mutation: str, expected_summary: str
+) -> None:
+    manifest_path = _write_backup_fixture(tmp_path)
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    artifact = tmp_path / "backup"
+    if mutation == "missing":
+        artifact.unlink()
+    elif mutation == "truncated":
+        artifact.write_bytes(artifact.read_bytes()[:-1])
+    else:
+        content = artifact.read_bytes()
+        artifact.write_bytes(b"x" + content[1:])
+
+    report = evaluate_operations_health(
+        _evidence(), backup_manifest=manifest, backup_artifact=artifact, now=NOW
+    )
+    backup = next(check for check in report.checks if check.check_id == "backup_integrity")
+
+    assert backup.status is HealthStatus.CRITICAL
+    assert expected_summary in backup.summary
+    assert report.exit_code == 3
+
+
+def test_cli_verifies_artifact_in_separate_directory(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text(json.dumps(_evidence()), encoding="utf-8")
+    manifest_path = _write_backup_fixture(tmp_path)
+    artifact_directory = tmp_path / "artifacts"
+    artifact_directory.mkdir()
+    (tmp_path / "backup").rename(artifact_directory / "backup")
+
+    exit_code = main(
+        [
+            "--evidence",
+            str(evidence_path),
+            "--backup-manifest",
+            str(manifest_path),
+            "--backup-artifacts",
+            str(artifact_directory),
+            "--now",
+            NOW.isoformat(),
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert (
+        next(check for check in output["checks"] if check["check_id"] == "backup_integrity")[
+            "status"
+        ]
+        == "ok"
+    )
+
+
+def test_cli_fails_closed_when_backup_artifact_is_missing(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    evidence_path = tmp_path / "evidence.json"
+    evidence_path.write_text(json.dumps(_evidence()), encoding="utf-8")
+    manifest_path = _write_backup_fixture(tmp_path)
+    (tmp_path / "backup").unlink()
+
+    exit_code = main(
+        [
+            "--evidence",
+            str(evidence_path),
+            "--backup-manifest",
+            str(manifest_path),
+            "--now",
+            NOW.isoformat(),
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 3
+    assert output["status"] == "critical"
+    assert (
+        next(check for check in output["checks"] if check["check_id"] == "backup_integrity")[
+            "status"
+        ]
+        == "critical"
+    )
 
 
 def test_cli_fails_closed_when_required_evidence_is_missing(
@@ -311,9 +426,8 @@ def test_cli_explicit_provider_overrides_collector_provider_set(
     evidence["expected_providers"] = []
     evidence["provider_budgets"] = [_budget("openai")]
     evidence_path = tmp_path / "evidence.json"
-    manifest_path = tmp_path / "backup.manifest.json"
+    manifest_path = _write_backup_fixture(tmp_path)
     evidence_path.write_text(json.dumps(evidence), encoding="utf-8")
-    manifest_path.write_text(json.dumps(_manifest()), encoding="utf-8")
 
     exit_code = main(
         [

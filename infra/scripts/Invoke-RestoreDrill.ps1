@@ -173,8 +173,13 @@ SELECT json_build_object(
         [Environment]::SetEnvironmentVariable("VLYTICS_RESTORE_VERIFY_URL", $restoreUrl)
         Push-Location (Join-Path $PSScriptRoot "..\..\backend")
         try {
-            & uv run --frozen python -m vlytics.storage.recovery restore-acl --connection-env VLYTICS_RESTORE_VERIFY_URL --manifest $backupResult.ManifestPath | Out-Null
+            $aclOutput = & uv run --frozen python -m vlytics.storage.recovery restore-acl --connection-env VLYTICS_RESTORE_VERIFY_URL --manifest $backupResult.ManifestPath
             if ($LASTEXITCODE -ne 0) { throw "Restored database owner or ACL verification failed." }
+            $aclCheck = ($aclOutput -join "`n") | ConvertFrom-Json
+            $aclWarnings = @($aclCheck.warnings)
+            foreach ($aclWarning in $aclWarnings) {
+                Write-Warning $aclWarning
+            }
             $roleOutput = & uv run --frozen python -m vlytics.storage.recovery verify --connection-env VLYTICS_RESTORE_VERIFY_URL
             if ($LASTEXITCODE -ne 0) { throw "Restored service login or write boundaries failed." }
             $roleChecks = ($roleOutput -join "`n") | ConvertFrom-Json
@@ -191,6 +196,7 @@ SELECT json_build_object(
         schema_version = "2.0"
         service_role_checks = $roleChecks
         database_acl_verified = $true
+        database_acl_warnings = $aclWarnings
         separate_cluster_verified = $true
         comparison_source = "exported-backup-snapshot"
         started_at_utc = $startedAt.ToString("o")
