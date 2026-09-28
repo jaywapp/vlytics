@@ -22,7 +22,9 @@ from vlytics.engine.evaluation import (
     evaluation_job_key,
     result_revision_id_from_job,
 )
+from vlytics.engine.evaluation.runtime import EvaluationJobHandler
 from vlytics.engine.market import EvaluationEligibility, MarketEvaluation
+from vlytics.ops.scheduler import TerminalJobError
 
 ROOT = Path(__file__).resolve().parents[2]
 NOW = datetime(2026, 9, 20, 3, tzinfo=UTC)
@@ -213,6 +215,21 @@ def test_evaluation_job_contract_is_versioned_and_fail_closed() -> None:
     invalid = {**job, "payload": {**job["payload"], "evaluator_version": "unknown"}}
     with pytest.raises(ValueError, match="evaluator_version"):
         result_revision_id_from_job(invalid)
+
+
+def test_old_evaluation_job_contract_is_quarantined_before_database_access() -> None:
+    job = {
+        "job_type": EVALUATION_JOB_TYPE,
+        "payload": {
+            "result_revision_id": str(RESULT_ID),
+            "evaluator_version": EVALUATOR_VERSION,
+            "cohort_policy_version": "performance-cohort-v1",
+        },
+    }
+    handler = EvaluationJobHandler(None)  # type: ignore[arg-type]
+
+    with pytest.raises(TerminalJobError, match="unsupported_evaluation_job_contract"):
+        handler.handle(job, now=NOW)
 
 
 def test_postgres_runtime_sql_selects_only_published_predictions_and_pending_results() -> None:

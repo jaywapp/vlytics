@@ -24,6 +24,7 @@ def test_package_validator_accepts_checkout_newlines(tmp_path, newline):
         "infra/operational.production.example.toml",
         "frontend/Dockerfile",
         "frontend/nginx.production.conf",
+        "infra/nginx.operator-ingress.conf",
         "frontend/.dockerignore",
         "contracts/config.schema.json",
     ]

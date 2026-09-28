@@ -7,6 +7,7 @@ from vlytics.engine.features.definitions import (
     VERIFIED_METRIC_SCHEMA_VERSION,
     contract_definitions,
 )
+from vlytics.engine.features.input_repository import FeatureInputRepository, FeatureInputs
 from vlytics.engine.features.models import (
     AvailabilityPolicy,
     FeatureLineage,
@@ -43,6 +44,8 @@ __all__ = [
     "FeatureSnapshot",
     "FeatureSnapshotRepository",
     "FeatureSnapshotValidationError",
+    "FeatureInputRepository",
+    "FeatureInputs",
     "StoredFeatureSnapshot",
     "FeatureStatus",
     "FeatureValue",

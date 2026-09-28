@@ -1,6 +1,6 @@
 # Vlytics 운영 Release Checklist
 
-- 판정 기준일: 2026-09-27 (Asia/Seoul); 아래 날짜별 증거는 해당 실행 시점의 기록이다.
+- 판정 기준일: 2026-09-28 (Asia/Seoul); 아래 날짜별 증거는 해당 실행 시점의 기록이다.
 - 현재 보완 대상: `codex/project-audit-20260927`
 - 패키지 판정: **감사 후 production 통합 재검증 / 운영 활성화 NO-GO**
 
@@ -12,15 +12,15 @@
 
 | 범위 | 코드·합성 통합 증거 | production 연결·live 잔여 |
 |---|---|---|
-| 설정·기동 | 서비스별 secret 검증, config/mount hash, Windows 배포 34 tests | A03 네트워크 변경 승인 후 production Compose host 접근 재검증 |
+| 설정·기동 | 서비스별 secret 검증, config/mount hash, Windows 배포 34 tests, 전용 ingress 정적 패키지 검사 | 새 CI의 production Compose host 접근 및 운영 host SSH 경로 검증 |
 | 수집·결과·retry | 동일 worker handler의 transport/planner·pagination·finality·deadline·호출 cap 회귀 | OP-001/003/004 및 실제 소량 source/Provider 실행 |
-| 통계·입력·Market | 독립 모듈·계약, API snapshot/eligibility 회귀 | A08 Elo, B1 roster/stats, A12 Market 생성 연결 승인 대기 |
+| 통계·입력·Market | A08 Elo·B1 검증 입력·A12 Market 생성 연결의 로컬 단위·계약 회귀 | 실제 PostgreSQL CI, 검증된 KOVO roster/stats와 OP-005 Market adapter 정책 |
 | API·Web | backend 439 tests, frontend 32·fixture E2E 9·실제 Nginx/API/DB browser 1 | 실제 운영 데이터·production 네트워크 성능은 별도 |
 | 복구·감시 | 새 cluster owner/ACL/SCRAM 복구, read-only collector, heartbeat export 및 선택적 HTTPS dispatcher 합성 회귀 | 운영 host NTP/heartbeat 전달·예약 backup/PITR·실제 알림 수신 |
 | image 보안 | compiler 포함 8개 image SBOM·identity·HIGH/CRITICAL 0건, gosu provenance 검증 | 게시 release digest 및 대상 architecture의 검사·승인 |
 | 조회 성능 | endpoint WHERE/keyset, 22시즌 경기 5,500·예측/평가 각 16,500의 실제 API 지연·Python peak 측정 및 로컬 회귀 budget 충족 | 운영 동시 쓰기·다중 사용자·서버 메모리와 production SLO 검증은 별도 |
 
-아래 `[x]` 표시는 해당 항목의 구성 또는 날짜별 검증 범위만 의미한다. 운영 host를 명시한 미완료 항목은 CI 성공으로 자동 체크하지 않는다. A03/A08/A12 생성/B1은 자동 승인 검토의 구체적 변경 승인 요구로 미적용이며, OP-005 Market missing만은 기존 사용자 결정에 따른 허용 예외다.
+아래 `[x]` 표시는 해당 항목의 구성 또는 날짜별 검증 범위만 의미한다. 운영 host를 명시한 미완료 항목은 CI 성공으로 자동 체크하지 않는다. A03/A08/A12 생성/B1의 코드 변경은 사용자 결정에 따라 로컬 검증됐고 실제 DB·Compose CI가 대기 중이며, OP-005 Market missing만은 기존 사용자 결정에 따른 허용 예외다.
 
 ## 활성화 차단 장부
 
@@ -38,7 +38,7 @@
 
 ## Security와 접근
 
-- [x] React SPA만 host `127.0.0.1:${WEB_PORT}`에 bind된다.
+- [x] 전용 진입 프록시만 host `127.0.0.1:${WEB_PORT}`에 bind되며 frontend는 내부망에 남는다. 실제 컨테이너·host 검증은 아래 미완료 항목을 따른다.
 - [x] API는 host port 없이 private network에서만 접근된다.
 - [x] Nginx `/api/`가 internal `api:8000`으로 전달되고 SPA history fallback이 구성됐다.
 - [x] PostgreSQL host port가 없고 internal network만 사용한다.
@@ -51,9 +51,11 @@
 - [x] DB URL은 read API/engine/migrator 역할로 분리했다.
 - [x] committed env에는 placeholder만 있고 `.env`, dump, 운영 restore report는 ignore된다.
 - [ ] 게시된 backend/frontend final image와 모든 runtime/build base·compiler digest의 SBOM/vulnerability 결과를 승인했다.
-- [ ] 운영 host에서 frontend `/healthz`, SPA route fallback, same-origin `/api` 401/200을 확인했다.
+- [ ] 운영 host에서 진입 프록시를 통한 frontend `/healthz`, SPA route fallback, same-origin `/api` 401/200을 확인했다.
 - [ ] operator/readonly secret을 생성하고 401/403/200 경계를 운영 host에서 확인했다.
 - [ ] private tunnel/VPN 경로와 접근자·폐기 절차를 기록했다.
+
+운영자 화면 접속 방식은 사용자 인터뷰에서 SSH 로컬 포트 전달로 결정했다. 운영자 PC의 로컬 포트에서 서버의 `127.0.0.1:${WEB_PORT:-8080}`으로 전달한다. 전용 진입 프록시가 이 포트와 내부 frontend를 잇고, frontend·API·DB·worker는 내부망에만 둔다. worker의 외부 통신은 승인 목적지와 출구 경로가 준비되기 전까지 차단한다. 실제 서버·SSH 접근 주체·키 발급/폐기, production Compose의 CI 및 host 접속 검증이 남아 있어 운영 체크는 아직 미완료다. [Docker 공식 포트 문서](https://docs.docker.com/engine/network/port-publishing/)에 따르면 Engine 28.0.0 이전에는 localhost 게시 포트가 같은 L2 구간에서 접근 가능할 수 있으므로 운영 Engine 버전도 확인한다.
 
 ## 데이터베이스, backup과 복구
 

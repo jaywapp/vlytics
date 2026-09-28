@@ -12,7 +12,7 @@ from typing import Any
 from vlytics.engine.evaluation.metrics import SET_SCORE_HOME_ORDER
 from vlytics.engine.market import MarketSettlement
 
-COHORT_POLICY_VERSION = "performance-cohort-v1"
+COHORT_POLICY_VERSION = "performance-cohort-v2"
 EVALUATOR_VERSION = "result-evaluator-v1"
 
 

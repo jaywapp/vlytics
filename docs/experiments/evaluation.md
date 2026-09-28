@@ -1,6 +1,6 @@
 # 결과 평가와 공정한 코호트 집계
 
-작성일: 2026-09-20 · 구현 버전: `result-evaluator-v1`, `performance-cohort-v1`, `performance-v1`
+작성일: 2026-09-20 · 현행 구현 버전: `result-evaluator-v1`, `performance-cohort-v2`, `performance-v1`
 
 ## 불변 평가 단위
 
@@ -8,7 +8,7 @@
 
 단일 경기 평가에는 원본 홈 승률, 실제 홈 승패, binary Brier, Log Loss, 승패 적중, 세트 RPS와 정확 세트스코어 적중을 저장한다. Log Loss만 `epsilon=1e-12`로 계산 시 제한하며 Brier에는 원본 확률을 사용한다. 정확 세트스코어의 최대 확률이 동률이면 실제 범주가 동률 집합에 포함된 경우 `1 / 동률 범주 수`를 부여한다.
 
-Market 정산은 prediction cutoff에 적격하다고 판정된 정확한 snapshot에만 생성한다. `missing`, `stale`, `late`, `unsupported` 상태는 정산 행을 만들지 않으며 상태와 개수만 남긴다. Market이 없는 경기도 일반 AI·통계 평가는 그대로 계산한다. Market 적중률 분모는 `win + loss`이고 push·void와 가용성 제외 상태는 별도 개수로 보고한다.
+Market 정산은 prediction cutoff에 적격하다고 판정된 정확한 snapshot에만 생성한다. `missing`, `stale`, `late`, `unsupported` 상태는 정산 행을 만들지 않으며 상태와 개수만 남긴다. Market이 없는 경기도 `missing` 비교 평가를 먼저 저장한 후 일반 AI·통계 평가는 그대로 계산한다. Market 적중률 분모는 `win + loss`이고 push·void와 가용성 제외 상태는 별도 개수로 보고한다.
 
 ## 코호트와 짝비교
 

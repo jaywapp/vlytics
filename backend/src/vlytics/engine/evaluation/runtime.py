@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 from typing import Any, Protocol, cast
 from uuid import UUID
@@ -31,8 +31,11 @@ from vlytics.engine.market import (
     MarketSnapshot,
     MarketType,
     MarketUnit,
+    default_market_adapter,
 )
+from vlytics.engine.market.runtime import MarketComparisonUnitOfWork
 from vlytics.ops.repositories import JobRepository
+from vlytics.ops.scheduler import TerminalJobError
 
 EVALUATION_JOB_TYPE = "engine.evaluate_result"
 MARKET_EVALUATOR_VERSION = "market-evaluator-v1"
@@ -205,6 +208,8 @@ class PostgresEvaluationWorkReader:
     def _market_context(
         self,
         prediction: PredictionEvaluationInput,
+        *,
+        create_missing: bool = True,
     ) -> tuple[MarketEvaluation, MarketSnapshot | None]:
         row = (
             self._connection.execute(
@@ -232,18 +237,14 @@ class PostgresEvaluationWorkReader:
             .one_or_none()
         )
         if row is None:
-            return (
-                MarketEvaluation(
-                    prediction_id=prediction.prediction_id,
-                    match_id=prediction.match_id,
-                    snapshot_id=None,
-                    evaluator_version=MARKET_EVALUATOR_VERSION,
-                    eligibility=EvaluationEligibility.MISSING,
-                    reason="no_market_evaluation_for_prediction",
-                    lines=(),
-                ),
-                None,
-            )
+            if not create_missing:
+                raise LookupError("persisted Market comparison was not created")
+            MarketComparisonUnitOfWork(
+                self._connection,
+                default_market_adapter(),
+                max_age=timedelta(0),
+            ).compare_prediction(UUID(prediction.prediction_id))
+            return self._market_context(prediction, create_missing=False)
         eligibility = EvaluationEligibility(str(row["eligibility"]))
         if eligibility is not EvaluationEligibility.ELIGIBLE:
             market_snapshot_id = row["market_snapshot_id"]
@@ -339,6 +340,12 @@ class EvaluationJobPlanner:
                       AND evaluation.evaluator_version = :evaluator_version
                       AND evaluation.cohort_policy_version = :cohort_policy_version
                 )
+                  AND EXISTS (
+                    SELECT 1
+                    FROM market.market_evaluations market_evaluation
+                    WHERE market_evaluation.prediction_id = prediction.id
+                      AND market_evaluation.evaluator_version = :market_evaluator_version
+                )
                   AND NOT EXISTS (
                     SELECT 1
                     FROM ops.jobs job
@@ -354,6 +361,7 @@ class EvaluationJobPlanner:
             {
                 "evaluator_version": EVALUATOR_VERSION,
                 "cohort_policy_version": COHORT_POLICY_VERSION,
+                "market_evaluator_version": MARKET_EVALUATOR_VERSION,
                 "limit": limit,
             },
         ).mappings()
@@ -414,7 +422,10 @@ class EvaluationJobHandler:
 
     def handle(self, job: Mapping[str, Any], *, now: datetime) -> None:
         del now
-        result_revision_id = result_revision_id_from_job(job)
+        try:
+            result_revision_id = result_revision_id_from_job(job)
+        except ValueError as error:
+            raise TerminalJobError("unsupported_evaluation_job_contract") from error
         with self._engine.begin() as connection:
             EvaluationUnitOfWork(connection, evaluator=self._evaluator).evaluate_result(
                 result_revision_id

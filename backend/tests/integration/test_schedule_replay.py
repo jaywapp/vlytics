@@ -2043,7 +2043,7 @@ def test_worker_entrypoint_builds_default_production_runtime(
         ).one()
         assert row == (
             "statistical",
-            "feature-form-p5-joint-v1",
+            "elo-p5-joint-v2",
             "statistical-joint-v1",
         )
         assert (

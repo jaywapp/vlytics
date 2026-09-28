@@ -10,8 +10,8 @@ dry_run_evidence="$temporary_directory/live-dry-run-evidence.synthetic.json"
 
 : "${VLYTICS_POSTGRES_IMAGE:?VLYTICS_POSTGRES_IMAGE must name the existing CI PostgreSQL image}"
 export VLYTICS_BACKEND_IMAGE="${VLYTICS_BACKEND_IMAGE:-vlytics-backend:local}"
-# Compose interpolates every service even though this smoke never creates frontend.
-export VLYTICS_FRONTEND_IMAGE="${VLYTICS_FRONTEND_IMAGE:-$VLYTICS_BACKEND_IMAGE}"
+: "${VLYTICS_FRONTEND_IMAGE:?VLYTICS_FRONTEND_IMAGE must name the existing CI frontend image}"
+export WEB_PORT="${VLYTICS_CI_PRODUCTION_WEB_PORT:-18082}"
 
 compose() {
   docker compose --project-name "$project" \
@@ -23,7 +23,7 @@ cleanup() {
   trap - EXIT
   if (( result != 0 )); then
     compose ps || true
-    compose logs --no-color --tail=120 postgres migrate api worker || true
+    compose logs --no-color --tail=120 postgres migrate api worker frontend operator_ingress || true
   fi
   compose down --volumes --remove-orphans >/dev/null 2>&1 || true
   rm -rf -- "$temporary_directory"
@@ -257,16 +257,62 @@ export VLYTICS_ANTHROPIC_API_KEY="synthetic-ci-anthropic-never-sent"
 export VLYTICS_GOOGLE_API_KEY="synthetic-ci-google-never-sent"
 
 # These fixtures prove role-specific startup only. They are not live-operation approval evidence.
-docker image inspect "$VLYTICS_BACKEND_IMAGE" "$VLYTICS_POSTGRES_IMAGE" >/dev/null
+docker image inspect "$VLYTICS_BACKEND_IMAGE" "$VLYTICS_FRONTEND_IMAGE" "$VLYTICS_POSTGRES_IMAGE" >/dev/null
 compose config --quiet
-compose up --detach --no-build --pull never postgres migrate api worker
+compose up --detach --no-build --pull never postgres migrate api worker frontend operator_ingress
 
-test -z "$(compose ps -q frontend)"
-network_id="$(docker network ls --quiet \
+private_network_id="$(docker network ls --quiet \
   --filter "label=com.docker.compose.project=$project" \
   --filter "label=com.docker.compose.network=private")"
-test -n "$network_id"
-test "$(docker network inspect --format '{{.Internal}}' "$network_id")" = true
+operator_network_id="$(docker network ls --quiet \
+  --filter "label=com.docker.compose.project=$project" \
+  --filter "label=com.docker.compose.network=operator_access")"
+test -n "$private_network_id"
+test -n "$operator_network_id"
+test "$(docker network inspect --format '{{.Internal}}' "$private_network_id")" = true
+test "$(docker network inspect --format '{{.Internal}}' "$operator_network_id")" = false
+
+python3 - "$repository_root/infra/compose.production.yaml" "$project" "$WEB_PORT" <<'PY'
+import json
+import subprocess
+import sys
+
+compose_file, project, port = sys.argv[1:]
+services = ("postgres", "api", "worker", "frontend", "operator_ingress")
+for service in services:
+    container_id = subprocess.check_output(
+        ["docker", "compose", "--project-name", project,
+         "--file", compose_file, "ps", "-q", service],
+        text=True,
+    ).strip()
+    assert container_id, service
+    container = json.loads(subprocess.check_output(["docker", "inspect", container_id]))[0]
+    networks = set(container["NetworkSettings"]["Networks"])
+    if service == "operator_ingress":
+        assert networks == {f"{project}_private", f"{project}_operator_access"}
+        bindings = container["HostConfig"]["PortBindings"]
+        assert bindings == {"8080/tcp": [{"HostIp": "127.0.0.1", "HostPort": port}]}
+    else:
+        assert networks == {f"{project}_private"}, service
+        assert not container["HostConfig"]["PortBindings"], service
+PY
+
+operator_url="http://127.0.0.1:$WEB_PORT"
+operator_ready=false
+for attempt in $(seq 1 30); do
+  if curl --fail --silent "$operator_url/healthz" | grep -qx ok; then
+    operator_ready=true
+    break
+  fi
+  sleep 2
+done
+test "$operator_ready" = true
+operator_schedule="$operator_url/api/v1/schedule?date=2026-09-27"
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' "$operator_schedule")" = 401
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $VLYTICS_READONLY_AUTH_SECRET" "$operator_schedule")" = 403
+test "$(curl --silent --output /dev/null --write-out '%{http_code}' \
+  --header "Authorization: Bearer $VLYTICS_OPERATOR_AUTH_SECRET" "$operator_schedule")" = 200
 
 migrate_id="$(compose ps --all --quiet migrate)"
 test -n "$migrate_id"
@@ -347,4 +393,4 @@ counts="$(compose exec -T postgres psql -X -A -t -v ON_ERROR_STOP=1 \
           (SELECT count(*) FROM ops.jobs);")"
 test "$(printf '%s' "$counts" | tr -d '\r\n')" = "0:0:0:0"
 
-echo "Synthetic production internal smoke passed: API and worker started with role-specific secrets; no source or provider work was created."
+echo "Synthetic production ingress and internal smoke passed: loopback-only operator route, API and worker role-specific startup; no source or provider work was created."

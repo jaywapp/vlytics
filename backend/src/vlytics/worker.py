@@ -7,7 +7,7 @@ import os
 import socket
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 import httpx
@@ -22,6 +22,11 @@ from vlytics.config import (
     load_operational_config,
 )
 from vlytics.engine.evaluation import DatabaseEvaluationTicker, evaluation_handlers
+from vlytics.engine.market import (
+    DatabaseMarketComparisonTicker,
+    MarketAdapterFactory,
+    market_handlers,
+)
 from vlytics.engine.orchestrator import (
     PredictionOrchestrator,
     ProviderBinding,
@@ -195,17 +200,20 @@ class DatabaseRuntimeTicker:
         schedule: DatabaseScheduleTicker,
         evaluation: DatabaseEvaluationTicker,
         *,
+        market: DatabaseMarketComparisonTicker | None = None,
         source: DatabaseCurrentSeasonSyncTicker | None = None,
     ) -> None:
         self._source = source
         self._schedule = schedule
+        self._market = market
         self._evaluation = evaluation
 
     def run_once(self, *, now: datetime) -> int:
         source_jobs = 0 if self._source is None else self._source.run_once(now=now)
         scheduled = self._schedule.run_once(now=now)
+        market = 0 if self._market is None else self._market.run_once(now=now)
         evaluation = self._evaluation.run_once(now=now)
-        return source_jobs + scheduled + evaluation
+        return source_jobs + scheduled + market + evaluation
 
 
 @dataclass(frozen=True)
@@ -220,6 +228,8 @@ class WorkerRuntimeComponents:
     dry_run_evidence: LiveDryRunEvidence | None = None
     max_concurrency: int = 4
     joint_score_resolver: JointScoreResolver | None = None
+    market_adapter_factory: MarketAdapterFactory | None = None
+    market_max_age: timedelta | None = None
 
 
 def _collector_database_preflight(engine: Engine) -> None:
@@ -323,6 +333,7 @@ def build_runtime_components(
             for item in live_plan.providers
         }
     sync_handlers.update(evaluation_handlers(engine))
+    sync_handlers.update(market_handlers(engine))
     return WorkerRuntimeComponents(
         snapshot_factory=DatabaseFeatureSnapshotFactory(engine),
         statistical={"statistical-joint-v1": statistical_binding},
@@ -485,6 +496,24 @@ def build_production_worker(
         joint_score_resolver=components.joint_score_resolver,
     )
     handlers: dict[str, JobHandler] = dict(components.sync_handlers)
+    handlers.update(evaluation_handlers(engine))
+    if (components.market_adapter_factory is None) != (components.market_max_age is None):
+        dispose_engines()
+        raise OperationalConfigError(
+            "worker Market adapter and max_age policy must be configured together"
+        )
+    if components.market_adapter_factory is not None:
+        dispose_engines()
+        raise OperationalConfigError(
+            "live Market adapters require a versioned source and max_age policy"
+        )
+    handlers.update(
+        market_handlers(
+            engine,
+            adapter_factory=components.market_adapter_factory,
+            max_age=components.market_max_age,
+        )
+    )
     handlers.update(scheduler_handlers(orchestrator))
     lease_owner = f"{socket.gethostname()}:{os.getpid()}"
     dispatcher = PredictionJobDispatcher(
@@ -513,6 +542,7 @@ def build_production_worker(
         scheduler=DatabaseRuntimeTicker(
             schedule_ticker,
             DatabaseEvaluationTicker(engine),
+            market=DatabaseMarketComparisonTicker(engine),
             source=source_ticker,
         ),
         now=now,

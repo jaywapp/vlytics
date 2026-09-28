@@ -9,7 +9,10 @@
 - R07~R09: 코드 `3038ba4`의 [CI 36290510898](https://github.com/jaywapp/vlytics/actions/runs/36290510898) 전체 성공. Backend 436, frontend 32, fixture E2E 9, 실제 Nginx/API/DB browser 1, Windows 34 및 8개 image gate 통과. 실제 merge revision `fea4c2c`와 부모 main `69585df`/후보 `3038ba4` 확인.
 - 추가 인수 검증: R04/R05의 오래된 장애·동일 시각 충돌·crash 후 lease 재전송 테스트와 A13 실제 DB 재실패 후 두 번째 retry 테스트를 보강했다. 각각 로컬 25개(dispatcher+pipeline), 29개(API), 새 PostgreSQL DB 전체 439개 통과. Ruff/format 및 mypy 81개 source file도 통과. A01 production 내부 기동과 A09 복구한 동일 DB의 API/worker smoke를 CI에 추가하며, 컨테이너 실행 결과는 이 후속 commit의 CI에서 판정한다.
 - 추가 CI 36291329901: backend 439·frontend 32·Windows 34 및 복구한 동일 DB의 API/worker 검증 통과. production API/worker도 healthy였으나 새 smoke의 health 기대값이 실제 응답의 `version` 필드를 누락해 전체 CI는 실패했다. 검사 계약을 수정했으며 후속 CI로 판정한다.
-- A03/A08/A12 생성/B1: 자동 승인 거부로 미적용. 운영 host NTP/예약·백업/PITR·실제 알림·source/Provider·게시 release 증거도 미완료.
+- A03/A08/A12 생성/B1: 사용자 결정에 따라 코드 반영 및 로컬 단위·계약 검증 완료, 실제 PostgreSQL/Compose CI 검증 대기. 운영 host NTP/예약·백업/PITR·실제 알림·source/Provider·게시 release 증거는 별도 미완료.
+- A03 화면 접속 결정(사용자): 운영자 브라우저는 SSH 로컬 포트 전달로 운영 서버의 `127.0.0.1:${WEB_PORT:-8080}`에 접근한다. 이 포트는 전용 진입 프록시만 게시하고 frontend·API·DB·worker는 내부망에 둔다. 서버·SSH 접근 주체·키 수명과 실제 host 검증은 아직 정해지지 않았다. 이 결정만으로 A03 전체를 완료 처리하지 않는다.
+- A03 ingress·egress 결정(사용자): 기존 frontend를 내부망에 남기고, 비밀값을 받지 않는 전용 진입 프록시만 내부망과 별도 일반 bridge에 연결한다. 프록시 host 포트는 `127.0.0.1`에만 게시하며 SSH 터널에서 접근한다. worker는 승인 목적지와 출구 경로가 확정되기 전까지 내부망에서 외부 호출을 차단한다. 비내부 bridge의 프록시 경계와 host 접속은 실제 검증이 필요하다. frontend를 직접 일반 bridge에 연결하려던 시도는 자동 승인 검토에서 거부됐고 적용하지 않았다.
+- A08 운영 계산식 결정(사용자): 최근·시즌 승률 평균 대신 남녀 분리·홈 이점·시즌 회귀/구단 이월을 반영한 versioned Elo를 worker 통계 예측에 연결했다. 기존 불변 예측은 보존하고 새 모델 버전을 구분한다. 로컬 회귀는 통과했고 실제 PostgreSQL CI 검증은 대기 중이다.
 
 아래 과거 검사 수치와 진행 중 문구는 실행 이력이며, 최신 판정은 이 요약 및 해당 commit의 CI를 우선한다.
 
@@ -17,16 +20,16 @@
 |---|---|---|
 | A01 역할별 secret | 프로세스/배포 전체 검증 분리 | 역할별 운영 설정 회귀 통과. 활성 합성 설정·빈 DB·원본 internal network의 production API/worker runtime smoke를 CI 36291809544에서 통과. 실제 외부 접근은 A03에 남음 |
 | A02 KOVO 수집 | transport/factory/worker 및 planner 연결 | 실제 worker + MockTransport·승인 scope·global lease/RPM·재시작 DB 회귀 통과 |
-| A03 네트워크 | 변경 미적용, 명시 승인 대기 | production host ingress/외부 egress 검증 미해결 |
+| A03 네트워크 | 전용 ingress와 loopback 게시 코드 반영, worker는 내부망 차단 유지 | 정적 패키지 검사 통과. 새 CI의 host ingress·내부 격리 및 실제 host SSH 경로, 향후 승인 목적지 egress 검증 미해결 |
 | A04 현재 예측 선택 | 실제 API SQL/UI 수정 | API DB 28 tests 및 UI 회귀 통과 |
 | A05 retry deadline | orchestrator 수정 | 영속 dispatch 기록·재시작·창 안/밖 수동 retry·deadline 전용 DB 5 tests 통과. 깨끗한 PostgreSQL 전체 suite 360 tests 통과 |
 | A06 경기별 호출 상한 | worker·DB 원장 연결 | 동시 예약 상한 회귀 통과 |
 | A07 결과 finality | repository/factory 수정 | finality DB 계약 8 tests 통과 |
-| A08 Elo 운영 연결 | 변경 미적용, 명시 승인 대기 | 기존 모듈 검증만 존재 |
+| A08 Elo 운영 연결 | cutoff 이전 결과로 versioned Elo runtime 연결 | 로컬 단위·계약 회귀 통과, 실제 PostgreSQL CI 검증 대기 |
 | A09 복구 권한 | 별도 관리자·owner/ACL·로그인 검사 연결 | 새 cluster 39 tables/13 migrations/4역할+migrator 및 ACL 통과. 두 공식 DB owner roundtrip 통과. CI 36291809544의 동일 복구 DB에서 실제 API 200/401/200 및 worker poll·quarantined job 불변 통과 |
 | A10 페이지 순회 | sync handler 수정 | 페이지·재개 회귀 통과 |
 | A11 설정/마운트 일치 | enum 및 preflight 경로/hash 수정 | 경로 일치/불일치 통과. 개발 Compose 실제 CI 성공, production 전체 접근 검증은 A03 해결 후 필요 |
-| A12 Market | API eligibility 수정, 생성 연결 승인 대기 | API 회귀 통과, 생성 경로 미검증 |
+| A12 Market | published 예측별 멱등 비교 job/handler/ticker 연결, 기본 missing | 로컬 missing/available/stale/late 및 중복 회귀 통과, 실제 PostgreSQL CI 검증 대기 |
 | A13 재실패 retry | UI 논리 요청 갱신 | frontend 32 및 실제 PostgreSQL API 29 tests 통과. 실제 worker finish 재실패 뒤 새 키의 두 번째 retry_wait 확인 |
 | A14 coverage/History | 실제 API/UI 계약 수정 | SQL·UI 회귀 통과 |
 | A15 CRLF | 패키지 검사 수정 | LF/CRLF PowerShell 양쪽 통과 |
@@ -36,7 +39,7 @@
 
 | ID | 범위 | 상태 |
 |---|---|---|
-| B1 | 검증된 roster/stats Feature | 생산 입력 연결 변경이 자동 승인 검토에서 거부되어 미적용·명시 승인 대기. 미검증 source 의미는 missing |
+| B1 | 검증된 roster/stats Feature | 생산 factory에 cutoff·최신 available coverage·원문 해시·확정 schema 조건의 입력 경로 연결. 현재 KOVO roster/metrics 의미는 미검증이므로 missing을 유지한다. 실제 PostgreSQL CI 및 원천 계약 검증 대기 |
 | B2 | 실제 browser→Nginx→API→DB | 실제 seed·browser spec·CI hook 추가. seed/실제 API 검증 통과, Nginx browser leg CI 실행 36282222862 통과 |
 | B3 | 장기 조회 성능 | endpoint SQL/keyset·Performance 성공 예측 적재 제거. 경기 5,500/예측·평가 각 16,500의 repository·실제 API warm 20회 및 Python peak 측정, 로컬 회귀 budget 충족. [수치·재현 코드](api-performance.md), 실제 DB API 28 tests 통과 |
 | B4 | TLS·일관 backup snapshot | 옵션 보존 unit 및 exported snapshot restore drill 통과 |
@@ -137,3 +140,14 @@ R01~R06 마감 로컬 검증: heartbeat/dispatcher/실제 health pipeline 35 tes
 일정 다음 페이지를 기존 필터/커서로 가져와 중복 없이 누적하고 revision metadata도 병합한다. 페이지 실패 시 기존 목록을 유지하며 stale cursor는 첫 페이지부터 다시 조회한다. 초기 일정·상세·추가 페이지 모두 abort된 늦은 응답을 무시한다. History/Operations는 200 응답의 소비 필드와 metadata를 검증해 잘못된 응답을 오류 패널로 전환한다. 공용 상태 패널은 페이지 h1/섹션 h2/하위 상태 h3로 구분했다.
 
 최종 frontend lint/typecheck/build, unit 32, fixture Playwright 9 tests가 통과했다. root가 unit 32 tests를 다시 확인했으며 교차 리뷰에서 현재 backend 응답과의 충돌을 발견하지 못했다. 실제 Nginx/API/DB 경로는 UI 후속 CI에서 확인한다.
+
+
+## 2026-09-28 사용자 결정 반영 및 통합 후보
+
+- A03: 별도 `operator_ingress`만 내부망과 `operator_access` bridge를 잇고 host `127.0.0.1:${WEB_PORT:-8080}`에 게시한다. frontend·API·DB·worker는 내부망만 사용한다. 정적 배포 패키지 LF/CRLF 회귀 6개와 Bash 구문 검사 통과. 실제 Compose의 network/port 바인딩과 SSH 터널은 CI·운영 host에서 각각 확인한다. worker 출구는 승인 목적지·권한·속도·비용 정책 및 명시적 프록시 경로가 정해지기 전까지 차단한다.
+- A08: statistical runner의 임시 승률 평균을 versioned Elo 재생으로 교체했다. source/division/competition/stage, schedule/result cutoff, 검증된 franchise identity를 제한하고 누락 시 실패한다. 기존 예측은 건드리지 않으며 새 모델 `elo-p5-joint-v2`와 새 variant UUID를 사용한다.
+- A12: 게시 예측마다 Market 비교 job을 영속적으로 생성하고 비교 평가가 저장된 뒤 결과 평가를 예약한다. 기본 어댑터는 `missing`이며 결과 평가가 먼저 실행돼도 동일 트랜잭션에서 missing 비교를 저장한다. 실제 adapter는 OP-005 source/schema/권한과 `max_age`가 버전 식별자에 포함되기 전까지 운영 설정에서 거부한다. 평가 코호트는 `performance-cohort-v2`로 분리했고 이전 v1 대기 작업은 격리한다.
+- B1: 검증된 schema와 최신 available coverage만 로스터·팀/선수 통계 Feature 입력으로 전달한다. 미검증 KOVO 약어와 공개 시점은 `unverified`/missing으로 유지한다. Feature lineage에는 선택된 revision ID·원문 SHA·roster batch·metric schema가 남지만 coverage row ID/evidence는 현재 `feature-v1` 계약에 없어 직접 저장되지 않는다. 원천 의미 검증과 lineage 확장은 후속 조건이다.
+- 통합 로컬 검사: backend Ruff 전체·format, strict mypy 83 source files, pytest 전체 400 passed/53 skipped 통과. 건너뛴 PostgreSQL 통합 검사는 실제 DB가 있는 CI에서 판정한다. 프런트엔드 코드는 변경하지 않았다. 건너뛴 PostgreSQL 통합 검사는 실제 DB가 있는 CI에서 판정한다. 프런트엔드 코드는 변경하지 않았다.
+
+이 후보는 코드·합성 검증 결과다. 실제 source·유료 Provider·Market 호출, 운영 호스트 배포·NTP·백업/PITR·알림·릴리스 digest 확인은 수행하지 않았으며 전체 감사 조치 완료로 표시하지 않는다.

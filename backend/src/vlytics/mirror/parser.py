@@ -281,10 +281,18 @@ class KovoParser:
                 self._coverage(
                     game.match,
                     "player_match_stats",
-                    Availability.AVAILABLE if player_stats else Availability.MISSING,
-                    "validated match-level player rows"
+                    Availability.UNVERIFIED if player_stats else Availability.MISSING,
+                    "row identity is validated but abbreviated metric meanings are unverified"
                     if player_stats
                     else "no usable player rows",
+                ),
+                self._coverage(
+                    game.match,
+                    "team_match_stats",
+                    Availability.UNVERIFIED if team_stats else Availability.MISSING,
+                    "row identity is validated but abbreviated metric meanings are unverified"
+                    if team_stats
+                    else "no usable team rows",
                 ),
                 self._coverage(
                     game.match,

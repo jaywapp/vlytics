@@ -413,6 +413,7 @@ test -s "$live_manifest"
     npm run test:e2e:live
 )
 
-bash "$repository_root/infra/scripts/ci-production-internal-smoke.sh"
+VLYTICS_FRONTEND_IMAGE="$frontend_image" \
+  bash "$repository_root/infra/scripts/ci-production-internal-smoke.sh"
 
 echo "Compose smoke passed: API, frontend image and proxy, worker restart, migration replay, owner/ACL restore, SCRAM role boundaries, and live browser flow."

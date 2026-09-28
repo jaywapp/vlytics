@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from enum import StrEnum
@@ -378,6 +379,15 @@ class EloPrediction:
 
 
 @dataclass(frozen=True)
+class EloReplayPrediction:
+    """One cutoff prediction plus the immutable replay lineage that produced it."""
+
+    prediction: EloPrediction
+    input_manifest_sha256: str
+    applied_result_revision_ids: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class _PreparedMatch:
     fingerprint: str
     match_id: str
@@ -554,6 +564,101 @@ class EloPredictor:
             self._team_franchises[team_id] = franchise
         self._ratings[team_id] = rating
         return rating, source
+
+
+def replay_elo_prediction(
+    matches: Sequence[EloMatch],
+    config: EloConfig,
+    *,
+    target_match_id: str,
+) -> EloReplayPrediction:
+    """Replay one live cohort through the target cutoff without future-result leakage."""
+
+    if len({match.match_id for match in matches}) != len(matches):
+        raise ValueError("match_id must be unique within an Elo replay")
+    ordered = sorted(matches, key=lambda match: match.order_key)
+    if not ordered:
+        raise ValueError("Elo replay requires at least one match")
+    target_indexes = [
+        index for index, match in enumerate(ordered) if match.match_id == target_match_id
+    ]
+    if len(target_indexes) != 1:
+        raise ValueError("Elo replay target must occur exactly once")
+    if target_indexes[0] != len(ordered) - 1:
+        raise ValueError("Elo replay target must be the final ordered match")
+    if len({match.rating_scope for match in ordered}) != 1:
+        raise ValueError("Elo replay cannot mix rating cohorts")
+
+    predictor = EloPredictor(ordered[0].division, config)
+    history: list[EloMatch] = []
+    selected: dict[str, EloResultRevision] = {}
+    target_prediction: EloPrediction | None = None
+    for target in ordered:
+        desired = {
+            previous.match_id: result
+            for previous in history
+            if (result := previous.select_result_as_of(target.prediction_cutoff_at)) is not None
+        }
+        if desired != selected:
+            changed = {
+                match_id
+                for match_id in set(desired) | set(selected)
+                if desired.get(match_id) != selected.get(match_id)
+            }
+            previous = history[-1] if history else None
+            immediate = (
+                len(changed) == 1
+                and previous is not None
+                and previous.match_id in changed
+                and previous.match_id not in selected
+                and predictor.current_match_id == previous.match_id
+            )
+            if immediate:
+                assert previous is not None
+                predictor.update_observed_result(
+                    previous,
+                    desired[previous.match_id],
+                    known_at=target.prediction_cutoff_at,
+                )
+            else:
+                predictor = _replay_results_as_of(
+                    ordered[0].division,
+                    config,
+                    history,
+                    desired,
+                    known_at=target.prediction_cutoff_at,
+                )
+            selected = desired
+        predictor.transition(target)
+        if target.match_id == target_match_id:
+            target_prediction = predictor.predict(target)
+        history.append(target)
+
+    assert target_prediction is not None
+    return EloReplayPrediction(
+        prediction=target_prediction,
+        input_manifest_sha256=_canonical_sha256([match.to_manifest_dict() for match in ordered]),
+        applied_result_revision_ids=tuple(
+            selected[match.match_id].revision_id for match in ordered if match.match_id in selected
+        ),
+    )
+
+
+def _replay_results_as_of(
+    division: Division,
+    config: EloConfig,
+    history: Sequence[EloMatch],
+    selected: dict[str, EloResultRevision],
+    *,
+    known_at: datetime,
+) -> EloPredictor:
+    predictor = EloPredictor(division, config)
+    for match in history:
+        predictor.transition(match)
+        result = selected.get(match.match_id)
+        if result is not None:
+            predictor.update_observed_result(match, result, known_at=known_at)
+    return predictor
 
 
 def _result_order_key(result: EloResultRevision) -> tuple[int, datetime, str]:
