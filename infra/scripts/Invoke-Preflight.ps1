@@ -8,6 +8,7 @@ param(
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "DeploymentPaths.ps1")
 
 if ([string]::IsNullOrWhiteSpace($ComposeFile)) { $ComposeFile = Join-Path $PSScriptRoot "..\compose.production.yaml" }
 
@@ -37,6 +38,72 @@ function Read-EnvironmentFile {
     return $values
 }
 
+function Assert-DistinctRoleSecrets {
+    param([hashtable]$Values)
+
+    if ([string]::Equals(
+        [string]$Values["VLYTICS_OPERATOR_AUTH_SECRET"],
+        [string]$Values["VLYTICS_READONLY_AUTH_SECRET"],
+        [System.StringComparison]::Ordinal
+    )) {
+        throw "Operator and read-only authentication secrets must be distinct."
+    }
+}
+
+function Assert-WindowsClockStatus {
+    param(
+        [string[]]$StatusOutput,
+        [string[]]$OffsetOutput,
+        [DateTimeOffset]$Now = [DateTimeOffset]::Now
+    )
+
+    # w32tm localizes labels but preserves the status field order.
+    $statusLines = @($StatusOutput | ForEach-Object { ([string]$_).Trim() } | Where-Object { $_ })
+    if ($statusLines.Count -lt 9) {
+        throw "Windows time synchronization status is incomplete."
+    }
+
+    $leapMatch = [regex]::Match($statusLines[0], '^.*?:\s*([0-3])(?:\s|\(|$)')
+    if (-not $leapMatch.Success -or $leapMatch.Groups[1].Value -eq "3") {
+        throw "Host clock reports an unsynchronized leap indicator."
+    }
+
+    $lastSyncSeparator = $statusLines[6].IndexOf(":")
+    if ($lastSyncSeparator -lt 0) {
+        throw "Windows last successful synchronization time is unavailable."
+    }
+    $lastSyncText = $statusLines[6].Substring($lastSyncSeparator + 1).Trim()
+    $lastSync = [DateTimeOffset]::MinValue
+    if (-not [DateTimeOffset]::TryParse(
+        $lastSyncText,
+        [System.Globalization.CultureInfo]::CurrentCulture,
+        [System.Globalization.DateTimeStyles]::AllowWhiteSpaces,
+        [ref]$lastSync
+    )) {
+        throw "Windows last successful synchronization time is invalid."
+    }
+    $syncAge = $Now - $lastSync
+    if ($syncAge -gt [TimeSpan]::FromHours(1) -or $syncAge -lt [TimeSpan]::FromMinutes(-5)) {
+        throw "Windows time synchronization is stale or reports a future timestamp."
+    }
+
+    $offsetText = $OffsetOutput -join "`n"
+    $offsetMatch = [regex]::Match($offsetText, '(?m)(?<offset>[+-]\d+(?:[\.,]\d+)?)s\s*$')
+    if (-not $offsetMatch.Success) {
+        throw "Windows time offset could not be verified."
+    }
+    $offsetSeconds = 0.0
+    $normalizedOffset = $offsetMatch.Groups["offset"].Value.Replace(",", ".")
+    if (-not [double]::TryParse(
+        $normalizedOffset,
+        [System.Globalization.NumberStyles]::Float,
+        [System.Globalization.CultureInfo]::InvariantCulture,
+        [ref]$offsetSeconds
+    ) -or [Math]::Abs($offsetSeconds) -gt 1.0) {
+        throw "Windows time offset exceeds the one-second activation limit."
+    }
+}
+
 function Assert-ClockSynchronized {
     if ($env:OS -eq "Windows_NT") {
         $service = Get-Service -Name W32Time -ErrorAction SilentlyContinue
@@ -47,10 +114,23 @@ function Assert-ClockSynchronized {
         if ($LASTEXITCODE -ne 0) {
             throw "Windows time synchronization status could not be read."
         }
-        $joined = $clockStatus -join "`n"
-        if ($joined -match '(?i)(local cmos clock|free-running system clock)') {
+        $clockSource = & w32tm /query /source 2>&1
+        if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($clockSource -join "").Trim())) {
+            throw "Windows time synchronization source could not be read."
+        }
+        $sourceName = ($clockSource -join "").Trim()
+        if ($sourceName -match '(?i)(local cmos clock|free-running system clock)') {
             throw "Host clock is using an unsynchronized local source."
         }
+        $measurementSource = ($sourceName -split ',')[0].Trim()
+        if ([string]::IsNullOrWhiteSpace($measurementSource)) {
+            throw "Windows time synchronization source is invalid."
+        }
+        $offsetSamples = & w32tm /stripchart "/computer:$measurementSource" /dataonly /samples:1 2>&1
+        if ($LASTEXITCODE -ne 0) {
+            throw "Windows time offset could not be measured."
+        }
+        Assert-WindowsClockStatus -StatusOutput $clockStatus -OffsetOutput $offsetSamples
         return
     }
 
@@ -64,15 +144,19 @@ function Assert-ClockSynchronized {
     }
 }
 
+$EnvironmentFile = Resolve-DeploymentFile $EnvironmentFile (Get-Location).ProviderPath
+$ComposeFile = Resolve-DeploymentFile $ComposeFile (Get-Location).ProviderPath
+$composeDirectory = Split-Path -Parent $ComposeFile
 $values = Read-EnvironmentFile $EnvironmentFile
 $required = @(
-    "VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE", "MIGRATOR_DATABASE_PASSWORD", "COLLECTOR_DATABASE_PASSWORD",
+    "VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE", "VLYTICS_POSTGRES_IMAGE", "VLYTICS_PYTHON_BUILD_IMAGE", "VLYTICS_UV_BUILD_IMAGE", "MIGRATOR_DATABASE_PASSWORD", "COLLECTOR_DATABASE_PASSWORD",
     "ENGINE_DATABASE_PASSWORD", "MARKET_INGEST_DATABASE_PASSWORD", "READ_API_DATABASE_PASSWORD",
     "MIGRATOR_DATABASE_URL", "COLLECTOR_DATABASE_URL", "ENGINE_DATABASE_URL",
     "MARKET_INGEST_DATABASE_URL", "READ_API_DATABASE_URL", "VLYTICS_OPERATOR_AUTH_SECRET",
     "VLYTICS_READONLY_AUTH_SECRET", "VLYTICS_BACKUP_CREDENTIAL", "VLYTICS_ALERT_DESTINATION",
     "VLYTICS_OPENAI_API_KEY", "VLYTICS_ANTHROPIC_API_KEY", "VLYTICS_GOOGLE_API_KEY",
-    "VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE"
+    "VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE", "VLYTICS_OPERATIONAL_CONFIG_FILE",
+    "VLYTICS_PROVIDER_REGISTRY_FILE", "VLYTICS_SOURCE_REGISTRY_FILE"
 )
 foreach ($name in $required) {
     if (-not $values.ContainsKey($name) -or [string]::IsNullOrWhiteSpace($values[$name])) {
@@ -82,23 +166,28 @@ foreach ($name in $required) {
         throw "Deployment value still contains a placeholder: $name"
     }
 }
+Assert-DistinctRoleSecrets $values
 
-foreach ($imageKey in @("VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE")) {
+foreach ($imageKey in @("VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE", "VLYTICS_POSTGRES_IMAGE", "VLYTICS_PYTHON_BUILD_IMAGE", "VLYTICS_UV_BUILD_IMAGE")) {
     if ($values[$imageKey] -notmatch '@sha256:[a-f0-9]{64}$') {
         throw "$imageKey must be pinned by sha256 digest."
     }
 }
-if (-not (Test-Path -LiteralPath $OperationalConfig -PathType Leaf)) {
-    throw "Operational config does not exist."
+$OperationalConfig = Assert-DeploymentFileBinding -ProvidedPath $OperationalConfig -ConfiguredPath $values["VLYTICS_OPERATIONAL_CONFIG_FILE"] -ComposeDirectory $composeDirectory -Name "OperationalConfig"
+$DryRunEvidence = Assert-DeploymentFileBinding -ProvidedPath $DryRunEvidence -ConfiguredPath $values["VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE"] -ComposeDirectory $composeDirectory -Name "DryRunEvidence"
+$values["VLYTICS_OPERATIONAL_CONFIG_FILE"] = $OperationalConfig
+$values["VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE"] = $DryRunEvidence
+$registryBindings = @(
+    @{ Key = "VLYTICS_PROVIDER_REGISTRY_FILE"; Target = "/run/vlytics/variants.toml" },
+    @{ Key = "VLYTICS_SOURCE_REGISTRY_FILE"; Target = "/run/vlytics/source.toml" }
+)
+$registryHashes = @{}
+foreach ($binding in $registryBindings) {
+    $values[$binding.Key] = Resolve-DeploymentFile $values[$binding.Key] $composeDirectory
+    $registryHashes[$binding.Key] = (Get-FileHash -LiteralPath $values[$binding.Key] -Algorithm SHA256).Hash
 }
-if (-not (Test-Path -LiteralPath $DryRunEvidence -PathType Leaf)) {
-    throw "OP-004 live dry-run evidence does not exist."
-}
-$resolvedEvidence = [System.IO.Path]::GetFullPath($DryRunEvidence)
-$configuredEvidence = [System.IO.Path]::GetFullPath($values["VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE"])
-if ($resolvedEvidence -ne $configuredEvidence) {
-    throw "DryRunEvidence must match VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE."
-}
+$configSha256 = (Get-FileHash -LiteralPath $OperationalConfig -Algorithm SHA256).Hash.ToLowerInvariant()
+$evidenceSha256 = (Get-FileHash -LiteralPath $DryRunEvidence -Algorithm SHA256).Hash.ToLowerInvariant()
 $configText = Get-Content -LiteralPath $OperationalConfig -Raw -Encoding UTF8
 if ($configText -match '__(REQUIRED|REQUIRED_BY_OP_[0-9]+)__|=\s*"unconfigured"') {
     throw "Operational config still contains an activation placeholder."
@@ -128,6 +217,9 @@ import sys
 from pathlib import Path
 from vlytics.config import Settings, load_operational_config
 from vlytics.ops.scheduler import load_live_dry_run_evidence
+from vlytics.engine.providers import load_variant_registry, build_live_provider_plan
+from vlytics.mirror.source_registry import load_kovo_parser
+from vlytics.mirror.kovo import scopes_from_operational_config
 
 config_path = Path(sys.argv[1])
 schema_path = Path(sys.argv[2])
@@ -137,9 +229,15 @@ settings = Settings(
     operational_config_path=config_path,
     operational_schema_path=schema_path,
     live_dry_run_evidence_path=evidence_path,
+    provider_registry_path=Path(os.environ["VLYTICS_PROVIDER_REGISTRY_FILE"]),
+    source_registry_path=Path(os.environ["VLYTICS_SOURCE_REGISTRY_FILE"]),
 )
-config = load_operational_config(settings, environ=os.environ, component="worker")
+config = load_operational_config(settings, environ=os.environ)
 load_live_dry_run_evidence(config, settings.live_dry_run_evidence_path)
+if config.live_operations_enabled:
+    build_live_provider_plan(config, load_variant_registry(settings.provider_registry_path), environ=os.environ)
+if config.values["source"]["bulk_collection_enabled"]:
+    load_kovo_parser(settings.source_registry_path, scopes_from_operational_config(config))
 "@
     Push-Location (Join-Path $repositoryRoot "backend")
     try {
@@ -158,9 +256,35 @@ load_live_dry_run_evidence(config, settings.live_dry_run_evidence_path)
             throw "The pinned deployment image is not available to this host: $imageKey"
         }
     }
-    & $docker.Source compose --env-file $EnvironmentFile --file $ComposeFile config --quiet
+    $renderedJson = & $docker.Source compose --env-file $EnvironmentFile --file $ComposeFile config --format json
     if ($LASTEXITCODE -ne 0) {
         throw "docker compose config validation failed."
+    }
+    $rendered = ($renderedJson -join [Environment]::NewLine) | ConvertFrom-Json
+    foreach ($serviceName in @("api", "worker", "migrate")) {
+        $service = $rendered.services.PSObject.Properties[$serviceName].Value
+        foreach ($binding in @(
+            @{ Target = "/run/vlytics/operational.toml"; Source = $OperationalConfig },
+            @{ Target = "/run/vlytics/live-dry-run-evidence.json"; Source = $DryRunEvidence }
+        )) {
+            $mounts = @($service.volumes | Where-Object { $_.target -eq $binding.Target })
+            if ($mounts.Count -ne 1 -or $mounts[0].type -ne "bind" -or -not $mounts[0].read_only) {
+                throw "Validated deployment file must be mounted read-only by $serviceName."
+            }
+            Assert-DeploymentFileBinding -ProvidedPath $binding.Source -ConfiguredPath $mounts[0].source -ComposeDirectory $composeDirectory -Name $serviceName | Out-Null
+        }
+    }
+    foreach ($binding in $registryBindings) {
+        $mounts = @($rendered.services.worker.volumes | Where-Object { $_.target -eq $binding.Target })
+        if ($mounts.Count -ne 1 -or -not $mounts[0].read_only) { throw "Worker registry must be mounted read-only." }
+        Assert-DeploymentFileBinding -ProvidedPath $values[$binding.Key] -ConfiguredPath $mounts[0].source -ComposeDirectory $composeDirectory -Name $binding.Key | Out-Null
+        if ((Get-FileHash -LiteralPath $values[$binding.Key] -Algorithm SHA256).Hash -ne $registryHashes[$binding.Key]) { throw "Registry changed during preflight." }
+    }
+    $rendered = $null
+    $renderedJson = $null
+    if ((Get-FileHash -LiteralPath $OperationalConfig -Algorithm SHA256).Hash.ToLowerInvariant() -ne $configSha256 -or
+        (Get-FileHash -LiteralPath $DryRunEvidence -Algorithm SHA256).Hash.ToLowerInvariant() -ne $evidenceSha256) {
+        throw "Deployment files changed during preflight."
     }
 
     Assert-ClockSynchronized
@@ -169,6 +293,9 @@ load_live_dry_run_evidence(config, settings.live_dry_run_evidence_path)
         Result = "passed"
         PlaceholderGate = "passed"
         OperationalConfig = "passed"
+        OperationalConfigSha256 = $configSha256
+        DryRunEvidenceSha256 = $evidenceSha256
+        ExactComposeMounts = "passed"
         ExactDryRunEvidence = "passed"
         BackendAndFrontendImages = "available"
         ComposeConfig = "passed"

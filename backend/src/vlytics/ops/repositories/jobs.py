@@ -211,6 +211,40 @@ class JobRepository:
             )
         return finished
 
+    def renew_lease(
+        self,
+        *,
+        job_id: UUID,
+        lease_owner: str,
+        now: datetime,
+        lease_duration: timedelta,
+    ) -> bool:
+        """Extend a live lease only while the caller still owns the running job."""
+
+        if lease_duration <= timedelta(0):
+            raise ValueError("lease_duration must be positive")
+        result = self._connection.execute(
+            text(
+                """
+                UPDATE ops.jobs
+                SET lease_until = :lease_until,
+                    updated_at = :now
+                WHERE id = :job_id
+                  AND state = 'running'
+                  AND lease_owner = :lease_owner
+                  AND lease_until > :now
+                  AND (deadline_at IS NULL OR deadline_at > :now)
+                """
+            ),
+            {
+                "job_id": job_id,
+                "lease_owner": lease_owner,
+                "now": now,
+                "lease_until": now + lease_duration,
+            },
+        )
+        return result.rowcount == 1
+
     def schedule_retry(
         self,
         *,

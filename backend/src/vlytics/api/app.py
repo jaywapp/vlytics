@@ -27,7 +27,7 @@ from vlytics.api.models import (
 from vlytics.api.repository import PostgresReadRepository, ReadRepository
 from vlytics.api.security import Authenticator, CursorCodec
 from vlytics.api.service import ReadService, TimezoneName
-from vlytics.config import Settings, load_operational_config
+from vlytics.config import Settings, load_operational_config, validate_api_auth_secrets
 from vlytics.storage.database import create_database_engine
 
 
@@ -90,6 +90,7 @@ def create_app(
 
     resolved_settings = settings or Settings()
     resolved_environ = environ if environ is not None else os.environ
+    validate_api_auth_secrets(resolved_environ)
     operational_config = load_operational_config(
         resolved_settings, environ=resolved_environ, component="api"
     )
@@ -145,7 +146,7 @@ def create_app(
         tags=["operator"],
         responses=_ERROR_RESPONSES,
     )
-    async def schedule(
+    def schedule(
         day: Annotated[date, Query(alias="date")],
         timezone: TimezoneName = "Asia/Seoul",
         division: Literal["men", "women"] | None = None,
@@ -180,7 +181,7 @@ def create_app(
             404: {"model": APIError, "description": "Match not found"},
         },
     )
-    async def match_detail(
+    def match_detail(
         match_id: Annotated[str, Path(min_length=1)],
         timezone: TimezoneName = "Asia/Seoul",
     ) -> MatchDetailResponse:
@@ -193,7 +194,7 @@ def create_app(
         tags=["operator"],
         responses=_ERROR_RESPONSES,
     )
-    async def prediction_history(
+    def prediction_history(
         division: Literal["men", "women"] | None = None,
         team: Annotated[str | None, Query(min_length=1)] = None,
         competition: Annotated[str | None, Query(min_length=1)] = None,
@@ -232,7 +233,7 @@ def create_app(
         tags=["operator"],
         responses=_ERROR_RESPONSES,
     )
-    async def performance(
+    def performance(
         division: Literal["men", "women"] | None = None,
         competition: Annotated[str | None, Query(min_length=1)] = None,
         provider: Annotated[str | None, Query(min_length=1)] = None,
@@ -280,7 +281,7 @@ def create_app(
         tags=["operator"],
         responses=_ERROR_RESPONSES,
     )
-    async def operations(
+    def operations(
         state: Literal[
             "queued",
             "running",
@@ -309,7 +310,7 @@ def create_app(
             409: {"model": APIError, "description": "Retry conflict"},
         },
     )
-    async def retry_job(
+    def retry_job(
         job_id: UUID,
         idempotency_key: Annotated[
             str, Header(alias="Idempotency-Key", min_length=1, max_length=200)
@@ -324,7 +325,7 @@ def create_app(
         tags=["operator"],
         responses=_ERROR_RESPONSES,
     )
-    async def coverage(
+    def coverage(
         data_kind: Annotated[str | None, Query(min_length=1)] = None,
         availability: Literal["available", "missing", "not_supported", "unverified"] | None = None,
     ) -> CoverageResponse:

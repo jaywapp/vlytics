@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ProbabilityChart } from "../../components/ProbabilityChart";
 import { ProviderComparison } from "../../components/ProviderComparison";
@@ -18,6 +18,7 @@ import type {
   MatchSummary,
   OperatorApiClient,
   ProviderOutcome,
+  RevisionMetadata,
   ScheduleResponse,
 } from "./types";
 
@@ -31,6 +32,36 @@ type MatchBriefingPageProps = {
   onSignOut?: () => void;
   initialDate?: string;
 };
+
+type SchedulePaginationState =
+  | { state: "idle" }
+  | { state: "loading" }
+  | { state: "error"; message: string; retryable: boolean; status: number | null };
+
+function mergeUnique(left: string[], right: string[]): string[] {
+  return [...new Set([...left, ...right])];
+}
+
+function mergeMetadata(left: RevisionMetadata, right: RevisionMetadata): RevisionMetadata {
+  const providers = new Set([...Object.keys(left.model_versions), ...Object.keys(right.model_versions)]);
+  return {
+    schema_version: left.schema_version,
+    source_snapshot_ids: mergeUnique(left.source_snapshot_ids, right.source_snapshot_ids),
+    schedule_revision_ids: mergeUnique(left.schedule_revision_ids, right.schedule_revision_ids),
+    prediction_revision_ids: mergeUnique(left.prediction_revision_ids, right.prediction_revision_ids),
+    evaluation_revision_ids: mergeUnique(left.evaluation_revision_ids, right.evaluation_revision_ids),
+    model_versions: Object.fromEntries(
+      [...providers].map((provider) => [
+        provider,
+        mergeUnique(left.model_versions[provider] ?? [], right.model_versions[provider] ?? []),
+      ]),
+    ),
+  };
+}
+
+function isStaleCursorError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "cursor_revision_stale";
+}
 
 const percent = new Intl.NumberFormat("ko-KR", {
   style: "percent",
@@ -89,12 +120,26 @@ function completeProviderRows(outcomes: ProviderOutcome[]): ProviderOutcome[] {
     return {
       provider: key,
       status: "missing" as const,
+      variant_id: null,
       requested_model: null,
       resolved_model_id: null,
       model_version: null,
       prompt_version: null,
       generated_at: null,
       prediction_revision_id: null,
+      attempt_id: null,
+      lifecycle_status: null,
+      schedule_revision_id: null,
+      feature_snapshot_id: null,
+      feature_version: null,
+      input_cutoff_at: null,
+      market: {
+        availability: "missing" as const,
+        source: null,
+        snapshot_id: null,
+        quoted_at: null,
+        reason: "provider_outcome_missing",
+      },
       output: null,
       error_code: null,
     };
@@ -156,6 +201,7 @@ function MatchAnalysis({
     outcomes.find((outcome) => outcome.provider === selectedProvider && outcome.status === "succeeded") ??
     preferredProvider(outcomes);
   const view = predictionView(active?.output ?? null);
+  const activeMarket = active?.market ?? match.market;
   const failedCount = outcomes.filter((outcome) => outcome.status !== "succeeded").length;
   const title =
     view.homeWinProbability === null
@@ -170,8 +216,8 @@ function MatchAnalysis({
           <StatusBadge tone={failedCount > 0 ? "warning" : "neutral"}>
             {failedCount > 0 ? `Provider ${failedCount}개 미완료` : "모든 Provider 완료"}
           </StatusBadge>
-          <StatusBadge tone={match.market.availability === "available" ? "neutral" : "warning"}>
-            Market {availabilityLabel(match.market.availability)}
+          <StatusBadge tone={activeMarket.availability === "available" ? "neutral" : "warning"}>
+            Market {availabilityLabel(activeMarket.availability)}
           </StatusBadge>
         </div>
         <h1>{title}</h1>
@@ -251,25 +297,25 @@ function MatchAnalysis({
       <section className="brief-section" aria-labelledby="market-title">
         <h2 id="market-title">Market 비교</h2>
         <div className="market-panel">
-          <StatusBadge tone={match.market.availability === "available" ? "neutral" : "warning"}>
-            {availabilityLabel(match.market.availability)}
+          <StatusBadge tone={activeMarket.availability === "available" ? "neutral" : "warning"}>
+            {availabilityLabel(activeMarket.availability)}
           </StatusBadge>
           <dl className="facts">
             <div>
               <dt>소스</dt>
-              <dd>{match.market.source ?? "기록 없음"}</dd>
+              <dd>{activeMarket.source ?? "기록 없음"}</dd>
             </div>
             <div>
               <dt>Quote 기준 시각</dt>
-              <dd className="numeric">{formatTimestamp(match.market.quoted_at, "Asia/Seoul")} KST</dd>
+              <dd className="numeric">{formatTimestamp(activeMarket.quoted_at, "Asia/Seoul")} KST</dd>
             </div>
             <div>
               <dt>Snapshot</dt>
-              <dd className="numeric">{match.market.snapshot_id ?? "기록 없음"}</dd>
+              <dd className="numeric">{activeMarket.snapshot_id ?? "기록 없음"}</dd>
             </div>
             <div>
               <dt>상태 근거</dt>
-              <dd>{match.market.reason ?? "별도 사유 없음"}</dd>
+              <dd>{activeMarket.reason ?? "별도 사유 없음"}</dd>
             </div>
           </dl>
           <p className="muted">
@@ -292,9 +338,14 @@ function MatchAnalysis({
             <p>{active ? providerStateLabel(active) : "예측 없음"}</p>
           </div>
           <div>
+            <b>입력 기준 시각</b>
+            <p className="numeric">{formatTimestamp(active?.input_cutoff_at ?? null, "Asia/Seoul")} KST</p>
+            <p>이 시각까지 고정된 입력만 사용</p>
+          </div>
+          <div>
             <b>Feature Snapshot</b>
-            <p className="numeric">{match.feature_snapshot_id ?? "생성 전"}</p>
-            <p>{match.feature_version ?? "버전 기록 없음"}</p>
+            <p className="numeric">{active?.feature_snapshot_id ?? match.feature_snapshot_id ?? "생성 전"}</p>
+            <p>{active?.feature_version ?? match.feature_version ?? "버전 기록 없음"}</p>
           </div>
         </div>
       </section>
@@ -311,17 +362,33 @@ function MatchAnalysis({
             <dd className="numeric">{active?.prediction_revision_id ?? "기록 없음"}</dd>
           </div>
           <div>
+            <dt>Provider Attempt</dt>
+            <dd className="numeric">{active?.attempt_id ?? "기록 없음"}</dd>
+          </div>
+          <div>
+            <dt>요청 모델</dt>
+            <dd className="numeric">{active?.requested_model ?? "기록 없음"}</dd>
+          </div>
+          <div>
+            <dt>Variant</dt>
+            <dd className="numeric">{active?.variant_id ?? "기록 없음"}</dd>
+          </div>
+          <div>
             <dt>실행 모델 / Prompt</dt>
             <dd className="numeric">
-              {active?.resolved_model_id ?? active?.requested_model ?? "기록 없음"} /{" "}
+              {active?.resolved_model_id ?? "실행 모델 미확인"} /{" "}
               {active?.prompt_version ?? "기록 없음"}
             </dd>
           </div>
           <div>
-            <dt>모델 버전</dt>
+            <dt>Variant 모델 버전</dt>
             <dd className="numeric">
               {active?.model_version ?? active?.output?.model_version ?? "기록 없음"}
             </dd>
+          </div>
+          <div>
+            <dt>Lifecycle</dt>
+            <dd>{active?.lifecycle_status ?? "기록 없음"}</dd>
           </div>
           <div>
             <dt>Source Snapshot</dt>
@@ -332,7 +399,7 @@ function MatchAnalysis({
           <div>
             <dt>Schedule Revision</dt>
             <dd className="numeric">
-              {response.metadata.schedule_revision_ids.join(", ") || "기록 없음"}
+              {active?.schedule_revision_id ?? (response.metadata.schedule_revision_ids.join(", ") || "기록 없음")}
             </dd>
           </div>
           <div>
@@ -353,9 +420,12 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
   const [selectedMatchId, setSelectedMatchId] = useState("");
   const [selectedProvider, setSelectedProvider] = useState("");
   const [schedule, setSchedule] = useState<LoadState<ScheduleResponse>>({ state: "loading" });
+  const [schedulePagination, setSchedulePagination] = useState<SchedulePaginationState>({ state: "idle" });
   const [detail, setDetail] = useState<LoadState<MatchDetailResponse>>({ state: "loading" });
+  const paginationController = useRef<AbortController | null>(null);
 
   useEffect(() => {
+    paginationController.current?.abort();
     const controller = new AbortController();
     client
       .getSchedule(
@@ -366,12 +436,20 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
         },
         controller.signal,
       )
-      .then((value) => setSchedule({ state: "ready", value }))
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        setSchedulePagination({ state: "idle" });
+        setSchedule({ state: "ready", value });
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
+        setSchedulePagination({ state: "idle" });
         setSchedule({ state: "error", ...errorDetails(error) });
       });
-    return () => controller.abort();
+    return () => {
+      controller.abort();
+      paginationController.current?.abort();
+    };
   }, [client, date, division, scheduleVersion]);
 
   const matches = schedule.state === "ready" ? schedule.value.data.items : [];
@@ -379,12 +457,72 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
     ? selectedMatchId
     : (matches[0]?.id ?? "");
 
+  async function loadMoreMatches() {
+    if (schedule.state !== "ready" || !schedule.value.data.next_cursor || schedulePagination.state === "loading") {
+      return;
+    }
+    const cursor = schedule.value.data.next_cursor;
+    paginationController.current?.abort();
+    const controller = new AbortController();
+    paginationController.current = controller;
+    setSchedulePagination({ state: "loading" });
+    try {
+      const next = await client.getSchedule(
+        {
+          date,
+          timezone: "Asia/Seoul",
+          division: division === "all" ? undefined : division,
+          cursor,
+        },
+        controller.signal,
+      );
+      if (controller.signal.aborted) return;
+      if (next.data.next_cursor === cursor) {
+        setSchedulePagination({
+          state: "error",
+          message: "서버가 같은 일정 커서를 다시 반환했습니다.",
+          retryable: false,
+          status: null,
+        });
+        return;
+      }
+      setSchedule((current) => {
+        if (current.state !== "ready" || current.value.data.next_cursor !== cursor) return current;
+        const items = new Map(current.value.data.items.map((match) => [match.id, match]));
+        next.data.items.forEach((match) => items.set(match.id, match));
+        return {
+          state: "ready",
+          value: {
+            metadata: mergeMetadata(current.value.metadata, next.metadata),
+            data: {
+              ...current.value.data,
+              items: [...items.values()],
+              next_cursor: next.data.next_cursor,
+            },
+          },
+        };
+      });
+      setSchedulePagination({ state: "idle" });
+    } catch (error: unknown) {
+      if (controller.signal.aborted) return;
+      if (isStaleCursorError(error)) {
+        setSchedule({ state: "loading" });
+        setScheduleVersion((version) => version + 1);
+        return;
+      }
+      setSchedulePagination({ state: "error", ...errorDetails(error) });
+    }
+  }
+
   useEffect(() => {
     if (!effectiveMatchId) return;
     const controller = new AbortController();
     client
       .getMatch(effectiveMatchId, controller.signal)
-      .then((value) => setDetail({ state: "ready", value }))
+      .then((value) => {
+        if (controller.signal.aborted) return;
+        setDetail({ state: "ready", value });
+      })
       .catch((error: unknown) => {
         if (controller.signal.aborted) return;
         setDetail({ state: "error", ...errorDetails(error) });
@@ -496,14 +634,42 @@ export function MatchBriefingPage({ client, onSignOut, initialDate }: MatchBrief
           />
         ) : (
           <div className="brief-layout">
-            <MatchRail
-              matches={matches}
-              selectedId={effectiveMatchId}
-              onSelect={(matchId) => {
-                setDetail({ state: "loading" });
-                setSelectedMatchId(matchId);
-              }}
-            />
+            <div>
+              <MatchRail
+                matches={matches}
+                selectedId={effectiveMatchId}
+                onSelect={(matchId) => {
+                  if (matchId === effectiveMatchId) return;
+                  setDetail({ state: "loading" });
+                  setSelectedMatchId(matchId);
+                }}
+              />
+              {schedule.value.data.next_cursor ? (
+                <button
+                  type="button"
+                  className="secondary-button schedule-pagination"
+                  disabled={schedulePagination.state === "loading"}
+                  onClick={() => void loadMoreMatches()}
+                >
+                  {schedulePagination.state === "loading" ? "다음 경기 불러오는 중" : "다음 경기 불러오기"}
+                </button>
+              ) : null}
+              {schedulePagination.state === "error" ? (
+                <div className="inline-state schedule-pagination-error" role="alert">
+                  <strong>다음 일정을 불러오지 못했습니다</strong>
+                  <p>{schedulePagination.message}</p>
+                  {isAuthenticationError(schedulePagination.status) && onSignOut ? (
+                    <button type="button" className="secondary-button" onClick={onSignOut}>
+                      인증 다시 입력
+                    </button>
+                  ) : schedulePagination.retryable ? (
+                    <button type="button" className="secondary-button" onClick={() => void loadMoreMatches()}>
+                      다시 시도
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
             {currentDetail.state === "loading" ? (
               <StatePanel
                 kind="loading"

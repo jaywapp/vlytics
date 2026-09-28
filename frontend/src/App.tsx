@@ -64,7 +64,7 @@ export function App() {
     return (
       <main className="auth-shell" id="main-content">
         <a className="brand" href="/">vlytics</a>
-        <StatePanel title="운영자 인증이 필요합니다" description="발급받은 운영자 토큰은 현재 브라우저 세션에만 보관됩니다. 번들이나 URL에는 저장하지 않습니다.">
+        <StatePanel headingLevel={1} title="운영자 인증이 필요합니다" description="발급받은 운영자 토큰은 현재 브라우저 세션에만 보관됩니다. 번들이나 URL에는 저장하지 않습니다.">
           <form className="auth-form" onSubmit={authenticate}>
             <label htmlFor="operator-token">운영자 토큰</label>
             <input id="operator-token" type="password" autoComplete="off" value={draftToken} onChange={(event) => setDraftToken(event.target.value)} required />
@@ -92,7 +92,7 @@ export function App() {
     <>
       <AppNavigation currentPath={pathname} onNavigate={navigate} onSignOut={signOut} />
       <main className="page-shell" id="main-content">
-        <StatePanel kind="empty" title="페이지를 찾을 수 없습니다" description="주요 메뉴에서 운영자 화면을 선택해 주세요." />
+        <StatePanel kind="empty" headingLevel={1} title="페이지를 찾을 수 없습니다" description="주요 메뉴에서 운영자 화면을 선택해 주세요." />
       </main>
     </>
   );

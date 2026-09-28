@@ -1495,6 +1495,8 @@
             "enum": [
               "available",
               "missing",
+              "stale",
+              "late",
               "not_supported",
               "unverified"
             ],
@@ -2318,6 +2320,36 @@
             "type": "string",
             "title": "Id"
           },
+          "record_type": {
+            "type": "string",
+            "enum": [
+              "prediction",
+              "attempt"
+            ],
+            "title": "Record Type"
+          },
+          "prediction_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prediction Revision Id"
+          },
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
           "match_id": {
             "type": "string",
             "title": "Match Id"
@@ -2338,6 +2370,10 @@
             "type": "string",
             "title": "Provider"
           },
+          "variant_id": {
+            "type": "string",
+            "title": "Variant Id"
+          },
           "prediction_type": {
             "type": "string",
             "title": "Prediction Type"
@@ -2347,7 +2383,14 @@
             "title": "Requested Model"
           },
           "resolved_model_id": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Resolved Model Id"
           },
           "model_version": {
@@ -2406,13 +2449,14 @@
         "type": "object",
         "required": [
           "id",
+          "record_type",
           "match_id",
           "competition",
           "division",
           "provider",
+          "variant_id",
           "prediction_type",
           "requested_model",
-          "resolved_model_id",
           "prompt_version",
           "feature_version",
           "schedule_revision_id",
@@ -2544,6 +2588,17 @@
             ],
             "title": "Status"
           },
+          "variant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Variant Id"
+          },
           "requested_model": {
             "anyOf": [
               {
@@ -2611,6 +2666,82 @@
             ],
             "title": "Prediction Revision Id"
           },
+          "attempt_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Id"
+          },
+          "lifecycle_status": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "published",
+                  "voided",
+                  "superseded",
+                  "late_rejected"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lifecycle Status"
+          },
+          "schedule_revision_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Schedule Revision Id"
+          },
+          "feature_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Snapshot Id"
+          },
+          "feature_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Feature Version"
+          },
+          "input_cutoff_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Input Cutoff At"
+          },
+          "market": {
+            "$ref": "#/components/schemas/MarketSummary"
+          },
           "output": {
             "anyOf": [
               {
@@ -2638,7 +2769,8 @@
         "type": "object",
         "required": [
           "provider",
-          "status"
+          "status",
+          "market"
         ],
         "title": "ProviderOutcome"
       },

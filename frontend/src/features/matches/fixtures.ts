@@ -43,12 +43,35 @@ function provider(
   return {
     provider: name,
     status,
+    variant_id: `variant-${name}`,
     requested_model: status === "succeeded" ? `${name}-synthetic` : null,
     resolved_model_id: status === "succeeded" ? `${name}-synthetic-2026-09` : null,
     model_version: status === "succeeded" ? "2026-09" : null,
     prompt_version: status === "succeeded" ? "prompt-v1" : null,
     generated_at: status === "succeeded" ? "2026-09-20T09:30:00Z" : null,
     prediction_revision_id: status === "succeeded" ? `prediction-${name}-1` : null,
+    attempt_id: status === "succeeded" ? null : `attempt-${name}-1`,
+    lifecycle_status: status === "succeeded" ? "published" : null,
+    schedule_revision_id: "schedule-match-1",
+    feature_snapshot_id: "feature-match-1",
+    feature_version: "feature-v2",
+    input_cutoff_at: "2026-09-20T09:00:00Z",
+    market:
+      status === "succeeded"
+        ? {
+            availability: "available",
+            source: "synthetic-contract",
+            snapshot_id: "market-match-1",
+            quoted_at: "2026-09-20T08:55:00Z",
+            reason: null,
+          }
+        : {
+            availability: "missing",
+            source: null,
+            snapshot_id: null,
+            quoted_at: null,
+            reason: "prediction_market_provenance_unavailable",
+          },
     output,
     error_code: status === "succeeded" ? null : "provider_timeout",
   };
@@ -63,25 +86,49 @@ const outcomes = [
     home_win_probability: 0.59,
   }),
   provider("anthropic", "timed_out", null),
-  provider("google", "succeeded", {
-    schema_version: "prediction-v1",
-    producer_variant_id: "gemini-independent-v1",
-    model_version: "gemini-synthetic-v1",
-    distribution_version: "winner-v1",
-    capabilities: ["winner"],
-    home_win_probability: 0.57,
-    rationale: "서버가 승패 대상만 저장한 합성 응답입니다.",
-    risk_factors: ["세트 스코어 대상은 지원하지 않습니다."],
-  }),
+  {
+    ...provider("google", "succeeded", {
+      schema_version: "prediction-v1",
+      producer_variant_id: "gemini-independent-v1",
+      model_version: "gemini-synthetic-v1",
+      distribution_version: "winner-v1",
+      capabilities: ["winner"],
+      home_win_probability: 0.57,
+      rationale: "서버가 승패 대상만 저장한 합성 응답입니다.",
+      risk_factors: ["세트 스코어 대상은 지원하지 않습니다."],
+    }),
+    market: {
+      availability: "late" as const,
+      source: "synthetic-contract",
+      snapshot_id: "market-google-late",
+      quoted_at: "2026-09-20T09:05:00Z",
+      reason: "received_after_input_cutoff",
+    },
+  },
 ];
 
 const secondOutcomes = [
-  provider("statistical", "succeeded", {
-    ...fullOutput,
-    home_win_probability: 0.48,
-    rationale: "긴 팀 이름에서도 서버 근거를 그대로 표시합니다.",
-  }),
-  provider("openai", "failed", null),
+  {
+    ...provider("statistical", "succeeded", {
+      ...fullOutput,
+      home_win_probability: 0.48,
+      rationale: "긴 팀 이름에서도 서버 근거를 그대로 표시합니다.",
+    }),
+    schedule_revision_id: "schedule-match-2",
+    feature_snapshot_id: "feature-match-2",
+    market: {
+      availability: "missing" as const,
+      source: null,
+      snapshot_id: null,
+      quoted_at: null,
+      reason: "prediction_market_provenance_unavailable",
+    },
+  },
+  {
+    ...provider("openai", "failed", null),
+    schedule_revision_id: "schedule-match-2",
+    feature_snapshot_id: "feature-match-2",
+  },
 ];
 
 function summary(
@@ -116,7 +163,7 @@ function summary(
           source: null,
           snapshot_id: null,
           quoted_at: null,
-          reason: "market_source_not_configured_or_no_eligible_quote",
+          reason: "prediction_market_provenance_unavailable",
         },
     provider_outcomes: providerOutcomes,
   };

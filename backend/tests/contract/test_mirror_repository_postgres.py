@@ -512,3 +512,69 @@ def test_postgres_checkpoint_compare_and_swap_rejects_stale_writer(
                 ),
                 expected_generation=stale.generation,
             )
+
+
+def test_result_stability_promotes_final_and_only_score_changes_correct(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    engine = _engine(postgres_role_urls.collector)
+    source = f"kovo-finality-{uuid4().hex}"
+    group_code = f"synthetic-{uuid4().hex}"
+    assignments = _assignments()
+    _seed_franchises(engine, assignments)
+    service = MirrorIngestionService(
+        RawSnapshotRepository(engine),
+        MirrorFactRepository(engine, result_stability=timedelta(minutes=30)),
+        _parser(source, group_code, assignments),
+    )
+    payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    first_response = _response(payload, source, group_code)
+
+    service.ingest(first_response)
+    stable_response = replace(
+        first_response,
+        requested_at=first_response.requested_at + timedelta(minutes=31),
+        received_at=first_response.received_at + timedelta(minutes=31),
+    )
+    service.ingest(stable_response)
+
+    semantically_same = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    semantically_same["syntheticIgnoredField"] = "different raw bytes"
+    same_response = _response(semantically_same, source, group_code)
+    same_response = replace(
+        same_response,
+        requested_at=stable_response.requested_at + timedelta(minutes=1),
+        received_at=stable_response.received_at + timedelta(minutes=1),
+    )
+    service.ingest(same_response)
+
+    corrected_payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
+    corrected_payload["payload"]["game"]["as1point"] = 21
+    corrected_payload["payload"]["game"]["aspoint"] = 61
+    corrected_response = _response(corrected_payload, source, group_code)
+    corrected_response = replace(
+        corrected_response,
+        requested_at=same_response.requested_at + timedelta(minutes=1),
+        received_at=same_response.received_at + timedelta(minutes=1),
+    )
+    service.ingest(corrected_response)
+
+    with engine.connect() as connection:
+        revisions = connection.execute(
+            text(
+                """
+                SELECT rr.finality, rr.home_points, rr.away_points
+                FROM mirror.result_revisions rr
+                JOIN mirror.matches m ON m.id=rr.match_id
+                WHERE m.source=:source AND m.source_group_code=:group_code
+                ORDER BY rr.revision
+                """
+            ),
+            {"source": source, "group_code": group_code},
+        ).all()
+
+    assert [tuple(row) for row in revisions] == [
+        ("provisional", 75, 60),
+        ("final", 75, 60),
+        ("corrected", 75, 61),
+    ]

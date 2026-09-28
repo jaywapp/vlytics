@@ -1,0 +1,782 @@
+{
+  "schema_version": "api-read-benchmark-v1",
+  "created_at_utc": "2026-09-27T02:52:28.454102+00:00",
+  "fixture": {
+    "seasons": 22,
+    "matches_per_season": 250,
+    "providers": [
+      "openai",
+      "anthropic",
+      "gemini"
+    ],
+    "counts": {
+      "matches": 5500,
+      "predictions": 16500,
+      "prediction_events": 16500,
+      "prediction_projections": 16500,
+      "evaluations": 16500,
+      "operations": 5500,
+      "coverage": 5500,
+      "budgets": 5500
+    },
+    "seed_and_analyze_duration_ms": 5274.588,
+    "analyzed": true
+  },
+  "code_sha256": {
+    "benchmark_api_reads.py": "8f187be83723d4db12c6c96667ea95ebd8d19ffa5f877e747e0d5044c2d39cef",
+    "repository.py": "de268ff09fb6a704f8e7d19a0fc7e1e9050908fb0deb6c8f85a6ca6c66062630"
+  },
+  "environment": {
+    "python": "3.12.10",
+    "postgresql": "17.11",
+    "sqlalchemy": "2.0.43",
+    "psycopg": "3.2.10"
+  },
+  "method": {
+    "source_hash_format": "UTF-8 source normalized to LF newlines",
+    "cold_client": "first call after SQLAlchemy engine.dispose; PostgreSQL shared buffers are not cleared",
+    "warm_samples": 20,
+    "p95": "nearest-rank ceil(0.95 * n)",
+    "memory": "Python tracemalloc incremental peak; excludes PostgreSQL, driver native buffers, and process RSS"
+  },
+  "measurements": {
+    "repository": {
+      "schedule": {
+        "cold_client": {
+          "duration_ms": 114.697,
+          "sql_statements": 3,
+          "rows": {
+            "matches": 1,
+            "predictions": 3,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 28.045,
+            "p50": 29.872,
+            "p95_nearest_rank": 35.166,
+            "max": 43.749
+          },
+          "sql_statements": [
+            3
+          ],
+          "rows": {
+            "matches": 1,
+            "predictions": 3,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.044,
+          "rows": {
+            "matches": 1,
+            "predictions": 3,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        }
+      },
+      "match": {
+        "cold_client": {
+          "duration_ms": 98.043,
+          "sql_statements": 4,
+          "rows": {
+            "matches": 1,
+            "predictions": 3,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 1,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 28.675,
+            "p50": 30.748,
+            "p95_nearest_rank": 35.49,
+            "max": 45.053
+          },
+          "sql_statements": [
+            4
+          ],
+          "rows": {
+            "matches": 1,
+            "predictions": 3,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 1,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.044,
+          "rows": {
+            "matches": 1,
+            "predictions": 3,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 1,
+            "budgets": 0,
+            "has_more": false
+          }
+        }
+      },
+      "predictions": {
+        "cold_client": {
+          "duration_ms": 174.74,
+          "sql_statements": 4,
+          "rows": {
+            "matches": 25,
+            "predictions": 25,
+            "evaluations": 25,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": true
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 92.939,
+            "p50": 110.237,
+            "p95_nearest_rank": 131.629,
+            "max": 131.653
+          },
+          "sql_statements": [
+            4
+          ],
+          "rows": {
+            "matches": 25,
+            "predictions": 25,
+            "evaluations": 25,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": true
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.255,
+          "rows": {
+            "matches": 25,
+            "predictions": 25,
+            "evaluations": 25,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": true
+          }
+        }
+      },
+      "performance": {
+        "cold_client": {
+          "duration_ms": 548.367,
+          "sql_statements": 3,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 16500,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 451.412,
+            "p50": 506.587,
+            "p95_nearest_rank": 616.961,
+            "max": 617.884
+          },
+          "sql_statements": [
+            3
+          ],
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 16500,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 64.206,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 16500,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        }
+      },
+      "performance_recent_season": {
+        "cold_client": {
+          "duration_ms": 139.289,
+          "sql_statements": 3,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 750,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 44.596,
+            "p50": 58.2,
+            "p95_nearest_rank": 70.898,
+            "max": 71.999
+          },
+          "sql_statements": [
+            3
+          ],
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 750,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 2.979,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 750,
+            "operations": 0,
+            "coverage": 0,
+            "budgets": 0,
+            "has_more": false
+          }
+        }
+      },
+      "operations": {
+        "cold_client": {
+          "duration_ms": 52.348,
+          "sql_statements": 3,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 0,
+            "operations": 25,
+            "coverage": 0,
+            "budgets": 6,
+            "has_more": true
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 12.076,
+            "p50": 12.571,
+            "p95_nearest_rank": 13.879,
+            "max": 19.901
+          },
+          "sql_statements": [
+            3
+          ],
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 0,
+            "operations": 25,
+            "coverage": 0,
+            "budgets": 6,
+            "has_more": true
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.038,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 0,
+            "operations": 25,
+            "coverage": 0,
+            "budgets": 6,
+            "has_more": true
+          }
+        }
+      },
+      "coverage": {
+        "cold_client": {
+          "duration_ms": 68.97,
+          "sql_statements": 2,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 5500,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 32.203,
+            "p50": 33.849,
+            "p95_nearest_rank": 39.416,
+            "max": 40.177
+          },
+          "sql_statements": [
+            2
+          ],
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 5500,
+            "budgets": 0,
+            "has_more": false
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 4.952,
+          "rows": {
+            "matches": 0,
+            "predictions": 0,
+            "evaluations": 0,
+            "operations": 0,
+            "coverage": 5500,
+            "budgets": 0,
+            "has_more": false
+          }
+        }
+      },
+      "legacy_full_load": {
+        "cold_client": {
+          "duration_ms": 1023.589,
+          "sql_statements": 7,
+          "rows": {
+            "matches": 5500,
+            "predictions": 16500,
+            "evaluations": 16500,
+            "operations": 5500,
+            "coverage": 5500,
+            "budgets": 6,
+            "has_more": false
+          }
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 907.821,
+            "p50": 1060.461,
+            "p95_nearest_rank": 1175.834,
+            "max": 1196.212
+          },
+          "sql_statements": [
+            7
+          ],
+          "rows": {
+            "matches": 5500,
+            "predictions": 16500,
+            "evaluations": 16500,
+            "operations": 5500,
+            "coverage": 5500,
+            "budgets": 6,
+            "has_more": false
+          }
+        },
+        "memory_pass": {
+          "client_peak_mib": 126.457,
+          "rows": {
+            "matches": 5500,
+            "predictions": 16500,
+            "evaluations": 16500,
+            "operations": 5500,
+            "coverage": 5500,
+            "budgets": 6,
+            "has_more": false
+          }
+        }
+      }
+    },
+    "testclient": {
+      "schedule": {
+        "cold_client": {
+          "duration_ms": 101.799,
+          "sql_statements": 3,
+          "response": {
+            "status_code": 200,
+            "items": 1,
+            "has_more": false,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 3715
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 30.832,
+            "p50": 32.302,
+            "p95_nearest_rank": 45.382,
+            "max": 46.146
+          },
+          "sql_statements": [
+            3
+          ],
+          "response": {
+            "status_code": 200,
+            "items": 1,
+            "has_more": false,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": [
+            3715
+          ]
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.079,
+          "response": {
+            "status_code": 200,
+            "items": 1,
+            "has_more": false,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 3715
+        }
+      },
+      "history_first_page": {
+        "cold_client": {
+          "duration_ms": 210.146,
+          "sql_statements": 4,
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 25376
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 89.234,
+            "p50": 107.995,
+            "p95_nearest_rank": 135.202,
+            "max": 143.448
+          },
+          "sql_statements": [
+            4
+          ],
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": [
+            25376
+          ]
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.353,
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 25376
+        }
+      },
+      "history_second_page": {
+        "cold_client": {
+          "duration_ms": 183.011,
+          "sql_statements": 4,
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 25376
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 92.487,
+            "p50": 105.791,
+            "p95_nearest_rank": 114.505,
+            "max": 117.071
+          },
+          "sql_statements": [
+            4
+          ],
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": [
+            25376
+          ]
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.351,
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 25376
+        }
+      },
+      "performance_full_cohort": {
+        "cold_client": {
+          "duration_ms": 1547.368,
+          "sql_statements": 3,
+          "response": {
+            "status_code": 200,
+            "items": 12,
+            "has_more": false,
+            "sample_size_sum": 16500,
+            "evaluation_revision_sum": 16500,
+            "calibration_sample_sum": 16500
+          },
+          "response_bytes": 2811726
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 1461.239,
+            "p50": 1576.095,
+            "p95_nearest_rank": 1778.011,
+            "max": 1782.852
+          },
+          "sql_statements": [
+            3
+          ],
+          "response": {
+            "status_code": 200,
+            "items": 12,
+            "has_more": false,
+            "sample_size_sum": 16500,
+            "evaluation_revision_sum": 16500,
+            "calibration_sample_sum": 16500
+          },
+          "response_bytes": [
+            2811726
+          ]
+        },
+        "memory_pass": {
+          "client_peak_mib": 67.354,
+          "response": {
+            "status_code": 200,
+            "items": 12,
+            "has_more": false,
+            "sample_size_sum": 16500,
+            "evaluation_revision_sum": 16500,
+            "calibration_sample_sum": 16500
+          },
+          "response_bytes": 2811726
+        }
+      },
+      "performance_recent_season": {
+        "cold_client": {
+          "duration_ms": 179.888,
+          "sql_statements": 3,
+          "response": {
+            "status_code": 200,
+            "items": 6,
+            "has_more": false,
+            "sample_size_sum": 750,
+            "evaluation_revision_sum": 750,
+            "calibration_sample_sum": 750
+          },
+          "response_bytes": 138558
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 84.656,
+            "p50": 106.066,
+            "p95_nearest_rank": 113.028,
+            "max": 113.741
+          },
+          "sql_statements": [
+            3
+          ],
+          "response": {
+            "status_code": 200,
+            "items": 6,
+            "has_more": false,
+            "sample_size_sum": 750,
+            "evaluation_revision_sum": 750,
+            "calibration_sample_sum": 750
+          },
+          "response_bytes": [
+            138558
+          ]
+        },
+        "memory_pass": {
+          "client_peak_mib": 3.29,
+          "response": {
+            "status_code": 200,
+            "items": 6,
+            "has_more": false,
+            "sample_size_sum": 750,
+            "evaluation_revision_sum": 750,
+            "calibration_sample_sum": 750
+          },
+          "response_bytes": 138558
+        }
+      },
+      "operations": {
+        "cold_client": {
+          "duration_ms": 59.306,
+          "sql_statements": 3,
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 7682
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 14.077,
+            "p50": 15.956,
+            "p95_nearest_rank": 17.617,
+            "max": 18.636
+          },
+          "sql_statements": [
+            3
+          ],
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": [
+            7682
+          ]
+        },
+        "memory_pass": {
+          "client_peak_mib": 0.101,
+          "response": {
+            "status_code": 200,
+            "items": 25,
+            "has_more": true,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 7682
+        }
+      },
+      "coverage": {
+        "cold_client": {
+          "duration_ms": 103.986,
+          "sql_statements": 2,
+          "response": {
+            "status_code": 200,
+            "items": 1,
+            "has_more": false,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 391
+        },
+        "warm": {
+          "samples": 20,
+          "duration_ms": {
+            "min": 45.03,
+            "p50": 47.872,
+            "p95_nearest_rank": 53.723,
+            "max": 53.924
+          },
+          "sql_statements": [
+            2
+          ],
+          "response": {
+            "status_code": 200,
+            "items": 1,
+            "has_more": false,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": [
+            391
+          ]
+        },
+        "memory_pass": {
+          "client_peak_mib": 5.807,
+          "response": {
+            "status_code": 200,
+            "items": 1,
+            "has_more": false,
+            "sample_size_sum": 0,
+            "evaluation_revision_sum": 0,
+            "calibration_sample_sum": 0
+          },
+          "response_bytes": 391
+        }
+      }
+    }
+  }
+}

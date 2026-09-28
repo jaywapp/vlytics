@@ -291,13 +291,13 @@ class PredictionMarketInput:
     prediction_id: str
     match_id: str
     input_cutoff_at: datetime
-    joint_score_distribution_id: str
+    joint_score_distribution_id: str | None
     producer_variant_id: str
     input_snapshot_id: str
-    home_win_probability: float
-    set_score_probabilities: Mapping[str, float]
-    point_totals: Mapping[int, float]
-    point_differentials: Mapping[int, float]
+    home_win_probability: float | None
+    set_score_probabilities: Mapping[str, float] | None
+    point_totals: Mapping[int, float] | None
+    point_differentials: Mapping[int, float] | None
 
     def __init__(self) -> None:
         raise TypeError("PredictionMarketInput must be created by a verified factory")
@@ -383,6 +383,81 @@ class PredictionMarketInput:
             producer_variant_id=producer_variant_id,
             input_snapshot_id=input_snapshot_id,
         )
+
+    @classmethod
+    def from_persisted_marginals(
+        cls,
+        *,
+        prediction_id: str,
+        match_id: str,
+        input_cutoff_at: datetime,
+        joint_score_distribution_id: str | None,
+        producer_variant_id: str,
+        input_snapshot_id: str,
+        home_win_probability: float | None,
+        set_score_probabilities: Mapping[str, float] | None,
+        point_totals: Mapping[int, float] | None,
+        point_differentials: Mapping[int, float] | None,
+    ) -> PredictionMarketInput:
+        """Build a view after persistence hashes and ownership have been verified."""
+
+        identities = (prediction_id, match_id, producer_variant_id, input_snapshot_id)
+        if not all(value.strip() for value in identities):
+            raise MarketContractError("prediction Market input identity must not be blank")
+        _require_aware(input_cutoff_at, "input_cutoff_at")
+        if home_win_probability is not None:
+            _probability(home_win_probability, "home_win_probability")
+        if set_score_probabilities is not None:
+            _probability_distribution(set_score_probabilities, "set_score_probabilities")
+        if point_totals is not None:
+            _probability_distribution(point_totals, "point_totals")
+        if point_differentials is not None:
+            _probability_distribution(point_differentials, "point_differentials")
+        if joint_score_distribution_id is None:
+            if point_totals is not None or point_differentials is not None:
+                raise MarketContractError(
+                    "point marginals require a persisted joint score distribution"
+                )
+            stored_distribution_id = None
+        else:
+            _require_sha256(joint_score_distribution_id)
+            if point_totals is None or point_differentials is None:
+                raise MarketContractError(
+                    "joint score distribution must provide both point marginals"
+                )
+            stored_distribution_id = joint_score_distribution_id
+        instance = object.__new__(cls)
+        object.__setattr__(instance, "prediction_id", prediction_id)
+        object.__setattr__(instance, "match_id", match_id)
+        object.__setattr__(instance, "input_cutoff_at", input_cutoff_at)
+        object.__setattr__(instance, "joint_score_distribution_id", stored_distribution_id)
+        object.__setattr__(instance, "producer_variant_id", producer_variant_id)
+        object.__setattr__(instance, "input_snapshot_id", input_snapshot_id)
+        object.__setattr__(instance, "home_win_probability", home_win_probability)
+        object.__setattr__(
+            instance,
+            "set_score_probabilities",
+            (
+                MappingProxyType(dict(set_score_probabilities))
+                if set_score_probabilities is not None
+                else None
+            ),
+        )
+        object.__setattr__(
+            instance,
+            "point_totals",
+            MappingProxyType(dict(point_totals)) if point_totals is not None else None,
+        )
+        object.__setattr__(
+            instance,
+            "point_differentials",
+            (
+                MappingProxyType(dict(point_differentials))
+                if point_differentials is not None
+                else None
+            ),
+        )
+        return instance
 
 
 @dataclass(frozen=True)
@@ -576,7 +651,7 @@ def _probability(value: float, name: str) -> None:
         raise MarketContractError(f"{name} must be finite and between zero and one")
 
 
-def _probability_distribution(values: Mapping[object, float], name: str) -> None:
+def _probability_distribution(values: Mapping[Any, float], name: str) -> None:
     if not values:
         raise MarketContractError(f"{name} must not be empty")
     for value in values.values():

@@ -108,6 +108,7 @@ bulk_collection_enabled = false
 permission_policy = "__REQUIRED_BY_OP_001__"
 max_requests_per_minute = 0
 max_concurrency = 0
+scopes = []
 
 [activation]
 dry_run_evidence_max_age_hours = 24

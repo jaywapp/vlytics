@@ -20,6 +20,7 @@ from vlytics.mirror.backfill import (
     RetryBudgetExceeded,
     RetryPolicy,
     SourcePage,
+    SourceRequestFailed,
     SyntheticSourceAdapter,
 )
 from vlytics.mirror.models import (
@@ -144,6 +145,23 @@ def test_retry_after_and_rate_limit_are_honored_before_checkpoint() -> None:
     assert result.checkpoint.completed
 
 
+def test_429_retry_exhaustion_is_reported_as_source_request_failure() -> None:
+    adapter = SyntheticSourceAdapter(
+        {
+            None: (
+                SourcePage((_response("001", status=429),), None),
+                SourcePage((_response("001", status=429),), None),
+                SourcePage((_response("001", status=429),), None),
+            )
+        }
+    )
+
+    with pytest.raises(SourceRequestFailed, match="failed after 3 attempts"):
+        _runner(adapter, _Sink(), InMemoryCheckpointStore(), _Clock()).run(SCOPE)
+
+    assert len(adapter.calls) == 3
+
+
 def test_real_adapter_is_fail_closed_while_op_001_is_unresolved() -> None:
     adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
     adapter.synthetic = False
@@ -161,8 +179,9 @@ def test_backdated_observation_is_rejected() -> None:
             page_size: int,
             *,
             requested_at: datetime,
+            timeout_seconds: float | None = None,
         ) -> SourcePage:
-            del scope, cursor, page_size
+            del scope, cursor, page_size, timeout_seconds
             return SourcePage(
                 (replace(_response("001"), received_at=requested_at - timedelta(seconds=1)),),
                 None,
@@ -217,6 +236,40 @@ def test_retry_after_above_policy_stops_without_sleeping() -> None:
         _runner(adapter, _Sink(), InMemoryCheckpointStore(), clock).run(SCOPE)
 
     assert clock.seconds == 0
+
+
+def test_rate_limit_wait_rechecks_deadline_before_request() -> None:
+    adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
+    clock = _Clock()
+    limiter = RequestRateLimiter(60, monotonic=clock.monotonic, sleep=clock.sleep)
+    limiter.wait()
+    runner = BackfillRunner(
+        adapter=adapter,
+        ingestion=_Sink(),
+        checkpoints=InMemoryCheckpointStore(),
+        gate=CollectionGate(False, "__REQUIRED_BY_OP_001__", 0, 0),
+        rate_limiter=limiter,
+        scope_lease=InMemoryScopeLease(),
+        now=clock.now,
+        sleep=clock.sleep,
+    )
+
+    with pytest.raises(RetryBudgetExceeded, match="rate-limit wait"):
+        runner.run(SCOPE, deadline_at=NOW + timedelta(milliseconds=500))
+
+    assert adapter.calls == []
+
+
+def test_request_timeout_is_clamped_to_remaining_deadline() -> None:
+    adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
+
+    result = _runner(adapter, _Sink(), InMemoryCheckpointStore(), _Clock()).run(
+        SCOPE,
+        deadline_at=NOW + timedelta(seconds=5),
+    )
+
+    assert result.checkpoint.completed
+    assert adapter.request_timeouts == [5.0]
 
 
 def test_timeout_uses_bounded_deterministic_jitter() -> None:
@@ -277,3 +330,79 @@ def test_live_limits_cannot_exceed_approval_or_use_process_only_lease() -> None:
             scope_lease=InMemoryScopeLease(),
             requested_concurrency=2,
         )
+
+
+def test_recurring_sync_consumes_complete_cursor_chain() -> None:
+    adapter = SyntheticSourceAdapter(
+        {
+            None: SourcePage((_response("001"),), "page-2"),
+            "page-2": SourcePage((_response("002"), _response("003")), None),
+        }
+    )
+    sink = _Sink()
+
+    accepted = _runner(adapter, sink, InMemoryCheckpointStore(), _Clock()).sync_once(SCOPE)
+
+    assert accepted == 3
+    assert sink.codes == ["001", "002", "003"]
+    assert [call[0] for call in adapter.calls] == [None, "page-2"]
+
+
+def test_recurring_sync_rejects_a_repeated_cursor() -> None:
+    adapter = SyntheticSourceAdapter(
+        {None: SourcePage((_response("001"),), "page-2"), "page-2": SourcePage((), "page-2")}
+    )
+
+    with pytest.raises(SourceRequestFailed, match="cursor repeated"):
+        _runner(adapter, _Sink(), InMemoryCheckpointStore(), _Clock()).sync_once(SCOPE)
+
+
+def test_global_source_lease_blocks_a_different_scope() -> None:
+    other_scope = BackfillScope("kovo", "001", "024", "201")
+    lease = InMemoryScopeLease(lease_key="source:kovo:global")
+
+    slot = lease.acquire(SCOPE, 1)
+
+    assert slot == 0
+    assert lease.acquire(other_scope, 1) is None
+    lease.release(SCOPE, slot)
+    assert lease.acquire(other_scope, 1) == 0
+
+
+def test_recurring_sync_holds_lease_through_final_rate_interval() -> None:
+    adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
+    clock = _Clock()
+
+    _runner(adapter, _Sink(), InMemoryCheckpointStore(), clock).sync_once(SCOPE)
+
+    assert clock.seconds == 1
+
+
+def test_restarted_worker_waits_before_first_request_after_forced_lease_release() -> None:
+    other_scope = BackfillScope("kovo", "001", "024", "201")
+    clock = _Clock()
+    lease = InMemoryScopeLease(lease_key="source:kovo:global")
+    crashed_slot = lease.acquire(SCOPE, 1)
+    assert crashed_slot == 0
+
+    crashed_limiter = RequestRateLimiter(60, monotonic=clock.monotonic, sleep=clock.sleep)
+    crashed_limiter.wait()
+    lease.release(SCOPE, crashed_slot)
+
+    adapter = SyntheticSourceAdapter({None: SourcePage((_response("001"),), None)})
+    restarted_runner = BackfillRunner(
+        adapter=adapter,
+        ingestion=_Sink(),
+        checkpoints=InMemoryCheckpointStore(),
+        gate=CollectionGate(False, "__REQUIRED_BY_OP_001__", 0, 0),
+        rate_limiter=RequestRateLimiter(60, monotonic=clock.monotonic, sleep=clock.sleep),
+        scope_lease=lease,
+        wait_after_global_lease=True,
+        now=clock.now,
+        sleep=clock.sleep,
+    )
+
+    restarted_runner.sync_once(other_scope)
+
+    assert adapter.calls[0][2] == NOW + timedelta(seconds=1)
+    assert clock.seconds == 2

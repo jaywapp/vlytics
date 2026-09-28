@@ -15,6 +15,7 @@ $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."
 $frontendDockerfile = Join-Path $repositoryRoot "frontend\Dockerfile"
 $frontendProxyConfig = Join-Path $repositoryRoot "frontend\nginx.production.conf"
 $frontendDockerIgnore = Join-Path $repositoryRoot "frontend\.dockerignore"
+$operatorIngressConfig = Join-Path $PSScriptRoot "..\nginx.operator-ingress.conf"
 
 function Assert-Contains {
     param([string]$Content, [string]$Pattern, [string]$Message)
@@ -30,7 +31,7 @@ function Get-ServiceBlock {
 
 $requiredFiles = @(
     $ComposeFile, $EnvironmentExample, $OperationalConfig,
-    $frontendDockerfile, $frontendProxyConfig, $frontendDockerIgnore,
+    $frontendDockerfile, $frontendProxyConfig, $frontendDockerIgnore, $operatorIngressConfig,
     (Join-Path $PSScriptRoot "Backup-Database.ps1"),
     (Join-Path $PSScriptRoot "Invoke-RestoreDrill.ps1"),
     (Join-Path $PSScriptRoot "Invoke-Preflight.ps1"),
@@ -58,34 +59,47 @@ if ($compose -match '(?m)^\s+-\s+"?0\.0\.0\.0:') { throw "A service port is expo
 
 $postgresBlock = Get-ServiceBlock $compose "postgres" "migrate"
 $apiBlock = Get-ServiceBlock $compose "api" "worker"
-$frontendBlock = Get-ServiceBlock $compose "frontend" "__never__"
-if ($postgresBlock -match '(?m)^\s+ports:' -or $apiBlock -match '(?m)^\s+ports:') {
-    throw "PostgreSQL and API must not publish host ports in production."
+$workerBlock = Get-ServiceBlock $compose "worker" "frontend"
+$frontendBlock = Get-ServiceBlock $compose "frontend" "operator_ingress"
+$ingressBlock = Get-ServiceBlock $compose "operator_ingress" "__never__"
+if ($postgresBlock -match '(?m)^\s+ports:' -or $apiBlock -match '(?m)^\s+ports:' -or
+    $workerBlock -match '(?m)^\s+ports:' -or $frontendBlock -match '(?m)^\s+ports:') {
+    throw "Only operator ingress may publish a production host port."
 }
 Assert-Contains $frontendBlock 'image:\s+\$\{VLYTICS_FRONTEND_IMAGE:' "Frontend image contract is missing."
-Assert-Contains $frontendBlock '127\.0\.0\.1:\$\{WEB_PORT:-8080\}:8080' "Frontend is not bound to loopback."
+Assert-Contains $frontendBlock 'networks:\s*\r?\n\s+- private\s*\r?\n' "Frontend must remain on the private network."
 Assert-Contains $frontendBlock 'condition:\s+service_healthy' "Frontend must wait for API health."
 Assert-Contains $frontendBlock '/healthz' "Frontend healthcheck is missing."
+Assert-Contains $ingressBlock 'nginx\.operator-ingress\.conf:/etc/nginx/conf\.d/default\.conf:ro' "Operator ingress config mount is missing."
+Assert-Contains $ingressBlock 'networks:\s*\r?\n\s+- private\s*\r?\n\s+- operator_access' "Operator ingress must bridge private and access networks."
+if (($compose | Select-String -Pattern '(?m)^\s+- operator_access\s*$' -AllMatches).Matches.Count -ne 1) {
+    throw "Only operator ingress may join the access network."
+}
+Assert-Contains $ingressBlock '127\.0\.0\.1:\$\{WEB_PORT:-8080\}:8080' "Operator ingress is not bound to loopback."
+Assert-Contains $ingressBlock 'frontend:\s*\r?\n\s+condition:\s+service_healthy' "Operator ingress must wait for frontend health."
+Assert-Contains $compose 'operator_access:\s*\r?\n\s+driver:\s+bridge' "Operator access network is missing."
 if (($compose | Select-String -Pattern 'image: \$\{VLYTICS_BACKEND_IMAGE:' -AllMatches).Matches.Count -ne 1) {
     throw "Backend services must inherit exactly one shared immutable image reference."
 }
 
 $dockerfile = Get-Content -LiteralPath $frontendDockerfile -Raw -Encoding UTF8
-Assert-Contains $dockerfile '(?m)^ARG NODE_IMAGE$' "Frontend Node build image must be an explicit build argument."
-Assert-Contains $dockerfile '(?m)^ARG NGINX_IMAGE$' "Frontend Nginx runtime image must be an explicit build argument."
+Assert-Contains $dockerfile '(?m)^ARG NODE_IMAGE\r?$' "Frontend Node build image must be an explicit build argument."
+Assert-Contains $dockerfile '(?m)^ARG NGINX_IMAGE\r?$' "Frontend Nginx runtime image must be an explicit build argument."
 Assert-Contains $dockerfile 'FROM \$\{NODE_IMAGE\} AS build' "Frontend build stage is not pinned through NODE_IMAGE."
 Assert-Contains $dockerfile 'FROM \$\{NGINX_IMAGE\} AS runtime' "Frontend runtime stage is not pinned through NGINX_IMAGE."
-Assert-Contains $dockerfile '(?m)^RUN npm ci$' "Frontend build must use npm ci."
-Assert-Contains $dockerfile '(?m)^USER 101:101$' "Frontend runtime must be non-root."
+Assert-Contains $dockerfile '(?m)^RUN npm ci\r?$' "Frontend build must use npm ci."
+Assert-Contains $dockerfile '(?m)^USER 101:101\r?$' "Frontend runtime must be non-root."
 if ($dockerfile -match '(?i)(SECRET|TOKEN|API_KEY|\.env)') { throw "Frontend Dockerfile must not copy or define secret material." }
 
 $proxy = Get-Content -LiteralPath $frontendProxyConfig -Raw -Encoding UTF8
+$ingressProxy = Get-Content -LiteralPath $operatorIngressConfig -Raw -Encoding UTF8
+Assert-Contains $ingressProxy 'proxy_pass http://frontend:8080;' "Operator ingress must target internal frontend."
 Assert-Contains $proxy 'location /api/' "Same-origin API proxy is missing."
 Assert-Contains $proxy 'proxy_pass http://api:8000;' "API proxy does not target the internal API service."
 Assert-Contains $proxy 'try_files \$uri \$uri/ /index\.html;' "SPA history fallback is missing."
 Assert-Contains $proxy 'listen 8080;' "Unprivileged frontend listen port is missing."
 $dockerIgnore = Get-Content -LiteralPath $frontendDockerIgnore -Raw -Encoding UTF8
-Assert-Contains $dockerIgnore '(?m)^\.env\.\*$' "Frontend Docker context must exclude environment files."
+Assert-Contains $dockerIgnore '(?m)^\.env\.\*\r?$' "Frontend Docker context must exclude environment files."
 
 $environmentText = Get-Content -LiteralPath $EnvironmentExample -Raw -Encoding UTF8
 if ($environmentText -match '(?i)(sk-[a-z0-9]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY-----|postgres(?:ql)?://[^_\r\n]*:[^_\r\n]*@)') {
@@ -93,6 +107,7 @@ if ($environmentText -match '(?i)(sk-[a-z0-9]{12,}|-----BEGIN [A-Z ]*PRIVATE KEY
 }
 $requiredPlaceholderKeys = @(
     "VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE",
+    "VLYTICS_PYTHON_BUILD_IMAGE", "VLYTICS_UV_BUILD_IMAGE", "VLYTICS_POSTGRES_IMAGE",
     "MIGRATOR_DATABASE_PASSWORD", "COLLECTOR_DATABASE_PASSWORD", "ENGINE_DATABASE_PASSWORD",
     "MARKET_INGEST_DATABASE_PASSWORD", "READ_API_DATABASE_PASSWORD", "MIGRATOR_DATABASE_URL",
     "ENGINE_DATABASE_URL", "READ_API_DATABASE_URL", "VLYTICS_OPERATOR_AUTH_SECRET",

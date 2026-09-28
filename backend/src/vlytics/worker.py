@@ -7,11 +7,12 @@ import os
 import socket
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
-from datetime import UTC, datetime
-from pathlib import Path
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
-from sqlalchemy import Engine
+import httpx
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.engine import make_url
 
 from vlytics.config import (
     OperationalConfig,
@@ -21,6 +22,11 @@ from vlytics.config import (
     load_operational_config,
 )
 from vlytics.engine.evaluation import DatabaseEvaluationTicker, evaluation_handlers
+from vlytics.engine.market import (
+    DatabaseMarketComparisonTicker,
+    MarketAdapterFactory,
+    market_handlers,
+)
 from vlytics.engine.orchestrator import (
     PredictionOrchestrator,
     ProviderBinding,
@@ -39,6 +45,10 @@ from vlytics.engine.providers import (
     build_live_provider_plan,
     load_variant_registry,
 )
+from vlytics.mirror.backfill import BackfillScope
+from vlytics.mirror.kovo import build_kovo_sync_handlers, scopes_from_operational_config
+from vlytics.mirror.source_registry import SourceRegistryError, load_kovo_parser
+from vlytics.ops.heartbeat import record_heartbeat
 from vlytics.ops.repositories.jobs import JobRepository
 from vlytics.ops.runtime import (
     DatabaseFeatureSnapshotFactory,
@@ -66,6 +76,7 @@ from vlytics.ops.scheduler import (
     load_live_dry_run_evidence,
     validate_live_scheduler_activation,
 )
+from vlytics.ops.sync import DatabaseCurrentSeasonSyncTicker, SyncTiming
 from vlytics.storage.database import create_database_engine
 
 logger = logging.getLogger(__name__)
@@ -108,7 +119,12 @@ class Worker:
         now = self._now()
         if self._scheduler is not None:
             self._scheduler.run_once(now=now)
-        return self._dispatcher.run_once(now=now)
+        processed = self._dispatcher.run_once(now=now)
+        if self._settings.worker_heartbeat_path is not None:
+            record_heartbeat(
+                self._settings.worker_heartbeat_path, now=self._now(), processed=processed
+            )
+        return processed
 
     async def run(self) -> None:
         """Poll continuously until the process is cancelled."""
@@ -177,20 +193,27 @@ class DatabaseScheduleTicker:
 
 
 class DatabaseRuntimeTicker:
-    """Run schedule planning and result-evaluation discovery on every poll."""
+    """Run source, prediction-schedule, and result-evaluation discovery per poll."""
 
     def __init__(
         self,
         schedule: DatabaseScheduleTicker,
         evaluation: DatabaseEvaluationTicker,
+        *,
+        market: DatabaseMarketComparisonTicker | None = None,
+        source: DatabaseCurrentSeasonSyncTicker | None = None,
     ) -> None:
+        self._source = source
         self._schedule = schedule
+        self._market = market
         self._evaluation = evaluation
 
     def run_once(self, *, now: datetime) -> int:
+        source_jobs = 0 if self._source is None else self._source.run_once(now=now)
         scheduled = self._schedule.run_once(now=now)
+        market = 0 if self._market is None else self._market.run_once(now=now)
         evaluation = self._evaluation.run_once(now=now)
-        return scheduled + evaluation
+        return source_jobs + scheduled + market + evaluation
 
 
 @dataclass(frozen=True)
@@ -201,9 +224,52 @@ class WorkerRuntimeComponents:
     sync_handlers: Mapping[str, JobHandler]
     budget: BudgetAccount
     durable_budget_limits: Mapping[str, ProviderBudgetLimits]
+    source_scopes: tuple[BackfillScope, ...] = ()
     dry_run_evidence: LiveDryRunEvidence | None = None
     max_concurrency: int = 4
     joint_score_resolver: JointScoreResolver | None = None
+    market_adapter_factory: MarketAdapterFactory | None = None
+    market_max_age: timedelta | None = None
+
+
+def _collector_database_preflight(engine: Engine) -> None:
+    """Verify that source writes use the least-privilege collector login."""
+
+    try:
+        with engine.connect() as connection:
+            current_user = str(connection.execute(text("SELECT current_user")).scalar_one())
+            required = connection.execute(
+                text(
+                    """
+                    SELECT to_regclass('mirror.raw_snapshots'),
+                           to_regclass('ops.sync_checkpoints')
+                    """
+                )
+            ).one()
+    except Exception as error:
+        raise OperationalConfigError("collector database preflight failed") from error
+    if current_user != "vlytics_collector_login":
+        raise OperationalConfigError(
+            "collector database URL must authenticate as vlytics_collector_login"
+        )
+    if any(item is None for item in required):
+        raise OperationalConfigError("collector database is missing required migrations")
+
+
+def _same_database(left: str, right: str) -> bool:
+    left_url = make_url(left)
+    right_url = make_url(right)
+    if left_url.get_backend_name() != "postgresql" or right_url.get_backend_name() != "postgresql":
+        return False
+    return (
+        left_url.host,
+        left_url.port or 5432,
+        left_url.database,
+    ) == (
+        right_url.host,
+        right_url.port or 5432,
+        right_url.database,
+    )
 
 
 def build_runtime_components(
@@ -212,13 +278,39 @@ def build_runtime_components(
     *,
     environ: Mapping[str, str],
     live_plan: LiveProviderPlan | None,
+    settings: Settings | None = None,
+    collector_engine: Engine | None = None,
+    source_client: httpx.Client | None = None,
+    now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> WorkerRuntimeComponents:
-    """Construct every production adapter from validated config and the DB boundary."""
+    """Construct every production adapter from validated config and DB boundaries."""
 
-    if source_collection_enabled(operational_config.values):
-        raise OperationalConfigError(
-            "OP-001 live source collection is enabled but no approved KOVO transport exists"
+    source_enabled = source_collection_enabled(operational_config.values)
+    source_scopes: tuple[BackfillScope, ...] = ()
+    if source_enabled:
+        if settings is None or collector_engine is None:
+            raise OperationalConfigError(
+                "live source collection requires settings and a collector database engine"
+            )
+        source_scopes = scopes_from_operational_config(operational_config)
+        if not source_scopes:
+            raise OperationalConfigError("live source collection requires an approved scope")
+        try:
+            parser = load_kovo_parser(settings.source_registry_path, source_scopes)
+        except SourceRegistryError as error:
+            raise OperationalConfigError(str(error)) from error
+        sync_handlers: dict[str, JobHandler] = dict(
+            build_kovo_sync_handlers(
+                collector_engine,
+                operational_config,
+                parser,
+                client=source_client,
+                now=now,
+            )
         )
+    else:
+        sync_handlers = disabled_source_handlers()
+
     statistical_binding, statistical_runner = ensure_statistical_binding(engine)
     providers: Mapping[str, ProviderBinding] = {}
     durable_budget_limits: Mapping[str, ProviderBudgetLimits] = {}
@@ -236,11 +328,12 @@ def build_runtime_components(
                 daily_calls=item.daily_call_limit,
                 monthly_calls=item.monthly_call_limit,
                 currency=live_plan.budget_currency,
+                max_calls_per_match=item.max_calls_per_match,
             )
             for item in live_plan.providers
         }
-    sync_handlers = disabled_source_handlers()
     sync_handlers.update(evaluation_handlers(engine))
+    sync_handlers.update(market_handlers(engine))
     return WorkerRuntimeComponents(
         snapshot_factory=DatabaseFeatureSnapshotFactory(engine),
         statistical={"statistical-joint-v1": statistical_binding},
@@ -248,6 +341,7 @@ def build_runtime_components(
         sync_handlers=sync_handlers,
         budget=BudgetLedger(local_budget()),
         durable_budget_limits=durable_budget_limits,
+        source_scopes=source_scopes,
         joint_score_resolver=statistical_runner.resolve,
     )
 
@@ -258,6 +352,7 @@ def build_production_worker(
     *,
     environ: Mapping[str, str],
     components: WorkerRuntimeComponents | None = None,
+    source_client: httpx.Client | None = None,
     now: Callable[[], datetime] = lambda: datetime.now(UTC),
 ) -> Worker:
     """Assemble the real DB scheduler and worker, failing closed on missing adapters."""
@@ -275,16 +370,36 @@ def build_production_worker(
         )
     if configured_database_url != settings.database_url:
         raise OperationalConfigError("worker database URL differs from resolved Settings")
+
     engine = create_database_engine(settings)
+    collector_engine: Engine | None = None
+
+    def dispose_engines() -> None:
+        engine.dispose()
+        if collector_engine is not None:
+            collector_engine.dispose()
+
     try:
         database_preflight(engine)
+        if source_collection_enabled(operational_config.values) and components is None:
+            collector_url = settings.collector_database_url
+            if not collector_url:
+                raise OperationalConfigError(
+                    "live source collection requires VLYTICS_COLLECTOR_DATABASE_URL"
+                )
+            if not _same_database(settings.database_url, collector_url):
+                raise OperationalConfigError(
+                    "engine and collector database URLs must target the same database"
+                )
+            collector_engine = create_engine(collector_url, pool_pre_ping=True)
+            _collector_database_preflight(collector_engine)
     except Exception as error:
-        engine.dispose()
+        dispose_engines()
         if isinstance(error, OperationalConfigError):
             raise
         raise OperationalConfigError("worker database preflight failed") from error
-    registry_path = Path(__file__).resolve().parents[3] / "config" / "variants.toml"
-    registry = load_variant_registry(registry_path)
+
+    registry = load_variant_registry(settings.provider_registry_path)
     timing = SchedulerTiming.from_operational_config(operational_config)
     live_plan: LiveProviderPlan | None = None
     if operational_config.live_operations_enabled:
@@ -313,30 +428,41 @@ def build_production_worker(
                 operational_config,
                 environ=environ,
                 live_plan=live_plan,
+                settings=settings,
+                collector_engine=collector_engine,
+                source_client=source_client,
+                now=now,
             )
         except Exception as error:
-            engine.dispose()
+            dispose_engines()
             if isinstance(error, OperationalConfigError):
                 raise
             raise OperationalConfigError(
                 "worker runtime component initialization failed"
             ) from error
+    source_enabled = source_collection_enabled(operational_config.values)
+    if source_enabled and not components.source_scopes:
+        dispose_engines()
+        raise OperationalConfigError("live source collection has no configured runtime scope")
+    if not source_enabled and components.source_scopes:
+        dispose_engines()
+        raise OperationalConfigError("source scopes cannot run while collection is disabled")
     if "mirror.pre_cutoff_sync" not in components.sync_handlers:
-        engine.dispose()
+        dispose_engines()
         raise OperationalConfigError("worker pre-cutoff source sync handler is not configured")
     provider_names = {binding.provider.provider_name for binding in components.providers.values()}
     if live_plan is not None and provider_names != set(ProviderName):
-        engine.dispose()
+        dispose_engines()
         raise OperationalConfigError(
             "worker requires independent openai, anthropic, and google providers"
         )
     if not components.statistical:
-        engine.dispose()
+        dispose_engines()
         raise OperationalConfigError("worker statistical prediction runner is not configured")
     if live_plan is not None:
         expected_keys = {item.variant.variant_id for item in live_plan.providers}
         if set(components.providers) != expected_keys:
-            engine.dispose()
+            dispose_engines()
             raise OperationalConfigError("worker provider bindings differ from the live registry")
         durable_budget_limits = {
             item.variant.variant_id: ProviderBudgetLimits(
@@ -345,6 +471,7 @@ def build_production_worker(
                 daily_calls=item.daily_call_limit,
                 monthly_calls=item.monthly_call_limit,
                 currency=live_plan.budget_currency,
+                max_calls_per_match=item.max_calls_per_match,
             )
             for item in live_plan.providers
         }
@@ -369,6 +496,24 @@ def build_production_worker(
         joint_score_resolver=components.joint_score_resolver,
     )
     handlers: dict[str, JobHandler] = dict(components.sync_handlers)
+    handlers.update(evaluation_handlers(engine))
+    if (components.market_adapter_factory is None) != (components.market_max_age is None):
+        dispose_engines()
+        raise OperationalConfigError(
+            "worker Market adapter and max_age policy must be configured together"
+        )
+    if components.market_adapter_factory is not None:
+        dispose_engines()
+        raise OperationalConfigError(
+            "live Market adapters require a versioned source and max_age policy"
+        )
+    handlers.update(
+        market_handlers(
+            engine,
+            adapter_factory=components.market_adapter_factory,
+            max_age=components.market_max_age,
+        )
+    )
     handlers.update(scheduler_handlers(orchestrator))
     lease_owner = f"{socket.gethostname()}:{os.getpid()}"
     dispatcher = PredictionJobDispatcher(
@@ -380,12 +525,26 @@ def build_production_worker(
         now=now,
     )
     schedule_ticker = DatabaseScheduleTicker(engine, variants=variants, timing=timing)
+    source_ticker = (
+        DatabaseCurrentSeasonSyncTicker(
+            engine,
+            components.source_scopes,
+            timing=SyncTiming.from_operational_config(operational_config),
+        )
+        if source_enabled
+        else None
+    )
     return Worker(
         settings,
         operational_config,
         environ=environ,
         dispatcher=dispatcher,
-        scheduler=DatabaseRuntimeTicker(schedule_ticker, DatabaseEvaluationTicker(engine)),
+        scheduler=DatabaseRuntimeTicker(
+            schedule_ticker,
+            DatabaseEvaluationTicker(engine),
+            market=DatabaseMarketComparisonTicker(engine),
+            source=source_ticker,
+        ),
         now=now,
     )
 

@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from pathlib import Path
+from threading import Event, Thread
 from typing import Any, Protocol, cast
 from uuid import UUID
 
@@ -764,6 +765,8 @@ class PredictionJobDispatcher:
     ) -> None:
         if max_concurrency <= 0:
             raise ValueError("max_concurrency must be positive")
+        if lease_duration <= timedelta(0):
+            raise ValueError("lease_duration must be positive")
         self._engine = engine
         self._handlers = dict(handlers)
         self._lease_owner = lease_owner
@@ -811,8 +814,34 @@ class PredictionJobDispatcher:
                     now=self._now(),
                 )
             return
+        renewal_stop = Event()
+        renewal_lost = Event()
+        renewal_errors: list[BaseException] = []
+        renewal = Thread(
+            target=self._renew_lease,
+            args=(
+                job_id,
+                job.get("deadline_at") if isinstance(job.get("deadline_at"), datetime) else None,
+                renewal_stop,
+                renewal_lost,
+                renewal_errors,
+            ),
+            name=f"job-lease-{job_id}",
+            daemon=True,
+        )
+        renewal.start()
         try:
-            finalized = handler.handle(job, now=leased_at)
+            try:
+                finalized = handler.handle(job, now=leased_at)
+            finally:
+                renewal_stop.set()
+                renewal.join(timeout=5.0)
+                if renewal.is_alive():
+                    renewal_errors.append(RuntimeError("job lease renewal did not stop"))
+            if renewal_errors:
+                raise RuntimeError("job lease renewal failed") from renewal_errors[0]
+            if renewal_lost.is_set():
+                raise RuntimeError("job lease was lost during execution")
         except RetryableJobError as error:
             completed_at = self._now()
             with self._engine.begin() as connection:
@@ -860,6 +889,34 @@ class PredictionJobDispatcher:
             )
         if not changed:
             raise RuntimeError("job lease was lost before completion")
+
+    def _renew_lease(
+        self,
+        job_id: UUID,
+        deadline_at: datetime | None,
+        stop: Event,
+        lost: Event,
+        errors: list[BaseException],
+    ) -> None:
+        interval = self._lease_duration.total_seconds() / 2
+        while not stop.wait(interval):
+            try:
+                renewed_at = self._now()
+                if deadline_at is not None and renewed_at >= deadline_at:
+                    return
+                with self._engine.begin() as connection:
+                    changed = JobRepository(connection).renew_lease(
+                        job_id=job_id,
+                        lease_owner=self._lease_owner,
+                        now=renewed_at,
+                        lease_duration=self._lease_duration,
+                    )
+            except BaseException as error:
+                errors.append(error)
+                return
+            if not changed:
+                lost.set()
+                return
 
 
 def classify_schedule_change(

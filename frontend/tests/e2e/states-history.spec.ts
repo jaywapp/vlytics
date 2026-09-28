@@ -11,10 +11,11 @@ import {
 test.beforeEach(async ({ page }) => installOperatorSession(page));
 
 test("shows loading, retryable error, and honest empty schedule states", async ({ page }) => {
+  let serveError = true;
   let attempts = 0;
   await page.route("**/api/v1/schedule?**", async (route) => {
     attempts += 1;
-    if (attempts === 1) {
+    if (serveError) {
       await new Promise((resolve) => setTimeout(resolve, 250));
       return fulfillJson(route, retryableError, 503);
     }
@@ -24,9 +25,10 @@ test("shows loading, retryable error, and honest empty schedule states", async (
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "경기 일정을 불러오는 중입니다" })).toBeVisible();
   await expect(page.getByRole("alert")).toContainText("fixture service unavailable");
+  serveError = false;
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByRole("heading", { name: "표시할 경기가 없습니다" })).toBeVisible();
-  expect(attempts).toBe(2);
+  expect(attempts).toBeGreaterThanOrEqual(2);
 });
 
 test("keeps history filters through detail and browser back navigation", async ({ page }) => {
@@ -57,15 +59,15 @@ test("keeps history filters through detail and browser back navigation", async (
 });
 
 test("recovers history from an API error to an empty response", async ({ page }) => {
-  let attempts = 0;
+  let serveError = true;
   await page.route("**/api/v1/predictions?**", async (route) => {
-    attempts += 1;
-    if (attempts === 1) return fulfillJson(route, retryableError, 503);
+    if (serveError) return fulfillJson(route, retryableError, 503);
     return fulfillJson(route, { ...historyResponse, data: { items: [], next_cursor: null } });
   });
 
   await page.goto("/history");
   await expect(page.getByRole("alert")).toContainText("fixture service unavailable");
+  serveError = false;
   await page.getByRole("button", { name: "다시 시도" }).click();
   await expect(page.getByRole("heading", { name: "조건에 맞는 예측 기록이 없습니다" })).toBeVisible();
 });

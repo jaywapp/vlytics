@@ -17,6 +17,7 @@ class ProviderBudgetLimits:
     monthly_amount: Decimal
     daily_calls: int
     monthly_calls: int
+    max_calls_per_match: int
     currency: str = "USD"
 
     def __post_init__(self) -> None:
@@ -28,6 +29,8 @@ class ProviderBudgetLimits:
             raise ValueError("provider call limits must be positive")
         if self.daily_calls > self.monthly_calls:
             raise ValueError("daily provider call limit must not exceed monthly limit")
+        if self.max_calls_per_match <= 0:
+            raise ValueError("per-match provider call limit must be positive")
         if (
             len(self.currency) != 3
             or not self.currency.isascii()
@@ -69,9 +72,15 @@ class PostgresBudgetLedger:
         budget_day = self._reserved_at.date()
         budget_month = budget_day.replace(day=1)
         with self._engine.begin() as connection:
+            match_id = connection.execute(
+                text("SELECT match_id FROM ops.jobs WHERE id = :job_id"),
+                {"job_id": self._job_id},
+            ).scalar_one_or_none()
+            match_scope = match_id or self._job_id
             for key in sorted(
                 (
                     f"provider-budget:{self._provider}:day:{budget_day.isoformat()}",
+                    f"provider-budget:{self._provider}:match:{match_scope}",
                     f"provider-budget:{self._provider}:month:{budget_month.isoformat()}",
                 )
             ):
@@ -118,11 +127,27 @@ class PostgresBudgetLedger:
                 ),
                 {"provider": self._provider, "budget_month": budget_month},
             ).one()
+            match_calls = connection.execute(
+                text(
+                    """
+                    SELECT count(*)
+                    FROM ops.provider_budget_reservations reservations
+                    JOIN ops.jobs jobs ON jobs.id = reservations.job_id
+                    WHERE reservations.provider = :provider
+                      AND (
+                          (:match_id IS NOT NULL AND jobs.match_id = :match_id)
+                          OR (:match_id IS NULL AND reservations.job_id = :job_id)
+                      )
+                    """
+                ),
+                {"provider": self._provider, "match_id": match_id, "job_id": self._job_id},
+            ).scalar_one()
             if (
                 Decimal(daily_amount) + amount > self._limits.daily_amount
                 or Decimal(monthly_amount) + amount > self._limits.monthly_amount
                 or int(daily_calls) >= self._limits.daily_calls
                 or int(monthly_calls) >= self._limits.monthly_calls
+                or int(match_calls) >= self._limits.max_calls_per_match
             ):
                 return False
             reservation_id = connection.execute(

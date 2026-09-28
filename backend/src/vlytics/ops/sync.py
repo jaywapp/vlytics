@@ -7,12 +7,15 @@ from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import StrEnum
-from typing import Any, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 from uuid import UUID
 
-from sqlalchemy import Connection, text
+from sqlalchemy import Connection, Engine, text
 
 from vlytics.mirror.backfill import BackfillRunner, BackfillScope
+
+if TYPE_CHECKING:
+    from vlytics.config import OperationalConfig
 
 
 class SyncJobType(StrEnum):
@@ -57,6 +60,29 @@ class SyncTiming:
     result_poll_interval: timedelta = timedelta(minutes=5)
     correction_interval: timedelta = timedelta(hours=6)
     correction_window: timedelta = timedelta(days=7)
+
+    @classmethod
+    def from_operational_config(cls, config: OperationalConfig) -> SyncTiming:
+        results = config.values.get("results")
+        if not isinstance(results, Mapping):
+            raise ValueError("operational results configuration must be an object")
+
+        def seconds(name: str) -> timedelta:
+            value = results.get(name)
+            if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+                raise ValueError(f"operational results {name} must be a positive integer")
+            return timedelta(seconds=value)
+
+        window_hours = results.get("correction_recheck_window_hours")
+        if isinstance(window_hours, bool) or not isinstance(window_hours, int) or window_hours <= 0:
+            raise ValueError("operational results correction_recheck_window_hours must be positive")
+        poll = seconds("poll_interval_seconds")
+        return cls(
+            schedule_poll_interval=poll,
+            result_poll_interval=poll,
+            correction_interval=seconds("correction_recheck_interval_seconds"),
+            correction_window=timedelta(hours=window_hours),
+        )
 
 
 class CurrentSeasonSyncPlanner:
@@ -131,6 +157,94 @@ class CurrentSeasonSyncPlanner:
                 deadline_at=job.deadline_at,
             )
         return len(jobs)
+
+
+class DatabaseCurrentSeasonSyncTicker:
+    """Plan schedule, final-result, and correction jobs for configured live scopes."""
+
+    def __init__(
+        self,
+        engine: Engine,
+        scopes: Iterable[BackfillScope],
+        *,
+        timing: SyncTiming | None = None,
+    ) -> None:
+        self._engine = engine
+        self._scopes = tuple(scopes)
+        if not self._scopes:
+            raise ValueError("at least one source sync scope is required")
+        if len({scope.key for scope in self._scopes}) != len(self._scopes):
+            raise ValueError("source sync scopes must be unique")
+        self._planner = CurrentSeasonSyncPlanner(timing)
+
+    def run_once(self, *, now: datetime) -> int:
+        from vlytics.ops.repositories.jobs import JobRepository
+
+        planned = 0
+        with self._engine.begin() as connection:
+            jobs = JobRepository(connection)
+            for scope in self._scopes:
+                planned += self._planner.enqueue(
+                    jobs,
+                    scope,
+                    self._matches(connection, scope),
+                    now=now,
+                )
+        return planned
+
+    @staticmethod
+    def _matches(
+        connection: Connection,
+        scope: BackfillScope,
+    ) -> tuple[MatchSyncState, ...]:
+        rows = connection.execute(
+            text(
+                """
+                WITH latest_schedule AS (
+                    SELECT DISTINCT ON (revision.match_id)
+                           revision.match_id, revision.scheduled_start_at,
+                           revision.status
+                    FROM mirror.match_revisions revision
+                    ORDER BY revision.match_id, revision.revision DESC
+                ), result_observations AS (
+                    SELECT match_id,
+                           min(observed_at) FILTER (
+                               WHERE finality IN ('final', 'corrected')
+                           ) AS first_final_observed_at,
+                           max(observed_at) AS latest_result_observed_at
+                    FROM mirror.result_revisions
+                    GROUP BY match_id
+                )
+                SELECT match.source_match_code, schedule.scheduled_start_at,
+                       schedule.status, result.first_final_observed_at,
+                       result.latest_result_observed_at
+                FROM mirror.matches match
+                JOIN latest_schedule schedule ON schedule.match_id = match.id
+                LEFT JOIN result_observations result ON result.match_id = match.id
+                WHERE match.source=:source
+                  AND match.source_group_code=:group_code
+                  AND match.source_season_code=:season_code
+                  AND match.source_competition_code=:competition_code
+                ORDER BY schedule.scheduled_start_at, match.source_match_code
+                """
+            ),
+            {
+                "source": scope.source,
+                "group_code": scope.group_code,
+                "season_code": scope.season_code,
+                "competition_code": scope.competition_code,
+            },
+        ).mappings()
+        return tuple(
+            MatchSyncState(
+                source_match_code=str(row["source_match_code"]),
+                scheduled_start_at=row["scheduled_start_at"],
+                status=str(row["status"]),
+                first_final_observed_at=row["first_final_observed_at"],
+                latest_result_observed_at=row["latest_result_observed_at"],
+            )
+            for row in rows
+        )
 
 
 def _scope_payload(scope: BackfillScope) -> dict[str, object]:

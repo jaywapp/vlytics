@@ -1,0 +1,400 @@
+{
+  "schedule": {
+    "metadata": {
+      "schema_version": "vlytics.operator.v1",
+      "source_snapshot_ids": [
+        "source-match-1",
+        "source-match-2",
+        "source-match-3"
+      ],
+      "schedule_revision_ids": [
+        "schedule-match-1",
+        "schedule-match-2",
+        "schedule-match-3"
+      ],
+      "prediction_revision_ids": [
+        "prediction-1",
+        "prediction-3",
+        "prediction-stat-1"
+      ],
+      "evaluation_revision_ids": [],
+      "model_versions": {
+        "openai": [
+          "2026-09"
+        ],
+        "statistical": [
+          "elo-v1"
+        ]
+      }
+    },
+    "data": {
+      "date": "2026-09-20",
+      "timezone": "UTC",
+      "items": [
+        {
+          "id": "match-1",
+          "competition": "regular-2026",
+          "division": "women",
+          "stage": "regular",
+          "scheduled_start_at_utc": "2026-09-20T14:30:00Z",
+          "scheduled_start_at_local": "2026-09-20T14:30:00Z",
+          "timezone": "UTC",
+          "status": "scheduled",
+          "home_team": {
+            "id": "team-home",
+            "code": "HOME",
+            "name": "Home Club"
+          },
+          "away_team": {
+            "id": "team-away",
+            "code": "AWAY",
+            "name": "Away Club"
+          },
+          "market": {
+            "availability": "available",
+            "source": "synthetic",
+            "snapshot_id": "market-match-1",
+            "quoted_at": "2026-09-20T13:30:00Z",
+            "reason": null
+          },
+          "provider_outcomes": [
+            {
+              "provider": "openai",
+              "status": "succeeded",
+              "variant_id": "variant-openai",
+              "requested_model": "openai-synthetic",
+              "resolved_model_id": "openai-synthetic-2026-09",
+              "model_version": "2026-09",
+              "prompt_version": "prompt-v1",
+              "generated_at": "2026-09-20T13:30:00Z",
+              "prediction_revision_id": "prediction-1",
+              "attempt_id": null,
+              "lifecycle_status": "published",
+              "schedule_revision_id": "schedule-match-1",
+              "feature_snapshot_id": "feature-match-1",
+              "feature_version": "feature-v2",
+              "input_cutoff_at": "2026-09-20T13:30:00Z",
+              "market": {
+                "availability": "available",
+                "source": "synthetic",
+                "snapshot_id": "market-match-1",
+                "quoted_at": "2026-09-20T13:30:00Z",
+                "reason": null
+              },
+              "output": {
+                "home_win_probability": 0.6
+              },
+              "error_code": null
+            },
+            {
+              "provider": "statistical",
+              "status": "succeeded",
+              "variant_id": "variant-statistical",
+              "requested_model": "statistical-synthetic",
+              "resolved_model_id": "statistical-synthetic-2026-09",
+              "model_version": "elo-v1",
+              "prompt_version": "not-applicable",
+              "generated_at": "2026-09-20T13:30:00Z",
+              "prediction_revision_id": "prediction-stat-1",
+              "attempt_id": null,
+              "lifecycle_status": "published",
+              "schedule_revision_id": "schedule-match-1",
+              "feature_snapshot_id": "feature-match-1",
+              "feature_version": "feature-v2",
+              "input_cutoff_at": "2026-09-20T13:30:00Z",
+              "market": {
+                "availability": "available",
+                "source": "synthetic",
+                "snapshot_id": "market-match-1",
+                "quoted_at": "2026-09-20T13:30:00Z",
+                "reason": null
+              },
+              "output": {
+                "home_win_probability": 0.6
+              },
+              "error_code": null
+            }
+          ]
+        },
+        {
+          "id": "match-2",
+          "competition": "regular-2026",
+          "division": "women",
+          "stage": "regular",
+          "scheduled_start_at_utc": "2026-09-20T15:30:00Z",
+          "scheduled_start_at_local": "2026-09-20T15:30:00Z",
+          "timezone": "UTC",
+          "status": "scheduled",
+          "home_team": {
+            "id": "team-home",
+            "code": "HOME",
+            "name": "Home Club"
+          },
+          "away_team": {
+            "id": "team-away",
+            "code": "AWAY",
+            "name": "Away Club"
+          },
+          "market": {
+            "availability": "missing",
+            "source": null,
+            "snapshot_id": null,
+            "quoted_at": null,
+            "reason": "prediction_market_provenance_unavailable"
+          },
+          "provider_outcomes": [
+            {
+              "provider": "anthropic",
+              "status": "timed_out",
+              "variant_id": "variant-anthropic",
+              "requested_model": "anthropic-synthetic",
+              "resolved_model_id": null,
+              "model_version": "2026-09",
+              "prompt_version": "prompt-v1",
+              "generated_at": "2026-09-20T14:30:00Z",
+              "prediction_revision_id": null,
+              "attempt_id": "prediction-2",
+              "lifecycle_status": null,
+              "schedule_revision_id": "schedule-match-2",
+              "feature_snapshot_id": "feature-match-2",
+              "feature_version": "feature-v2",
+              "input_cutoff_at": "2026-09-20T14:30:00Z",
+              "market": {
+                "availability": "missing",
+                "source": null,
+                "snapshot_id": null,
+                "quoted_at": null,
+                "reason": "prediction_market_provenance_unavailable"
+              },
+              "output": null,
+              "error_code": "provider_timeout"
+            }
+          ]
+        },
+        {
+          "id": "match-3",
+          "competition": "regular-2026",
+          "division": "women",
+          "stage": "regular",
+          "scheduled_start_at_utc": "2026-09-20T16:30:00Z",
+          "scheduled_start_at_local": "2026-09-20T16:30:00Z",
+          "timezone": "UTC",
+          "status": "scheduled",
+          "home_team": {
+            "id": "team-home",
+            "code": "HOME",
+            "name": "Home Club"
+          },
+          "away_team": {
+            "id": "team-away",
+            "code": "AWAY",
+            "name": "Away Club"
+          },
+          "market": {
+            "availability": "available",
+            "source": "synthetic",
+            "snapshot_id": "market-match-3",
+            "quoted_at": "2026-09-20T15:30:00Z",
+            "reason": null
+          },
+          "provider_outcomes": [
+            {
+              "provider": "openai",
+              "status": "succeeded",
+              "variant_id": "variant-openai",
+              "requested_model": "openai-synthetic",
+              "resolved_model_id": "openai-synthetic-2026-09",
+              "model_version": "2026-09",
+              "prompt_version": "prompt-v1",
+              "generated_at": "2026-09-20T15:30:00Z",
+              "prediction_revision_id": "prediction-3",
+              "attempt_id": null,
+              "lifecycle_status": "published",
+              "schedule_revision_id": "schedule-match-3",
+              "feature_snapshot_id": "feature-match-3",
+              "feature_version": "feature-v2",
+              "input_cutoff_at": "2026-09-20T15:30:00Z",
+              "market": {
+                "availability": "available",
+                "source": "synthetic",
+                "snapshot_id": "market-match-3",
+                "quoted_at": "2026-09-20T15:30:00Z",
+                "reason": null
+              },
+              "output": {
+                "home_win_probability": 0.6
+              },
+              "error_code": null
+            }
+          ]
+        }
+      ],
+      "next_cursor": null
+    }
+  },
+  "match": {
+    "metadata": {
+      "schema_version": "vlytics.operator.v1",
+      "source_snapshot_ids": [
+        "source-match-1"
+      ],
+      "schedule_revision_ids": [
+        "schedule-match-1"
+      ],
+      "prediction_revision_ids": [
+        "prediction-1",
+        "prediction-stat-1"
+      ],
+      "evaluation_revision_ids": [],
+      "model_versions": {
+        "openai": [
+          "2026-09"
+        ],
+        "statistical": [
+          "elo-v1"
+        ]
+      }
+    },
+    "data": {
+      "id": "match-1",
+      "competition": "regular-2026",
+      "division": "women",
+      "stage": "regular",
+      "scheduled_start_at_utc": "2026-09-20T14:30:00Z",
+      "scheduled_start_at_local": "2026-09-20T23:30:00+09:00",
+      "timezone": "Asia/Seoul",
+      "status": "scheduled",
+      "home_team": {
+        "id": "team-home",
+        "code": "HOME",
+        "name": "Home Club"
+      },
+      "away_team": {
+        "id": "team-away",
+        "code": "AWAY",
+        "name": "Away Club"
+      },
+      "market": {
+        "availability": "available",
+        "source": "synthetic",
+        "snapshot_id": "market-match-1",
+        "quoted_at": "2026-09-20T13:30:00Z",
+        "reason": null
+      },
+      "provider_outcomes": [
+        {
+          "provider": "openai",
+          "status": "succeeded",
+          "variant_id": "variant-openai",
+          "requested_model": "openai-synthetic",
+          "resolved_model_id": "openai-synthetic-2026-09",
+          "model_version": "2026-09",
+          "prompt_version": "prompt-v1",
+          "generated_at": "2026-09-20T13:30:00Z",
+          "prediction_revision_id": "prediction-1",
+          "attempt_id": null,
+          "lifecycle_status": "published",
+          "schedule_revision_id": "schedule-match-1",
+          "feature_snapshot_id": "feature-match-1",
+          "feature_version": "feature-v2",
+          "input_cutoff_at": "2026-09-20T13:30:00Z",
+          "market": {
+            "availability": "available",
+            "source": "synthetic",
+            "snapshot_id": "market-match-1",
+            "quoted_at": "2026-09-20T13:30:00Z",
+            "reason": null
+          },
+          "output": {
+            "home_win_probability": 0.6
+          },
+          "error_code": null
+        },
+        {
+          "provider": "statistical",
+          "status": "succeeded",
+          "variant_id": "variant-statistical",
+          "requested_model": "statistical-synthetic",
+          "resolved_model_id": "statistical-synthetic-2026-09",
+          "model_version": "elo-v1",
+          "prompt_version": "not-applicable",
+          "generated_at": "2026-09-20T13:30:00Z",
+          "prediction_revision_id": "prediction-stat-1",
+          "attempt_id": null,
+          "lifecycle_status": "published",
+          "schedule_revision_id": "schedule-match-1",
+          "feature_snapshot_id": "feature-match-1",
+          "feature_version": "feature-v2",
+          "input_cutoff_at": "2026-09-20T13:30:00Z",
+          "market": {
+            "availability": "available",
+            "source": "synthetic",
+            "snapshot_id": "market-match-1",
+            "quoted_at": "2026-09-20T13:30:00Z",
+            "reason": null
+          },
+          "output": {
+            "home_win_probability": 0.6
+          },
+          "error_code": null
+        }
+      ],
+      "actual_start_at_utc": null,
+      "venue": "Synthetic Arena",
+      "result": null,
+      "feature_snapshot_id": "feature-match-1",
+      "feature_version": "feature-v2",
+      "source_coverage": {}
+    }
+  },
+  "history": {
+    "metadata": {
+      "schema_version": "vlytics.operator.v1",
+      "source_snapshot_ids": [
+        "source-match-3"
+      ],
+      "schedule_revision_ids": [
+        "schedule-match-3"
+      ],
+      "prediction_revision_ids": [
+        "prediction-3"
+      ],
+      "evaluation_revision_ids": [],
+      "model_versions": {
+        "openai": [
+          "2026-09"
+        ]
+      }
+    },
+    "data": {
+      "items": [
+        {
+          "id": "prediction-3",
+          "record_type": "prediction",
+          "prediction_revision_id": "prediction-3",
+          "attempt_id": null,
+          "match_id": "match-3",
+          "competition": "regular-2026",
+          "division": "women",
+          "provider": "openai",
+          "variant_id": "variant-openai",
+          "prediction_type": "winner",
+          "requested_model": "openai-synthetic",
+          "resolved_model_id": "openai-synthetic-2026-09",
+          "model_version": "2026-09",
+          "prompt_version": "prompt-v1",
+          "feature_version": "feature-v2",
+          "schedule_revision_id": "schedule-match-3",
+          "source_snapshot_id": "source-match-3",
+          "generated_at": "2026-09-20T15:30:00Z",
+          "status": "published",
+          "output": {
+            "home_win_probability": 0.6
+          },
+          "evaluation_revision_id": null
+        }
+      ],
+      "next_cursor": "eyJlbmRwb2ludCI6InByZWRpY3Rpb25zIiwiZmlsdGVycyI6ImQ5Y2Y4ODRiODkxMTgxNjU0OWExY2MyODJiODc2ZjgyYmVjNmRjZGJkZmYzZTdhMzdhOGVkZDM0OWYzNjgyNTQiLCJrZXkiOlsiMjAyNi0wOS0yMFQxNTozMDowMCswMDowMCIsInByZWRpY3Rpb24tMyJdLCJyZXZpc2lvbiI6InJldmlzaW9uLTEifdpjgqlh-Mt6BmeNx2kpBk6Qwpc1es-mGwjFzWeZEzEm"
+    }
+  }
+}

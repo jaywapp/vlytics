@@ -1,10 +1,13 @@
 # syntax=docker/dockerfile:1.7
-FROM ghcr.io/astral-sh/uv:0.12.5 AS uv
-FROM python:3.12.14-slim
+ARG UV_IMAGE
+ARG PYTHON_IMAGE
+FROM ${UV_IMAGE} AS uv
+FROM ${PYTHON_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PATH="/workspace/backend/.venv/bin:$PATH"
+    PATH="/workspace/backend/.venv/bin:$PATH" \
+    VLYTICS_PROVIDER_REGISTRY_PATH=/workspace/config/variants.toml
 
 WORKDIR /workspace/backend
 COPY --from=uv /uv /uvx /bin/

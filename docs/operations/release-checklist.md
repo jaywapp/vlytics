@@ -1,10 +1,30 @@
 # Vlytics 운영 Release Checklist
 
-- 판정일: 2026-09-20 (Asia/Seoul)
-- 대상: `codex/implement-vlytics-mvp`
-- 패키지 판정: **배포 준비 산출물 완료 / 운영 활성화 NO-GO**
+- 판정 기준일: 2026-09-28 (Asia/Seoul); 아래 날짜별 증거는 해당 실행 시점의 기록이다.
+- 현재 보완 대상: `codex/project-audit-20260927`
+- 패키지 판정: **재점검 코드 통합 검증 통과 / 운영 활성화 NO-GO**
 
-NO-GO는 미확정 외부 운영값과 현재 host 시계·container runtime 상태에 대한 판정이다. 구현 또는 합성 MVP 검증 실패를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
+2026-09-27 전체 감사에서 코드 연결과 복구 누락도 확인했다. [감사 조치 장부](../verification/audit-remediation.md)의 코드 조치는 CI에서 검증했고 외부 운영 게이트는 별도로 해소해야 한다. 기존 체크는 당시의 제한된 검증 증거이며 전체 운영 완료를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
+
+## 코드·통합 검증·운영 증거 구분
+
+[CI 36415836425](https://github.com/jaywapp/vlytics/actions/runs/36415836425)는 재점검 R10~R17/P3/복구 ACL 보완 커밋 `70edfdb`에서 전체 성공했다. PostgreSQL 포함 backend 476 tests, frontend unit 34·fixture browser 9, Windows, production Compose loopback ingress·same-origin smoke, 복구 DB/API/worker 및 8개 image gate를 확인했다. 운영 활성화에 필요한 실제 host·외부 연결·백업/PITR·알림·Provider 정책 증거는 이 결과에 포함되지 않는다.
+
+[CI 36401801182](https://github.com/jaywapp/vlytics/actions/runs/36401801182)는 최신 통합 후보 `a2a9c3f`에서 전체 성공했다. PostgreSQL 포함 backend 454 tests, frontend·Windows, 전용 ingress의 loopback 게시·내부 서비스 격리, 복구한 DB의 API/worker와 이미지 증거 gate를 확인했다. 이 성공은 실제 운영 host의 SSH·NTP·backup/PITR·알림 및 OP-001~005를 대체하지 않는다.
+
+[CI 36291809544](https://github.com/jaywapp/vlytics/actions/runs/36291809544)는 최종 코드 후보 `7fa9a6d`의 PR merge commit `cef852c`에서 전체 성공했다. Backend 439, frontend 32, fixture E2E 9, 실제 Nginx/API/DB browser 1, Windows 34, 동일 복구 DB의 API/worker 및 활성 합성 설정을 사용한 production 내부 기동을 통과했다. 원본 internal network와 역할별 secret 주입을 유지하고 source/Provider 작업 0건을 확인했다. 이전 CI 36291329901의 health 기대값 오류는 수정·재검증됐다. 이 결과는 실제 운영 설정·외부 접근·유료 호출·배포의 증거를 대체하지 않는다.
+
+| 범위 | 코드·합성 통합 증거 | production 연결·live 잔여 |
+|---|---|---|
+| 설정·기동 | 서비스별 secret 검증, config/mount hash, Windows 배포 34 tests, 전용 ingress 정적 패키지 검사 | CI 36401801182의 전용 ingress loopback 접근 통과. 운영 host SSH 경로 검증 |
+| 수집·결과·retry | R10~R13의 source 오류 분류·lease 갱신·deadline/HTTP timeout 및 PostgreSQL 작업 회수 회귀 | OP-001/003/004 및 실제 소량 source/Provider 실행 |
+| 통계·입력·Market | A08 Elo·B1 검증 입력·A12 Market 생성 및 R11 예측별 평가 격리의 PostgreSQL 회귀 | PostgreSQL CI 36401801182 통과. 검증된 KOVO roster/stats와 OP-005 Market adapter 정책 |
+| API·Web | CI 36415836425의 backend 476 tests, frontend 34·fixture E2E 9, API threadpool·토큰 구분·응답 검증 회귀 | 실제 운영 데이터·production 네트워크 성능은 별도 |
+| 복구·감시 | 새 cluster owner/ACL/SCRAM·서비스 schema 생성 거부, dump 크기/hash·NTP preflight, heartbeat export 및 선택적 HTTPS dispatcher 회귀 | 운영 host NTP/heartbeat 전달·예약 backup/PITR·실제 알림 수신 |
+| image 보안 | compiler 포함 8개 image SBOM·identity·HIGH/CRITICAL 0건, gosu provenance 검증 | 게시 release digest 및 대상 architecture의 검사·승인 |
+| 조회 성능 | endpoint WHERE/keyset, 22시즌 경기 5,500·예측/평가 각 16,500의 실제 API 지연·Python peak 측정 및 로컬 회귀 budget 충족 | 운영 동시 쓰기·다중 사용자·서버 메모리와 production SLO 검증은 별도 |
+
+아래 `[x]` 표시는 해당 항목의 구성 또는 날짜별 검증 범위만 의미한다. 운영 host를 명시한 미완료 항목은 CI 성공으로 자동 체크하지 않는다. A03/A08/A12 생성/B1의 코드 변경은 사용자 결정에 따라 로컬 검증됐고 실제 DB·Compose CI 36401801182를 통과했으며, OP-005 Market missing만은 기존 사용자 결정에 따른 허용 예외다.
 
 ## 활성화 차단 장부
 
@@ -15,14 +35,14 @@ NO-GO는 미확정 외부 운영값과 현재 host 시계·container runtime 상
 | OP-003 Provider | 실제 model/version·통화·일/월 예산·key 미확정 | 세 Provider별 pinned ID/version, token/call/금액 cap, 소량 실제 smoke ID | 차단 |
 | OP-004 live timing | 합성 replay 통과, 실제 소량 source/Provider dry-run 없음 | 활성 config hash와 일치하는 source sync·freeze·3 Provider evidence | 차단 |
 | OP-005 Market | 실제 adapter 없음 | `missing` 상태 명시 | 허용 |
-| Host clock | `W32Time` Stopped/Manual, 상태 조회 실패 | NTP service Running, 동기화 source/offset 확인 및 alert | 차단 |
+| Host clock | 2026-09-20 로컬 관측은 `W32Time` Stopped/Manual. 운영 host 증거 없음 | NTP service Running, 동기화 source/offset 확인 및 alert | 차단 |
 | Container runtime | 로컬 Docker/Podman CLI 없음 | 운영 host에서 backend/frontend digest pull, frontend 다단계 build, `docker compose config`와 same-origin smoke | 차단 |
 
 `infra/operational.production.example.toml`, `infra/.env.example`, `infra/live-dry-run-evidence.example.json`은 위 항목을 placeholder/0/false로 남겨 preflight가 성공할 수 없게 한다. 값을 임의로 채워 통과시키지 않는다.
 
 ## Security와 접근
 
-- [x] React SPA만 host `127.0.0.1:${WEB_PORT}`에 bind된다.
+- [x] 전용 진입 프록시만 host `127.0.0.1:${WEB_PORT}`에 bind되며 frontend는 내부망에 남는다. 실제 컨테이너·host 검증은 아래 미완료 항목을 따른다.
 - [x] API는 host port 없이 private network에서만 접근된다.
 - [x] Nginx `/api/`가 internal `api:8000`으로 전달되고 SPA history fallback이 구성됐다.
 - [x] PostgreSQL host port가 없고 internal network만 사용한다.
@@ -34,10 +54,12 @@ NO-GO는 미확정 외부 운영값과 현재 host 시계·container runtime 상
 - [x] non-root UID, capability drop, `no-new-privileges`, 제한된 tmpfs가 적용됐다.
 - [x] DB URL은 read API/engine/migrator 역할로 분리했다.
 - [x] committed env에는 placeholder만 있고 `.env`, dump, 운영 restore report는 ignore된다.
-- [ ] 실제 backend/frontend final image와 Node/Nginx base를 digest로 고정하고 SBOM/vulnerability 결과를 승인했다.
-- [ ] 운영 host에서 frontend `/healthz`, SPA route fallback, same-origin `/api` 401/200을 확인했다.
+- [ ] 게시된 backend/frontend final image와 모든 runtime/build base·compiler digest의 SBOM/vulnerability 결과를 승인했다.
+- [ ] 운영 host에서 진입 프록시를 통한 frontend `/healthz`, SPA route fallback, same-origin `/api` 401/200을 확인했다.
 - [ ] operator/readonly secret을 생성하고 401/403/200 경계를 운영 host에서 확인했다.
 - [ ] private tunnel/VPN 경로와 접근자·폐기 절차를 기록했다.
+
+운영자 화면 접속 방식은 사용자 인터뷰에서 SSH 로컬 포트 전달로 결정했다. 운영자 PC의 로컬 포트에서 서버의 `127.0.0.1:${WEB_PORT:-8080}`으로 전달한다. 전용 진입 프록시가 이 포트와 내부 frontend를 잇고, frontend·API·DB·worker는 내부망에만 둔다. worker의 외부 통신은 승인 목적지와 출구 경로가 준비되기 전까지 차단한다. 실제 서버·SSH 접근 주체·키 발급/폐기, production Compose의 CI 및 host 접속 검증이 남아 있어 운영 체크는 아직 미완료다. [Docker 공식 포트 문서](https://docs.docker.com/engine/network/port-publishing/)에 따르면 Engine 28.0.0 이전에는 localhost 게시 포트가 같은 L2 구간에서 접근 가능할 수 있으므로 운영 Engine 버전도 확인한다.
 
 ## 데이터베이스, backup과 복구
 
@@ -45,8 +67,10 @@ NO-GO는 미확정 외부 운영값과 현재 host 시계·container runtime 상
 - [x] API/worker는 migration 성공 후에만 시작된다.
 - [x] local PostgreSQL 17.11에서 실제 custom `pg_dump`와 `pg_restore`를 수행했다.
 - [x] restore DB의 migration checksum, schema/table set, 모든 table row count를 원본과 비교했다.
+- [x] 합성 복구 드릴에서 서비스 로그인 4개의 `CREATE SCHEMA` 거부를 검사하고 원본 DB ACL의 과잉 `CREATE` grant를 보고서 경고로 기록하도록 구현했다. 운영 원본 ACL 경고 0건과 실제 별도 cluster 실행 결과는 아직 필요하다.
 - [x] duplicate prediction identity/job attempt/published event와 orphan projection이 0임을 확인했다.
 - [x] restore 임시 DB와 dump를 자동 제거했고 종료 후 임시 DB 수가 0이었다.
+- [x] 최신 manifest와 대응하는 로컬 dump의 존재·크기·SHA-256을 health에서 별도로 평가한다. 이 검사는 원격 보관과 PITR 검증을 대체하지 않는다.
 - [ ] 외부 암호화 backup 목적지, 보존, RPO/RTO를 승인했다.
 - [ ] WAL archive/관리형 PITR를 활성화하고 목표 시각 복구를 검증했다.
 - [ ] restore drill 주기와 실패 alert 담당자를 정했다.

@@ -118,6 +118,40 @@ class PredictionAttemptRepository:
         ).scalar_one()
         return cast(UUID, attempt_id)
 
+    def has_eligible_start(
+        self,
+        *,
+        job_id: UUID,
+        variant_id: UUID,
+        window_start: datetime,
+        window_end: datetime,
+    ) -> bool:
+        """Return whether an immutable attempt proves an on-time provider dispatch."""
+
+        return bool(
+            self._connection.execute(
+                text(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1
+                        FROM engine.prediction_attempts
+                        WHERE job_id = :job_id
+                          AND variant_id = :variant_id
+                          AND started_at >= :window_start
+                          AND started_at <= :window_end
+                          AND status NOT IN ('skipped', 'budget_skipped')
+                    )
+                    """
+                ),
+                {
+                    "job_id": job_id,
+                    "variant_id": variant_id,
+                    "window_start": window_start,
+                    "window_end": window_end,
+                },
+            ).scalar_one()
+        )
+
 
 def _database_status(result: PredictionAttemptResult) -> str:
     if result.status is AttemptStatus.SUCCEEDED:

@@ -218,11 +218,23 @@ class PredictionOrchestrator:
         if job_variant != variant_id:
             raise TerminalJobError("variant_identity_mismatch")
 
+        attempt_no = _attempt_no(job)
         with self._transaction() as connection:
             existing = PredictionRepository(connection).find(
                 snapshot_id=snapshot.id,
                 variant_id=variant_id,
                 stage=stage,
+            )
+            prior_eligible_start = attempt_no > 1 and PredictionAttemptRepository(
+                connection
+            ).has_eligible_start(
+                job_id=_job_id(job),
+                variant_id=variant_id,
+                window_start=self._timing.cutoff_at(schedule.scheduled_start_at),
+                window_end=(
+                    self._timing.cutoff_at(schedule.scheduled_start_at)
+                    + self._timing.initial_start_tolerance
+                ),
             )
         if existing is not None:
             return PredictionExecutionOutcome(
@@ -231,11 +243,43 @@ class PredictionOrchestrator:
             )
 
         started_at = self._now()
-        start_is_on_time = self._timing.start_is_on_time(started_at, schedule.scheduled_start_at)
+        deadline = self._timing.deadline_at(
+            schedule.scheduled_start_at,
+            schedule.actual_start_at,
+        )
+        start_is_on_time = self._timing.start_is_on_time(
+            started_at, schedule.scheduled_start_at
+        ) or (attempt_no > 1 and prior_eligible_start and started_at < deadline)
+        if not start_is_on_time:
+            reason = (
+                "initial_start_window_expired"
+                if started_at < deadline and (attempt_no == 1 or not prior_eligible_start)
+                else "prediction_deadline_expired"
+            )
+            with self._transaction() as connection:
+                self._audit_late_discard(
+                    connection,
+                    job=job,
+                    schedule=schedule,
+                    snapshot=snapshot,
+                    variant_key=variant_key,
+                    started_at=started_at,
+                    completed_at=started_at,
+                    reason=reason,
+                )
+            return PredictionExecutionOutcome(
+                ExecutionStatus.LATE_REJECTED,
+                error_code=reason,
+            )
         if isinstance(binding, ProviderBinding):
+            remaining_ms = max(1, int((deadline - started_at).total_seconds() * 1000))
+            timeout_ms = min(
+                int(self._timing.request_timeout.total_seconds() * 1000),
+                remaining_ms,
+            )
             provider_result = binding.provider.predict(
                 PredictionContextV1.from_feature_snapshot(str(snapshot.id), snapshot.snapshot),
-                timeout_ms=int(self._timing.request_timeout.total_seconds() * 1000),
+                timeout_ms=timeout_ms,
                 budget=self._budget_for(job, variant_key, binding, started_at),
             )
             completed_at = self._now()
@@ -597,6 +641,8 @@ class PredictionJobHandler:
             raise RetryableJobError(outcome.error_code or "prediction_retryable_failure")
         if outcome.status is ExecutionStatus.TERMINAL_FAILURE:
             raise TerminalJobError(outcome.error_code or "prediction_terminal_failure")
+        if outcome.status is ExecutionStatus.LATE_REJECTED:
+            raise TerminalJobError(outcome.error_code or "late_response")
         return outcome.job_finalized
 
 
@@ -615,6 +661,13 @@ def _job_id(job: Mapping[str, Any]) -> UUID:
     value = job.get("id")
     if not isinstance(value, UUID):
         raise TerminalJobError("invalid_job_id")
+    return value
+
+
+def _attempt_no(job: Mapping[str, Any]) -> int:
+    value = job.get("attempt_no")
+    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+        raise TerminalJobError("invalid_job_attempt")
     return value
 
 

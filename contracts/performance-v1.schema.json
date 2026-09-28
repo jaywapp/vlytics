@@ -17,7 +17,7 @@
   "properties": {
     "schema_version": { "const": "performance-v1" },
     "generated_at": { "type": "string", "format": "date-time" },
-    "cohort_policy_version": { "const": "performance-cohort-v1" },
+    "cohort_policy_version": { "enum": ["performance-cohort-v1", "performance-cohort-v2"] },
     "metric_versions": {
       "type": "object",
       "additionalProperties": false,

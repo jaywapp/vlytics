@@ -1,6 +1,8 @@
 export type Availability = "available" | "missing" | "not_supported" | "unverified";
+export type MarketAvailability = Availability | "stale" | "late";
 export type Division = "men" | "women";
 export type ProviderStatus = "succeeded" | "failed" | "timed_out" | "budget_skipped" | "missing";
+export type PredictionLifecycleStatus = "published" | "voided" | "superseded" | "late_rejected";
 
 export type RevisionMetadata = {
   schema_version: "vlytics.operator.v1";
@@ -18,7 +20,7 @@ export type TeamSummary = {
 };
 
 export type MarketSummary = {
-  availability: Availability;
+  availability: MarketAvailability;
   source: string | null;
   snapshot_id: string | null;
   quoted_at: string | null;
@@ -50,12 +52,20 @@ export type PredictionOutput = {
 export type ProviderOutcome = {
   provider: string;
   status: ProviderStatus;
+  variant_id: string | null;
   requested_model: string | null;
   resolved_model_id: string | null;
   model_version: string | null;
   prompt_version: string | null;
   generated_at: string | null;
   prediction_revision_id: string | null;
+  attempt_id: string | null;
+  lifecycle_status: PredictionLifecycleStatus | null;
+  schedule_revision_id: string | null;
+  feature_snapshot_id: string | null;
+  feature_version: string | null;
+  input_cutoff_at: string | null;
+  market: MarketSummary;
   output: PredictionOutput | null;
   error_code: string | null;
 };
@@ -110,6 +120,7 @@ export type ScheduleQuery = {
   date: string;
   timezone: "Asia/Seoul";
   division?: Division;
+  cursor?: string;
 };
 
 export interface OperatorApiClient {

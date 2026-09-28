@@ -71,6 +71,7 @@ from vlytics.ops.scheduler import (
 from vlytics.worker import WorkerRuntimeComponents, main
 
 NOW = datetime(2026, 9, 20, 3, tzinfo=UTC)
+A05_ISOLATED_NOW = datetime(2000, 1, 1, tzinfo=UTC)
 PREDICTION_SCHEMA = json.loads(
     (Path(__file__).resolve().parents[3] / "contracts" / "prediction-v1.schema.json").read_text(
         encoding="utf-8"
@@ -695,6 +696,55 @@ def test_concurrent_claim_and_expired_lease_restart_recovery(
         assert [tuple(row) for row in attempts] == [(1, "abandoned", "lease_expired")]
 
 
+def test_owned_lease_renewal_prevents_reclaim_until_extended_expiry(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    engine = create_engine(postgres_role_urls.engine)
+    with engine.begin() as connection:
+        queued = JobRepository(connection).enqueue(
+            job_key=f"lease-renewal-{uuid4()}",
+            job_type="synthetic",
+            payload={},
+            due_at=NOW,
+            deadline_at=NOW + timedelta(minutes=5),
+        )
+        leased = JobRepository(connection).lease_next(
+            lease_owner="worker-1",
+            now=NOW,
+            lease_duration=timedelta(seconds=30),
+        )
+        assert leased is not None
+        assert leased["id"] == queued["id"]
+
+    with engine.begin() as connection:
+        assert JobRepository(connection).renew_lease(
+            job_id=queued["id"],
+            lease_owner="worker-1",
+            now=NOW + timedelta(seconds=20),
+            lease_duration=timedelta(seconds=30),
+        )
+
+    with engine.begin() as connection:
+        assert (
+            JobRepository(connection).lease_next(
+                lease_owner="worker-2",
+                now=NOW + timedelta(seconds=30),
+                lease_duration=timedelta(seconds=30),
+            )
+            is None
+        )
+
+    with engine.begin() as connection:
+        recovered = JobRepository(connection).lease_next(
+            lease_owner="worker-2",
+            now=NOW + timedelta(seconds=50),
+            lease_duration=timedelta(seconds=30),
+        )
+        assert recovered is not None
+        assert recovered["id"] == queued["id"]
+        assert recovered["attempt_no"] == 2
+
+
 def test_replay_freezes_one_snapshot_runs_four_independent_variants_and_never_recalls_success(
     postgres_role_urls: PostgresRoleUrls,
 ) -> None:
@@ -963,6 +1013,7 @@ def test_timed_out_provider_late_thread_cannot_inject_a_prediction(
                 monthly_amount=Decimal("1"),
                 daily_calls=3,
                 monthly_calls=3,
+                max_calls_per_match=3,
             )
         },
         timing=timing,
@@ -992,6 +1043,473 @@ def test_timed_out_provider_late_thread_cannot_inject_a_prediction(
         assert prediction_count == 0
         assert budget_row[0] == budget_row[1]
         assert budget_row[2] is True
+
+
+def test_timeout_retry_can_start_after_initial_window_and_finish_before_deadline(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    scheduled_start = A05_ISOLATED_NOW + timedelta(hours=1)
+    cutoff = scheduled_start - timedelta(minutes=60)
+    match_id, revision_id = _insert_match(
+        postgres_role_urls,
+        scheduled_start_at=scheduled_start,
+    )
+    engine = create_engine(postgres_role_urls.engine)
+    clock = FakeClock(cutoff)
+    variant = _variant(ProviderName.OPENAI)
+    response = _provider_response(ProviderName.OPENAI, variant)
+    transport = FakeProviderTransport()
+
+    def timeout_then_succeed(_: object) -> bytes:
+        if len(transport.invocations) == 1:
+            clock.advance(timedelta(seconds=60))
+            time.sleep(0.05)
+        else:
+            clock.advance(timedelta(seconds=1))
+        return response
+
+    transport.handler = timeout_then_succeed
+    timing = SchedulerTiming(request_timeout=timedelta(milliseconds=10))
+    with engine.begin() as connection:
+        variant_id = _insert_variant(
+            connection,
+            provider="openai",
+            key=variant.variant_id,
+            model=variant.requested_model_id,
+            prompt_hash=PROMPT_TEMPLATE_HASH,
+        )
+        job = JobRepository(connection).enqueue(
+            job_key=f"timeout-retry:{revision_id}",
+            job_type="engine.run_prediction",
+            payload={
+                "match_id": str(match_id),
+                "schedule_revision_id": str(revision_id),
+                "scheduled_start_at": scheduled_start.isoformat(),
+                "actual_start_at": None,
+                "cutoff_at": cutoff.isoformat(),
+                "variant_key": variant.variant_id,
+                "prediction_kind": "provider",
+                "stage": "pregame",
+            },
+            due_at=cutoff,
+            deadline_at=cutoff + timing.completion_grace,
+            match_id=match_id,
+            schedule_revision_id=revision_id,
+            stage="pregame",
+            variant_id=variant_id,
+        )
+    orchestrator = PredictionOrchestrator(
+        engine,
+        snapshot_factory=SnapshotFactory(),
+        statistical={},
+        providers={
+            variant.variant_id: ProviderBinding(
+                variant_id,
+                OpenAIPredictionProvider(variant, transport, PREDICTION_SCHEMA),
+            )
+        },
+        budget=BudgetLedger(Decimal("10")),
+        durable_budget_limits={
+            variant.variant_id: ProviderBudgetLimits(
+                daily_amount=Decimal("1000"),
+                monthly_amount=Decimal("1000"),
+                daily_calls=1000,
+                monthly_calls=1000,
+                max_calls_per_match=2,
+            )
+        },
+        timing=timing,
+        now=clock,
+    )
+    dispatcher = PredictionJobDispatcher(
+        engine,
+        scheduler_handlers(orchestrator),
+        lease_owner=f"timeout-retry-{uuid4()}",
+        timing=timing,
+        max_concurrency=1,
+        now=clock,
+    )
+
+    assert dispatcher.run_once(now=cutoff) == 1
+    with engine.connect() as connection:
+        first_state = connection.execute(
+            text("SELECT state, error_code FROM ops.jobs WHERE id = :job_id"),
+            {"job_id": job["id"]},
+        ).one()
+    assert tuple(first_state) == ("retry_wait", "timeout")
+
+    time.sleep(0.06)
+    clock.advance(timing.retry_delay(1))
+    restarted_orchestrator = PredictionOrchestrator(
+        engine,
+        snapshot_factory=SnapshotFactory(),
+        statistical={},
+        providers={
+            variant.variant_id: ProviderBinding(
+                variant_id,
+                OpenAIPredictionProvider(variant, transport, PREDICTION_SCHEMA),
+            )
+        },
+        budget=BudgetLedger(Decimal("10")),
+        durable_budget_limits={
+            variant.variant_id: ProviderBudgetLimits(
+                daily_amount=Decimal("1000"),
+                monthly_amount=Decimal("1000"),
+                daily_calls=1000,
+                monthly_calls=1000,
+                max_calls_per_match=2,
+            )
+        },
+        timing=timing,
+        now=clock,
+    )
+    restarted_dispatcher = PredictionJobDispatcher(
+        engine,
+        scheduler_handlers(restarted_orchestrator),
+        lease_owner=f"timeout-retry-restarted-{uuid4()}",
+        timing=timing,
+        max_concurrency=1,
+        now=clock,
+    )
+    assert restarted_dispatcher.run_once(now=clock()) == 1
+    with engine.connect() as connection:
+        final_state = connection.execute(
+            text("SELECT state, error_code FROM ops.jobs WHERE id = :job_id"),
+            {"job_id": job["id"]},
+        ).one()
+        prediction_count = connection.execute(
+            text(
+                "SELECT count(*) FROM engine.predictions WHERE schedule_revision_id = :revision_id"
+            ),
+            {"revision_id": revision_id},
+        ).scalar_one()
+        attempt_outcomes = (
+            connection.execute(
+                text(
+                    """
+                SELECT outcome
+                FROM ops.job_attempts
+                WHERE job_id = :job_id
+                ORDER BY attempt_no
+                """
+                ),
+                {"job_id": job["id"]},
+            )
+            .scalars()
+            .all()
+        )
+    assert tuple(final_state) == ("succeeded", None)
+    assert prediction_count == 1
+    assert attempt_outcomes == ["timed_out", "succeeded"]
+    assert len(transport.invocations) == 2
+
+
+def test_manual_retry_inside_initial_window_can_make_first_provider_dispatch(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    scheduled_start = A05_ISOLATED_NOW + timedelta(hours=1)
+    cutoff = scheduled_start - timedelta(minutes=60)
+    first_lease_at = cutoff + timedelta(seconds=5)
+    retry_at = cutoff + timedelta(seconds=10)
+    match_id, revision_id = _insert_match(
+        postgres_role_urls,
+        scheduled_start_at=scheduled_start,
+    )
+    engine = create_engine(postgres_role_urls.engine)
+    variant = _variant(ProviderName.OPENAI)
+    transport = FakeProviderTransport(
+        response_body=_provider_response(ProviderName.OPENAI, variant)
+    )
+    with engine.begin() as connection:
+        variant_id = _insert_variant(
+            connection,
+            provider="openai",
+            key=variant.variant_id,
+            model=variant.requested_model_id,
+            prompt_hash=PROMPT_TEMPLATE_HASH,
+        )
+        job = JobRepository(connection).enqueue(
+            job_key=f"manual-retry-inside-start-window:{revision_id}",
+            job_type="engine.run_prediction",
+            payload={
+                "match_id": str(match_id),
+                "schedule_revision_id": str(revision_id),
+                "scheduled_start_at": scheduled_start.isoformat(),
+                "actual_start_at": None,
+                "cutoff_at": cutoff.isoformat(),
+                "variant_key": variant.variant_id,
+                "prediction_kind": "provider",
+                "stage": "pregame",
+            },
+            due_at=cutoff,
+            deadline_at=cutoff + timedelta(minutes=5),
+            match_id=match_id,
+            schedule_revision_id=revision_id,
+            stage="pregame",
+            variant_id=variant_id,
+        )
+    first = _lease_next(engine, now=first_lease_at, owner="initial-snapshot-failure")
+    assert first["id"] == job["id"]
+    with engine.begin() as connection:
+        assert JobRepository(connection).finish(
+            job_id=first["id"],
+            lease_owner="initial-snapshot-failure",
+            succeeded=False,
+            error_code="snapshot_failed",
+            completed_at=first_lease_at + timedelta(seconds=1),
+        )
+    read_api = create_engine(postgres_role_urls.read_api)
+    with read_api.begin() as connection:
+        outcome = connection.execute(
+            text(
+                """
+                SELECT outcome
+                FROM ops.request_job_retry(
+                    CAST(:job_id AS uuid), :idempotency_key, :requested_at
+                )
+                """
+            ),
+            {
+                "job_id": job["id"],
+                "idempotency_key": f"inside-window-retry:{job['id']}",
+                "requested_at": retry_at,
+            },
+        ).scalar_one()
+    assert outcome == "scheduled"
+
+    clock = FakeClock(retry_at)
+    orchestrator = PredictionOrchestrator(
+        engine,
+        snapshot_factory=SnapshotFactory(),
+        statistical={},
+        providers={
+            variant.variant_id: ProviderBinding(
+                variant_id,
+                OpenAIPredictionProvider(variant, transport, PREDICTION_SCHEMA),
+            )
+        },
+        budget=BudgetLedger(Decimal("10")),
+        now=clock,
+    )
+    dispatcher = PredictionJobDispatcher(
+        engine,
+        scheduler_handlers(orchestrator),
+        lease_owner=f"inside-window-retry-worker-{uuid4()}",
+        max_concurrency=1,
+        now=clock,
+    )
+
+    assert dispatcher.run_once(now=retry_at) == 1
+    with engine.connect() as connection:
+        state = connection.execute(
+            text("SELECT state, error_code FROM ops.jobs WHERE id = :job_id"),
+            {"job_id": job["id"]},
+        ).one()
+        persisted_attempts = connection.execute(
+            text("SELECT count(*) FROM engine.prediction_attempts WHERE job_id = :job_id"),
+            {"job_id": job["id"]},
+        ).scalar_one()
+    assert tuple(state) == ("succeeded", None)
+    assert persisted_attempts == 1
+    assert len(transport.invocations) == 1
+
+
+def test_manual_retry_without_persisted_initial_dispatch_is_quarantined(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    scheduled_start = A05_ISOLATED_NOW + timedelta(hours=1)
+    cutoff = scheduled_start - timedelta(minutes=60)
+    first_lease_at = cutoff + timedelta(seconds=31)
+    retry_at = cutoff + timedelta(seconds=65)
+    match_id, revision_id = _insert_match(
+        postgres_role_urls,
+        scheduled_start_at=scheduled_start,
+    )
+    engine = create_engine(postgres_role_urls.engine)
+    variant = _variant(ProviderName.OPENAI)
+    transport = FakeProviderTransport(
+        response_body=_provider_response(ProviderName.OPENAI, variant)
+    )
+    with engine.begin() as connection:
+        variant_id = _insert_variant(
+            connection,
+            provider="openai",
+            key=variant.variant_id,
+            model=variant.requested_model_id,
+            prompt_hash=PROMPT_TEMPLATE_HASH,
+        )
+        job = JobRepository(connection).enqueue(
+            job_key=f"manual-retry-without-dispatch:{revision_id}",
+            job_type="engine.run_prediction",
+            payload={
+                "match_id": str(match_id),
+                "schedule_revision_id": str(revision_id),
+                "scheduled_start_at": scheduled_start.isoformat(),
+                "actual_start_at": None,
+                "cutoff_at": cutoff.isoformat(),
+                "variant_key": variant.variant_id,
+                "prediction_kind": "provider",
+                "stage": "pregame",
+            },
+            due_at=cutoff,
+            deadline_at=cutoff + timedelta(minutes=5),
+            match_id=match_id,
+            schedule_revision_id=revision_id,
+            stage="pregame",
+            variant_id=variant_id,
+        )
+    first = _lease_next(engine, now=first_lease_at, owner="pre-provider-failure")
+    assert first["id"] == job["id"]
+    with engine.begin() as connection:
+        assert JobRepository(connection).finish(
+            job_id=first["id"],
+            lease_owner="pre-provider-failure",
+            succeeded=False,
+            error_code="snapshot_failed",
+            completed_at=first_lease_at + timedelta(seconds=1),
+        )
+    read_api = create_engine(postgres_role_urls.read_api)
+    with read_api.begin() as connection:
+        outcome = connection.execute(
+            text(
+                """
+                SELECT outcome
+                FROM ops.request_job_retry(
+                    CAST(:job_id AS uuid), :idempotency_key, :requested_at
+                )
+                """
+            ),
+            {
+                "job_id": job["id"],
+                "idempotency_key": f"manual-retry:{job['id']}",
+                "requested_at": retry_at,
+            },
+        ).scalar_one()
+    assert outcome == "scheduled"
+
+    clock = FakeClock(retry_at)
+    orchestrator = PredictionOrchestrator(
+        engine,
+        snapshot_factory=SnapshotFactory(),
+        statistical={},
+        providers={
+            variant.variant_id: ProviderBinding(
+                variant_id,
+                OpenAIPredictionProvider(variant, transport, PREDICTION_SCHEMA),
+            )
+        },
+        budget=BudgetLedger(Decimal("10")),
+        now=clock,
+    )
+    dispatcher = PredictionJobDispatcher(
+        engine,
+        scheduler_handlers(orchestrator),
+        lease_owner=f"manual-retry-worker-{uuid4()}",
+        max_concurrency=1,
+        now=clock,
+    )
+
+    assert dispatcher.run_once(now=retry_at) == 1
+    with engine.connect() as connection:
+        state = connection.execute(
+            text("SELECT state, error_code FROM ops.jobs WHERE id = :job_id"),
+            {"job_id": job["id"]},
+        ).one()
+        persisted_attempts = connection.execute(
+            text("SELECT count(*) FROM engine.prediction_attempts WHERE job_id = :job_id"),
+            {"job_id": job["id"]},
+        ).scalar_one()
+    assert tuple(state) == ("quarantined", "initial_start_window_expired")
+    assert persisted_attempts == 0
+    assert transport.invocations == []
+
+
+def test_retry_starting_at_deadline_is_blocked_before_provider_and_quarantined(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    scheduled_start = A05_ISOLATED_NOW + timedelta(hours=1)
+    cutoff = scheduled_start - timedelta(minutes=60)
+    deadline = cutoff + timedelta(minutes=5)
+    retry_at = cutoff + timedelta(seconds=65)
+    match_id, revision_id = _insert_match(
+        postgres_role_urls,
+        scheduled_start_at=scheduled_start,
+    )
+    engine = create_engine(postgres_role_urls.engine)
+    variant = _variant(ProviderName.OPENAI)
+    transport = FakeProviderTransport(
+        response_body=_provider_response(ProviderName.OPENAI, variant)
+    )
+    with engine.begin() as connection:
+        variant_id = _insert_variant(
+            connection,
+            provider="openai",
+            key=variant.variant_id,
+            model=variant.requested_model_id,
+            prompt_hash=PROMPT_TEMPLATE_HASH,
+        )
+        job = JobRepository(connection).enqueue(
+            job_key=f"deadline-retry:{revision_id}",
+            job_type="engine.run_prediction",
+            payload={
+                "match_id": str(match_id),
+                "schedule_revision_id": str(revision_id),
+                "scheduled_start_at": scheduled_start.isoformat(),
+                "actual_start_at": None,
+                "cutoff_at": cutoff.isoformat(),
+                "variant_key": variant.variant_id,
+                "prediction_kind": "provider",
+                "stage": "pregame",
+            },
+            due_at=cutoff,
+            deadline_at=deadline,
+            match_id=match_id,
+            schedule_revision_id=revision_id,
+            stage="pregame",
+            variant_id=variant_id,
+        )
+    first = _lease_next(engine, now=cutoff, owner="deadline-setup")
+    assert first["id"] == job["id"]
+    with engine.begin() as connection:
+        assert JobRepository(connection).schedule_retry(
+            job_id=first["id"],
+            lease_owner="deadline-setup",
+            retry_at=retry_at,
+            error_code="timeout",
+            now=cutoff,
+        )
+
+    clock = FakeClock(deadline)
+    orchestrator = PredictionOrchestrator(
+        engine,
+        snapshot_factory=SnapshotFactory(),
+        statistical={},
+        providers={
+            variant.variant_id: ProviderBinding(
+                variant_id,
+                OpenAIPredictionProvider(variant, transport, PREDICTION_SCHEMA),
+            )
+        },
+        budget=BudgetLedger(Decimal("10")),
+        now=clock,
+    )
+    dispatcher = PredictionJobDispatcher(
+        engine,
+        scheduler_handlers(orchestrator),
+        lease_owner=f"deadline-worker-{uuid4()}",
+        lease_duration=timedelta(minutes=10),
+        max_concurrency=1,
+        now=clock,
+    )
+
+    assert dispatcher.run_once(now=retry_at) == 1
+    with engine.connect() as connection:
+        state = connection.execute(
+            text("SELECT state, error_code FROM ops.jobs WHERE id = :job_id"),
+            {"job_id": job["id"]},
+        ).one()
+    assert tuple(state) == ("quarantined", "prediction_deadline_expired")
+    assert transport.invocations == []
 
 
 def test_semantic_job_identity_is_unique_even_when_job_keys_differ(
@@ -1087,6 +1605,10 @@ def test_running_job_requires_lease_started_at_and_leasing_populates_it(
 def test_durable_provider_budget_is_atomic_across_workers_and_restart(
     postgres_role_urls: PostgresRoleUrls,
 ) -> None:
+    match_id, revision_id = _insert_match(
+        postgres_role_urls,
+        scheduled_start_at=NOW + timedelta(days=30),
+    )
     engine = create_engine(postgres_role_urls.engine)
     with engine.begin() as connection:
         jobs = [
@@ -1096,14 +1618,18 @@ def test_durable_provider_budget_is_atomic_across_workers_and_restart(
                 payload={},
                 due_at=NOW + timedelta(days=30),
                 deadline_at=NOW + timedelta(days=31),
+                match_id=match_id,
+                schedule_revision_id=revision_id,
+                stage="pregame",
             )
             for _ in range(2)
         ]
     limits = ProviderBudgetLimits(
-        daily_amount=Decimal("1"),
-        monthly_amount=Decimal("1"),
-        daily_calls=1,
-        monthly_calls=1,
+        daily_amount=Decimal("10"),
+        monthly_amount=Decimal("10"),
+        daily_calls=10,
+        monthly_calls=10,
+        max_calls_per_match=1,
     )
     provider_key = f"synthetic-budget-{uuid4()}"
     ledgers = [
@@ -1566,7 +2092,7 @@ def test_worker_entrypoint_builds_default_production_runtime(
         ).one()
         assert row == (
             "statistical",
-            "feature-form-p5-joint-v1",
+            "elo-p5-joint-v2",
             "statistical-joint-v1",
         )
         assert (

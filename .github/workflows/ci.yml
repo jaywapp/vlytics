@@ -69,6 +69,8 @@ jobs:
         env:
           VLYTICS_BACKEND_IMAGE: vlytics-backend:ci
           VLYTICS_FRONTEND_IMAGE: vlytics-frontend:ci
+          VLYTICS_POSTGRES_IMAGE: postgres:17.11-alpine
+          COLLECTOR_DATABASE_URL: postgresql+psycopg://vlytics_collector_login:compose-ci-collector@postgres:5432/vlytics
           MIGRATOR_DATABASE_PASSWORD: compose-ci-migrator
           MIGRATOR_DATABASE_URL: postgresql+psycopg://vlytics_migrator:compose-ci-migrator@postgres:5432/vlytics
           COLLECTOR_DATABASE_PASSWORD: compose-ci-collector
@@ -83,6 +85,14 @@ jobs:
           VLYTICS_ANTHROPIC_API_KEY: compose-ci-disabled
           VLYTICS_GOOGLE_API_KEY: compose-ci-disabled
         run: docker compose -f ../infra/compose.production.yaml config --quiet
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.23.2"
+      - name: Install live browser verification dependencies
+        working-directory: frontend
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
       - name: Smoke test Compose stack, frontend image, and restore
         env:
           POSTGRES_PORT: 55432
@@ -101,6 +111,44 @@ jobs:
           VLYTICS_OPERATOR_AUTH_SECRET: compose-ci-operator
           VLYTICS_READONLY_AUTH_SECRET: compose-ci-readonly
         run: bash ../infra/scripts/ci-compose-smoke.sh
+      - name: Install pinned image evidence scanner
+        run: |
+          mkdir -p "$RUNNER_TEMP/trivy-bin"
+          curl --fail --silent --show-error --location \
+            https://github.com/aquasecurity/trivy/releases/download/v0.74.0/trivy_0.74.0_Linux-64bit.tar.gz \
+            --output "$RUNNER_TEMP/trivy.tar.gz"
+          printf '%s  %s\n' '2ae6fe3ee734b7fdf11335663e18c75ea12dccc76062f09f164a3b0f8be4371a' "$RUNNER_TEMP/trivy.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/trivy.tar.gz" -C "$RUNNER_TEMP/trivy-bin" trivy
+          echo "$RUNNER_TEMP/trivy-bin" >> "$GITHUB_PATH"
+      - name: Record image SBOM and vulnerability gate
+        id: image_scanner
+        run: python ../infra/scripts/collect_image_evidence.py --input ../artifacts/operations/ci-image-inputs.json --output ../artifacts/operations/image-evidence
+      - name: Preserve image evidence
+        if: always() && steps.image_scanner.outcome != 'skipped'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ci-image-evidence
+          path: artifacts/operations/image-evidence/*.json
+          if-no-files-found: error
+          retention-days: 14
+      - name: Preserve gosu build provenance
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gosu-build-provenance
+          path: artifacts/operations/gosu-build-provenance.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Preserve synthetic live browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: synthetic-live-browser-failure
+          path: |
+            frontend/tests/live-e2e/artifacts/test-results/**/error-context.md
+            frontend/tests/live-e2e/artifacts/test-results/**/test-failed-*.png
+          if-no-files-found: ignore
+          retention-days: 3
 
   frontend:
     runs-on: ubuntu-latest
@@ -123,3 +171,18 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Run production-preview end-to-end tests
         run: npm run test:e2e:ci
+  deployment-windows:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.12.5"
+      - run: uv sync --frozen
+      - run: uv run pytest tests/test_deployment_scripts.py tests/test_operational_config.py tests/test_recovery.py

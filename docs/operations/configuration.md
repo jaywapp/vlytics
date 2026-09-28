@@ -39,6 +39,17 @@ VM snapshot만으로 PostgreSQL의 목표 시각 복구를 통과한 것으로 �
 
 운영 접근은 `loopback` 또는 `private_network`만 schema가 허용한다. 운영자 명령에는 별도 인증을 적용하고, 인증 방식은 private network identity, reverse proxy OIDC, mutual TLS 중 배포 환경에서 검증된 방식을 명시한다. public ingress는 이 계약의 선택지가 아니며 별도 결정 없이는 열지 않는다.
 
+### 선택된 운영자 접속 경로 (2026-09-28)
+
+사용자 결정에 따라 운영자 PC의 SSH 로컬 포트 전달을 사용한다. production Compose의 전용 `operator_ingress`만 호스트 `127.0.0.1:${WEB_PORT:-8080}`에 게시하며 내부 `frontend`로 전달한다. `frontend`·API·DB·worker는 `private` 내부망에만 연결한다. 실제 서버·SSH 계정과 키 발급/폐기 절차가 정해지면 아래 자리표시자를 실제 값으로 교체하고, 운영자 인증 401/403/200과 연결 종료 후 접속 차단을 운영 호스트에서 검증한다.
+
+```text
+ssh -N -L 127.0.0.1:8080:127.0.0.1:8080 <ssh-user>@<host>
+```
+
+`worker`는 현재 내부망만 사용해 외부 통신을 차단한다. KOVO와 각 Provider의 목적지·사용 권한·비용 및 속도 제한이 승인되기 전에는 일반 외부 bridge를 worker에 추가하지 않는다. 현재 HTTP 클라이언트는 환경 프록시 자동 사용을 끄므로, 이후 승인 목적지만 허용하는 출구를 구성할 때 클라이언트의 명시적 프록시 연결과 네트워크 차단을 함께 검증해야 한다. 출구가 없는 상태의 합성 CI 성공을 실제 수집·유료 호출 준비 완료로 해석하지 않는다.
+
+
 Raw는 초기에는 private PostgreSQL에 원문·hash를 저장한다. 크기 때문에 object storage로 옮길 때도 private immutable key, DB hash, 복구 절차를 함께 검증한다. `.env`, DB dump, Raw JSON, Provider 원문은 Git에 넣지 않는다.
 
 백업 활성화에는 strategy, 간격, 보관 기간, RPO/RTO를 모두 양수로 채워야 한다. 백업 파일 존재만으로 완료 처리하지 않고 격리된 환경에서 복구 후 schema version·row count·대표 hash를 확인한다. 복구 시험 시각과 결과는 운영 audit에 기록한다.

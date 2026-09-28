@@ -6,13 +6,13 @@ live_operations_enabled = true
 
 [deployment]
 live_enabled = true
-host_class = "single-private-host"
+host_class = "private_single_vm"
 host_provider = "__REQUIRED__"
 host_region = "__REQUIRED__"
 monthly_cost_limit = 0
 cost_currency = "__REQUIRED__"
-network_access = "loopback-or-private-tunnel"
-operator_auth_method = "bearer-secret"
+network_access = "loopback"
+operator_auth_method = "private_network_identity"
 operator_secret_env = "VLYTICS_OPERATOR_AUTH_SECRET"
 clock_sync_required = true
 
@@ -106,6 +106,7 @@ bulk_collection_enabled = false
 permission_policy = "__REQUIRED_BY_OP_001__"
 max_requests_per_minute = 0
 max_concurrency = 0
+scopes = []
 [activation]
 dry_run_evidence_max_age_hours = 24
 dry_run_evidence_max_bytes = 16384
