@@ -4,6 +4,7 @@
 
 ## 최신 조치 상태
 
+- 재점검 R10~R17/P3/복구 ACL: [전체 재점검 보고서](project-reaudit-2026-09-28.md)의 코드·테스트를 `70edfdb`까지 반영했다. [CI 36415836425](https://github.com/jaywapp/vlytics/actions/runs/36415836425) 전체 성공: PostgreSQL 포함 backend 476, frontend 34·fixture browser 9, Windows, production Compose/복구 smoke 및 이미지 gate 통과. 운영 host와 OP-001~004 등 외부 증거는 여전히 미완료다.
 - 최신 통합 후보 `a2a9c3f`: [CI 36401801182](https://github.com/jaywapp/vlytics/actions/runs/36401801182) 전체 성공. PostgreSQL 포함 backend 454 tests, frontend·Windows, 전용 ingress의 loopback-only 게시·API/worker 역할별 기동·same-origin smoke, 동일 복구 DB 재개 및 8개 image 증거 gate를 통과했다. source/Provider 작업은 0건이다. 운영 host의 SSH·NTP·backup/PITR·알림과 OP-001~005는 별도 미완료다.
 - 이전 코드 후보 `7fa9a6d`: [CI 36291809544](https://github.com/jaywapp/vlytics/actions/runs/36291809544) 전체 성공. Backend 439, frontend 32, fixture E2E 9, 실제 browser 1, Windows 34, 재시작 heartbeat, 동일 복구 DB의 API/worker 및 활성 합성 설정의 production 내부 기동을 통과했다. 원본 internal network와 역할별 secret 주입을 유지했고 source/Provider 작업 0건을 확인했다. 이미지 8개의 HIGH/CRITICAL 0건과 보고서 hash 16개를 확인했다. 아래 CI 실패·대기 문구는 이전 실행 이력이다.
 - R01~R06: 코드 `6280185` 및 CI 36289935169에서 전체 성공. Backend 436, Windows 34, 실제 재시작 후 heartbeat export·browser·복구·8개 image gate 확인.

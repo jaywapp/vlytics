@@ -2,11 +2,13 @@
 
 - 판정 기준일: 2026-09-28 (Asia/Seoul); 아래 날짜별 증거는 해당 실행 시점의 기록이다.
 - 현재 보완 대상: `codex/project-audit-20260927`
-- 패키지 판정: **감사 후 production 통합 재검증 / 운영 활성화 NO-GO**
+- 패키지 판정: **재점검 코드 통합 검증 통과 / 운영 활성화 NO-GO**
 
-2026-09-27 전체 감사에서 코드 연결과 복구 누락도 확인했다. [감사 조치 장부](../verification/audit-remediation.md)의 코드 잔여 작업과 외부 운영 게이트를 함께 해소해야 한다. 기존 체크는 당시의 제한된 검증 증거이며 전체 운영 완료를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
+2026-09-27 전체 감사에서 코드 연결과 복구 누락도 확인했다. [감사 조치 장부](../verification/audit-remediation.md)의 코드 조치는 CI에서 검증했고 외부 운영 게이트는 별도로 해소해야 한다. 기존 체크는 당시의 제한된 검증 증거이며 전체 운영 완료를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
 
 ## 코드·통합 검증·운영 증거 구분
+
+[CI 36415836425](https://github.com/jaywapp/vlytics/actions/runs/36415836425)는 재점검 R10~R17/P3/복구 ACL 보완 커밋 `70edfdb`에서 전체 성공했다. PostgreSQL 포함 backend 476 tests, frontend unit 34·fixture browser 9, Windows, production Compose loopback ingress·same-origin smoke, 복구 DB/API/worker 및 8개 image gate를 확인했다. 운영 활성화에 필요한 실제 host·외부 연결·백업/PITR·알림·Provider 정책 증거는 이 결과에 포함되지 않는다.
 
 [CI 36401801182](https://github.com/jaywapp/vlytics/actions/runs/36401801182)는 최신 통합 후보 `a2a9c3f`에서 전체 성공했다. PostgreSQL 포함 backend 454 tests, frontend·Windows, 전용 ingress의 loopback 게시·내부 서비스 격리, 복구한 DB의 API/worker와 이미지 증거 gate를 확인했다. 이 성공은 실제 운영 host의 SSH·NTP·backup/PITR·알림 및 OP-001~005를 대체하지 않는다.
 
@@ -15,10 +17,10 @@
 | 범위 | 코드·합성 통합 증거 | production 연결·live 잔여 |
 |---|---|---|
 | 설정·기동 | 서비스별 secret 검증, config/mount hash, Windows 배포 34 tests, 전용 ingress 정적 패키지 검사 | CI 36401801182의 전용 ingress loopback 접근 통과. 운영 host SSH 경로 검증 |
-| 수집·결과·retry | 동일 worker handler의 transport/planner·pagination·finality·deadline·호출 cap 회귀 | OP-001/003/004 및 실제 소량 source/Provider 실행 |
-| 통계·입력·Market | A08 Elo·B1 검증 입력·A12 Market 생성 연결의 로컬 단위·계약 회귀 | PostgreSQL CI 36401801182 통과. 검증된 KOVO roster/stats와 OP-005 Market adapter 정책 |
-| API·Web | backend 439 tests, frontend 32·fixture E2E 9·실제 Nginx/API/DB browser 1 | 실제 운영 데이터·production 네트워크 성능은 별도 |
-| 복구·감시 | 새 cluster owner/ACL/SCRAM 복구, read-only collector, heartbeat export 및 선택적 HTTPS dispatcher 합성 회귀 | 운영 host NTP/heartbeat 전달·예약 backup/PITR·실제 알림 수신 |
+| 수집·결과·retry | R10~R13의 source 오류 분류·lease 갱신·deadline/HTTP timeout 및 PostgreSQL 작업 회수 회귀 | OP-001/003/004 및 실제 소량 source/Provider 실행 |
+| 통계·입력·Market | A08 Elo·B1 검증 입력·A12 Market 생성 및 R11 예측별 평가 격리의 PostgreSQL 회귀 | PostgreSQL CI 36401801182 통과. 검증된 KOVO roster/stats와 OP-005 Market adapter 정책 |
+| API·Web | CI 36415836425의 backend 476 tests, frontend 34·fixture E2E 9, API threadpool·토큰 구분·응답 검증 회귀 | 실제 운영 데이터·production 네트워크 성능은 별도 |
+| 복구·감시 | 새 cluster owner/ACL/SCRAM·서비스 schema 생성 거부, dump 크기/hash·NTP preflight, heartbeat export 및 선택적 HTTPS dispatcher 회귀 | 운영 host NTP/heartbeat 전달·예약 backup/PITR·실제 알림 수신 |
 | image 보안 | compiler 포함 8개 image SBOM·identity·HIGH/CRITICAL 0건, gosu provenance 검증 | 게시 release digest 및 대상 architecture의 검사·승인 |
 | 조회 성능 | endpoint WHERE/keyset, 22시즌 경기 5,500·예측/평가 각 16,500의 실제 API 지연·Python peak 측정 및 로컬 회귀 budget 충족 | 운영 동시 쓰기·다중 사용자·서버 메모리와 production SLO 검증은 별도 |
 

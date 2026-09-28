@@ -167,3 +167,8 @@ Windows 분기는 W32Time 실행 여부, `w32tm` 종료 코드, 영어 source �
 로컬 통합 검증: backend 전체 pytest 통과(PostgreSQL 관련 항목은 DB URL 부재로 skip), Ruff 전체·format·mypy 83 source file 통과. frontend lint·production build·unit 34개·fixture Playwright 9개 통과. 백업/알림/복구 경계와 신규 평가 PostgreSQL 테스트의 로컬 targeted 회귀는 통과했으며 PostgreSQL 테스트는 CI에서 판정한다. Windows preflight와 복구 드릴 스크립트는 PowerShell parser를 통과했다. 이 결과는 실제 운영 host 검증이 아니다.
 
 운영 활성화 판정은 여전히 **NO-GO**다. 실제 host/SSH/NTP, 승인된 source egress·요청량, Provider 모델·키·예산, 외부 backup/PITR·복구 주기, 알림 수신, roster/statistics 의미·공개 시점, 게시 이미지 digest/대상 아키텍처 증거가 필요하다. 이 항목은 합성 CI나 문서 수정만으로 완료할 수 없다.
+
+
+### 후속 CI 판정
+
+수정 커밋 `70edfdb`의 [CI 36415836425](https://github.com/jaywapp/vlytics/actions/runs/36415836425)가 전체 성공했다. PostgreSQL 포함 backend **476 passed**, frontend lint/typecheck/unit 34·fixture Playwright 9, Windows 배포 검사, production Compose의 loopback ingress·same-origin smoke, 복구한 DB의 API/worker, 8개 image SBOM·취약점 gate를 통과했다. 최초 `ab93d0a` CI 36415206398는 신규 통합 테스트가 공유 DB에 남긴 대기 작업 때문에 기존 KOVO worker 테스트가 다른 작업을 선택하여 실패했다. 테스트 간섭을 `70edfdb`에서 제거하고 위 CI로 재검증했다. 실제 source·Provider·운영 host 증거는 이 실행에 포함되지 않았다.
