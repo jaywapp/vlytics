@@ -25,6 +25,7 @@ from vlytics.engine.market import (
     market_handlers,
     validate_market_snapshot_v1,
 )
+from vlytics.ops.scheduler import TerminalJobError
 from vlytics.worker import DatabaseRuntimeTicker
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -224,6 +225,33 @@ def test_production_handler_keeps_missing_adapter_as_explicit_missing() -> None:
     assert engine.connection.evaluation is not None
     assert engine.connection.evaluation["eligibility"] == EvaluationEligibility.MISSING.value
     assert engine.connection.evaluation["market_snapshot_id"] is None
+
+
+def test_market_handler_quarantines_a_published_prediction_with_invalid_hash() -> None:
+    class _TamperedConnection(_Connection):
+        def execute(
+            self, statement: object, parameters: dict[str, object] | None = None
+        ) -> _Result:
+            if "FROM engine.predictions p" in str(statement):
+                row = _prediction_row()
+                row["prediction_sha256"] = "0" * 64
+                return _Result(row)
+            return super().execute(statement, parameters)
+
+    engine = _Engine()
+    engine.connection = _TamperedConnection()
+    handler = market_handlers(engine)[MARKET_COMPARISON_JOB_TYPE]  # type: ignore[arg-type]
+    job = {
+        "job_type": MARKET_COMPARISON_JOB_TYPE,
+        "payload": {
+            "prediction_id": str(PREDICTION_ID),
+            "evaluator_version": EVALUATOR_VERSION,
+        },
+    }
+
+    with pytest.raises(TerminalJobError, match="ineligible_market_prediction"):
+        handler.handle(job, now=CUTOFF)
+    assert engine.connection.evaluation is None
 
 
 def test_configured_market_adapter_requires_an_explicit_age_policy() -> None:

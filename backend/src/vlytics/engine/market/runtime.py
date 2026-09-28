@@ -21,6 +21,7 @@ from vlytics.engine.market.models import (
 )
 from vlytics.engine.market.repository import MarketEvaluationRepository
 from vlytics.ops.repositories import JobRepository
+from vlytics.ops.scheduler import TerminalJobError
 
 MARKET_COMPARISON_JOB_TYPE = "engine.compare_market"
 _SET_OUTCOMES = ("3:0", "3:1", "3:2", "2:3", "1:3", "0:3")
@@ -306,13 +307,19 @@ class MarketComparisonJobHandler:
 
     def handle(self, job: Mapping[str, Any], *, now: datetime) -> None:
         del now
-        prediction_id = prediction_id_from_market_job(job)
-        with self._engine.begin() as connection:
-            MarketComparisonUnitOfWork(
-                connection,
-                self._adapter_factory(connection),
-                max_age=self._max_age,
-            ).compare_prediction(prediction_id)
+        try:
+            prediction_id = prediction_id_from_market_job(job)
+        except ValueError as error:
+            raise TerminalJobError("invalid_market_comparison_job") from error
+        try:
+            with self._engine.begin() as connection:
+                MarketComparisonUnitOfWork(
+                    connection,
+                    self._adapter_factory(connection),
+                    max_age=self._max_age,
+                ).compare_prediction(prediction_id)
+        except (LookupError, MarketContractError) as error:
+            raise TerminalJobError("ineligible_market_prediction") from error
 
 
 def market_handlers(

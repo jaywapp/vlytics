@@ -146,8 +146,8 @@ R01~R06 마감 로컬 검증: heartbeat/dispatcher/실제 health pipeline 35 tes
 
 - A03: 별도 `operator_ingress`만 내부망과 `operator_access` bridge를 잇고 host `127.0.0.1:${WEB_PORT:-8080}`에 게시한다. frontend·API·DB·worker는 내부망만 사용한다. 정적 배포 패키지 LF/CRLF 회귀 6개와 Bash 구문 검사 통과. 실제 Compose의 network/port 바인딩과 SSH 터널은 CI·운영 host에서 각각 확인한다. worker 출구는 승인 목적지·권한·속도·비용 정책 및 명시적 프록시 경로가 정해지기 전까지 차단한다.
 - A08: statistical runner의 임시 승률 평균을 versioned Elo 재생으로 교체했다. source/division/competition/stage, schedule/result cutoff, 검증된 franchise identity를 제한하고 누락 시 실패한다. 기존 예측은 건드리지 않으며 새 모델 `elo-p5-joint-v2`와 새 variant UUID를 사용한다.
-- A12: 게시 예측마다 Market 비교 job을 영속적으로 생성하고 비교 평가가 저장된 뒤 결과 평가를 예약한다. 기본 어댑터는 `missing`이며 결과 평가가 먼저 실행돼도 동일 트랜잭션에서 missing 비교를 저장한다. 실제 adapter는 OP-005 source/schema/권한과 `max_age`가 버전 식별자에 포함되기 전까지 운영 설정에서 거부한다. 평가 코호트는 `performance-cohort-v2`로 분리했고 이전 v1 대기 작업은 격리한다.
+- A12: 게시 예측마다 Market 비교 job을 영속적으로 생성하고 비교 평가가 저장된 뒤 결과 평가를 예약한다. 기본 어댑터는 `missing`이며 결과 평가가 먼저 실행돼도 동일 트랜잭션에서 missing 비교를 저장한다. 해시가 맞지 않거나 이미 게시되지 않은 예측은 해당 Market 작업만 격리한다. 실제 adapter는 OP-005 source/schema/권한과 `max_age`가 버전 식별자에 포함되기 전까지 운영 설정에서 거부한다. 평가 코호트는 `performance-cohort-v2`로 분리했고 이전 v1 대기 작업은 격리한다.
 - B1: 검증된 schema와 최신 available coverage만 로스터·팀/선수 통계 Feature 입력으로 전달한다. 미검증 KOVO 약어와 공개 시점은 `unverified`/missing으로 유지한다. Feature lineage에는 선택된 revision ID·원문 SHA·roster batch·metric schema가 남지만 coverage row ID/evidence는 현재 `feature-v1` 계약에 없어 직접 저장되지 않는다. 원천 의미 검증과 lineage 확장은 후속 조건이다.
-- 통합 로컬 검사: backend Ruff 전체·format, strict mypy 83 source files, pytest 전체 400 passed/53 skipped 통과. 건너뛴 PostgreSQL 통합 검사는 실제 DB가 있는 CI에서 판정한다. 프런트엔드 코드는 변경하지 않았다. 건너뛴 PostgreSQL 통합 검사는 실제 DB가 있는 CI에서 판정한다. 프런트엔드 코드는 변경하지 않았다.
+- 통합 로컬 검사: backend Ruff 전체·format, strict mypy 83 source files, pytest 전체 401 passed/53 skipped 통과. 건너뛴 PostgreSQL 통합 검사는 실제 DB가 있는 CI에서 판정한다. 프런트엔드 코드는 변경하지 않았다. 건너뛴 PostgreSQL 통합 검사는 실제 DB가 있는 CI에서 판정한다. 프런트엔드 코드는 변경하지 않았다.
 
 이 후보는 코드·합성 검증 결과다. 실제 source·유료 Provider·Market 호출, 운영 호스트 배포·NTP·백업/PITR·알림·릴리스 digest 확인은 수행하지 않았으며 전체 감사 조치 완료로 표시하지 않는다.
