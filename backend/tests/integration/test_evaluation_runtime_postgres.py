@@ -220,8 +220,26 @@ def test_bad_market_prediction_does_not_block_good_result_evaluation(
     evaluation_key = evaluation_job_key(mirror_rows["result"], good_prediction_id)
 
     with engine.begin() as connection:
+        existing_job_ids = set(connection.execute(text("SELECT id FROM ops.jobs")).scalars())
         MarketComparisonJobPlanner(connection).enqueue_pending(now=now, limit=1000)
         EvaluationJobPlanner(connection).enqueue_pending(now=now, limit=1000)
+        # The planners scan the shared test database. Do not leave jobs for other
+        # fixtures' predictions queued and change a later worker poll's selection.
+        for queued_job_id, queued_job_key in connection.execute(
+            text("SELECT id, job_key FROM ops.jobs WHERE state = 'queued'")
+        ):
+            if queued_job_id in existing_job_ids or queued_job_key in {
+                market_key,
+                evaluation_key,
+            }:
+                continue
+            connection.execute(
+                text(
+                    "UPDATE ops.jobs SET state = 'cancelled', updated_at = :now "
+                    "WHERE id = :job_id AND state = 'queued'"
+                ),
+                {"job_id": queued_job_id, "now": now},
+            )
         planned_keys = set(
             connection.execute(
                 text(
