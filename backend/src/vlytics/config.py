@@ -2,6 +2,7 @@
 
 import hmac
 import json
+import math
 import os
 import tomllib
 from collections.abc import Mapping
@@ -60,6 +61,23 @@ class OperationalConfig:
     @property
     def live_operations_enabled(self) -> bool:
         return _boolean(self.values, "live_operations_enabled")
+
+    @property
+    def deployment_profile(self) -> str:
+        deployment = _section(self.values, "deployment")
+        profile = deployment.get("profile", "standard")
+        if not isinstance(profile, str):
+            raise OperationalConfigError("Operational config value 'profile' must be a string")
+        return profile
+
+    @property
+    def enabled_providers(self) -> tuple[str, ...]:
+        ai = _section(self.values, "ai")
+        return tuple(
+            provider_name
+            for provider_name in ("openai", "anthropic", "google")
+            if _boolean(_section(ai, provider_name), "enabled")
+        )
 
 
 def _discover_repository_root() -> Path:
@@ -163,7 +181,18 @@ def _number(parent: Mapping[str, object], name: str) -> float:
 
 
 def _is_placeholder(value: str) -> bool:
-    return value in _PLACEHOLDERS or not value.strip()
+    normalized = value.strip().upper()
+    return (
+        normalized in _PLACEHOLDERS
+        or not normalized
+        or (normalized.startswith("__") and normalized.endswith("__"))
+    )
+
+
+def _apply_contract_defaults(config: JsonObject) -> None:
+    deployment = config.get("deployment")
+    if isinstance(deployment, dict):
+        deployment.setdefault("profile", "standard")
 
 
 def _format_schema_error(error: object) -> str:
@@ -189,7 +218,8 @@ def _require_secret_reference(
     environ: Mapping[str, str],
 ) -> None:
     variable_name = _string(section, field)
-    if not environ.get(variable_name):
+    secret_value = environ.get(variable_name)
+    if not secret_value or _is_placeholder(secret_value):
         errors.append(f"{path}.{field} references missing environment variable {variable_name}")
 
 
@@ -201,10 +231,6 @@ def _validate_provider(
     *,
     require_secret: bool = True,
 ) -> None:
-    if not _boolean(provider, "enabled"):
-        errors.append(f"ai.{provider_name}.enabled must be true when live AI calls are enabled")
-        return
-
     _require_configured(errors, provider, "model_id", f"ai.{provider_name}")
     _require_configured(errors, provider, "pinned_model_version", f"ai.{provider_name}")
     if require_secret:
@@ -301,7 +327,14 @@ def _validate_cross_fields(
 
     if _boolean(ai, "live_calls_enabled"):
         _require_configured(errors, ai, "budget_currency", "ai")
-        for provider_name in ("openai", "anthropic", "google"):
+        enabled_providers = [
+            provider_name
+            for provider_name in ("openai", "anthropic", "google")
+            if _boolean(_section(ai, provider_name), "enabled")
+        ]
+        if not enabled_providers:
+            errors.append("ai must enable at least one provider when live AI calls are enabled")
+        for provider_name in enabled_providers:
             _validate_provider(
                 errors,
                 provider_name,
@@ -309,6 +342,11 @@ def _validate_cross_fields(
                 environ,
                 require_secret=component != "api",
             )
+        pricing_to_budget_rate = ai.get("pricing_to_budget_rate")
+        if pricing_to_budget_rate is not None:
+            rate = _number(ai, "pricing_to_budget_rate")
+            if not math.isfinite(rate) or rate <= 0:
+                errors.append("ai.pricing_to_budget_rate must be a positive finite number")
 
     if _boolean(source, "bulk_collection_enabled"):
         _require_configured(errors, source, "permission_policy", "source")
@@ -335,6 +373,8 @@ def validate_operational_config(
     With no component, validate the complete deployment including host-managed
     backup and alert credentials. Process startup must not receive unrelated keys.
     """
+
+    _apply_contract_defaults(config)
 
     try:
         Draft202012Validator.check_schema(schema)

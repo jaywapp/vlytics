@@ -154,6 +154,7 @@ class ProviderVariant:
     output_cost_per_million: Decimal
     enabled: bool
     op003_resolved: bool
+    pricing_currency: str = "USD"
 
     def __post_init__(self) -> None:
         text_fields = (
@@ -174,8 +175,20 @@ class ProviderVariant:
             raise ValueError("provider token limits must not be negative")
         if self.operational and (self.max_input_tokens == 0 or self.max_output_tokens == 0):
             raise ValueError("operational provider token limits must be positive")
-        if self.input_cost_per_million < 0 or self.output_cost_per_million < 0:
+        if (
+            not self.input_cost_per_million.is_finite()
+            or not self.output_cost_per_million.is_finite()
+            or self.input_cost_per_million < 0
+            or self.output_cost_per_million < 0
+        ):
             raise ValueError("provider prices must not be negative")
+        if (
+            len(self.pricing_currency) != 3
+            or not self.pricing_currency.isascii()
+            or not self.pricing_currency.isalpha()
+            or not self.pricing_currency.isupper()
+        ):
+            raise ValueError("provider pricing currency must be an uppercase ISO 4217 code")
         if self.operational and self.version_policy is VersionPolicy.UNCONFIGURED:
             raise ValueError("operational provider version_policy must be configured")
         if (

@@ -1,10 +1,11 @@
 # Vlytics 운영 Release Checklist
 
-- 판정 기준일: 2026-09-28 (Asia/Seoul); 아래 날짜별 증거는 해당 실행 시점의 기록이다.
-- 현재 보완 대상: `codex/project-audit-20260927`
-- 패키지 판정: **재점검 코드 통합 검증 통과 / 운영 활성화 NO-GO**
+- 현재 결정 기준일: 2026-09-30 (Asia/Seoul); 아래 날짜별 증거는 해당 실행 시점의 역사적 기록이다.
+- 현재 보완 대상: `codex/home-server-operations`
+- 사용자 판정: **개인 홈 운영 시작 GO**
+- 기술 판정: **홈 서버 실측·source 권한·egress·선택 Provider smoke 증거 대기**
 
-2026-09-27 전체 감사에서 코드 연결과 복구 누락도 확인했다. [감사 조치 장부](../verification/audit-remediation.md)의 코드 조치는 CI에서 검증했고 외부 운영 게이트는 별도로 해소해야 한다. 기존 체크는 당시의 제한된 검증 증거이며 전체 운영 완료를 뜻하지 않는다. 실제 배포·유료 Provider·KOVO network·공개 접근 변경은 수행하지 않았다.
+2026-09-27 전체 감사에서 코드 연결과 복구 누락도 확인했다. [감사 조치 장부](../verification/audit-remediation.md)의 코드 조치는 CI에서 검증했고 외부 운영 게이트는 별도로 해소해야 한다. 기존 체크는 당시의 제한된 검증 증거이며 전체 운영 완료를 뜻하지 않는다. 2026-09-30 사용자는 `personal_home` + `dedicated_private_machine`, LAN/SSH 전용, OpenAI 월 10,000원(KRW), 무기한 보관, backup/PITR·외부 알림 없음과 데이터 유실 수용 조건으로 배포 시작을 승인했다. 이 GO는 실제 배포·유료 호출·KOVO 권한이나 host 검증이 이미 성공했다는 뜻이 아니다.
 
 ## 코드·통합 검증·운영 증거 구분
 
@@ -31,14 +32,18 @@
 | Gate | 현재 상태 | 활성화 전 필수 증거 | 판정 |
 | --- | --- | --- | --- |
 | OP-001 source 접근 | 허용 요청량·정책 미확정, bulk collection false | 출처·결정일·분당 요청·동시성·429 정책 | 차단 |
-| OP-002 host/backup/alert | host·region·비용·backup/PITR·alert 목적지 미확정 | 계약/비용, RPO/RTO, 외부 backup, restore 주기, 실제 alert test | 차단 |
-| OP-003 Provider | 실제 model/version·통화·일/월 예산·key 미확정 | 세 Provider별 pinned ID/version, token/call/금액 cap, 소량 실제 smoke ID | 차단 |
-| OP-004 live timing | 합성 replay 통과, 실제 소량 source/Provider dry-run 없음 | 활성 config hash와 일치하는 source sync·freeze·3 Provider evidence | 차단 |
+| OP-002 홈 host | `personal_home` + `dedicated_private_machine`, LAN/SSH 전용, 유료 host 없음 결정 완료. 실제 장비 사실 미검증 | Docker/Compose·UTC clock·디스크·재시작·SSH tunnel·외부 비공개·인증 경계 | 기술 증거 대기 |
+| OP-002 backup/alert | 홈 프로필에서 둘 다 비활성, 데이터 유실 수용 | 비활성 설정 확인. 외부 backup/PITR·alert 시험은 필수 아님 | 홈 프로필 허용 |
+| OP-003 Provider | OpenAI만 월 10,000원(KRW), Anthropic·Google 비활성 결정 완료. `pinned_model_version` placeholder, `registry.openai.op003_resolved = false`, 실제 계정·resolved version·환율 미검증 | OpenAI smoke의 requested/resolved ID와 검증 가능한 version, token/call cap, USD 가격과 양수 `ai.pricing_to_budget_rate`, KRW 정산 | 기술 증거 대기 |
+| OP-004 live timing | 합성 replay 통과, 실제 소량 source/OpenAI dry-run 없음 | 활성 config hash와 일치하는 source sync·freeze·선택 Provider evidence | 차단 |
 | OP-005 Market | 실제 adapter 없음 | `missing` 상태 명시 | 허용 |
-| Host clock | 2026-09-20 로컬 관측은 `W32Time` Stopped/Manual. 운영 host 증거 없음 | NTP service Running, 동기화 source/offset 확인 및 alert | 차단 |
+| Worker egress | 사용자 직접 승인 후 [generic relay와 OpenAI 홈 배선](openai-egress-proposal.md) 구현 완료. 현재 OpenAI-only, worker private-only | 홈 서버에서 exact `api.openai.com:443` CONNECT, relay health/dependency, private worker, host port 비게시 실측 | 실서버 증거 대기 |
+| Host clock | 2026-09-20 개발 PC 관측은 `W32Time` Stopped/Manual. 홈 운영 host 증거 없음 | 운영 host의 시간 동기화 service, source/offset 확인 | 차단 |
 | Container runtime | 로컬 Docker/Podman CLI 없음 | 운영 host에서 backend/frontend digest pull, frontend 다단계 build, `docker compose config`와 same-origin smoke | 차단 |
 
-`infra/operational.production.example.toml`, `infra/.env.example`, `infra/live-dry-run-evidence.example.json`은 위 항목을 placeholder/0/false로 남겨 preflight가 성공할 수 없게 한다. 값을 임의로 채워 통과시키지 않는다.
+기존 `infra/operational.production.example.toml`, `infra/.env.example`, `infra/live-dry-run-evidence.example.json`은 표준 프로필의 placeholder/0/false 게이트를 유지한다. 홈 운영은 별도 `infra/operational.home.example.toml`, `infra/.env.home.example`, `infra/compose.home.yaml`, `config/variants.home.toml`을 사용하고 `-Profile personal_home`을 명시한다. 홈 예시는 `ai.pricing_to_budget_rate`와 `activation.provider_registry_sha256`을 주석 placeholder로, model version과 OP-003 resolved 상태를 미검증값으로 남긴다. 검토한 값과 실제 smoke 없이 임의로 채워 통과시키지 않는다.
+
+홈 host는 Docker Compose 2.33.1 이상이어야 한다. Provider relay의 전용 외부망 `gw_priority: 1`과 worker의 `service_healthy` 의존성을 실제 rendered config에서 검사하고, 내부망이 기본 gateway가 되는 구성은 거부한다. [Compose gateway priority 기준](https://docs.docker.com/reference/compose-file/services/#gw_priority)을 확인한다.
 
 ## Security와 접근
 
@@ -59,9 +64,11 @@
 - [ ] operator/readonly secret을 생성하고 401/403/200 경계를 운영 host에서 확인했다.
 - [ ] private tunnel/VPN 경로와 접근자·폐기 절차를 기록했다.
 
-운영자 화면 접속 방식은 사용자 인터뷰에서 SSH 로컬 포트 전달로 결정했다. 운영자 PC의 로컬 포트에서 서버의 `127.0.0.1:${WEB_PORT:-8080}`으로 전달한다. 전용 진입 프록시가 이 포트와 내부 frontend를 잇고, frontend·API·DB·worker는 내부망에만 둔다. worker의 외부 통신은 승인 목적지와 출구 경로가 준비되기 전까지 차단한다. 실제 서버·SSH 접근 주체·키 발급/폐기, production Compose의 CI 및 host 접속 검증이 남아 있어 운영 체크는 아직 미완료다. [Docker 공식 포트 문서](https://docs.docker.com/engine/network/port-publishing/)에 따르면 Engine 28.0.0 이전에는 localhost 게시 포트가 같은 L2 구간에서 접근 가능할 수 있으므로 운영 Engine 버전도 확인한다.
+운영자 화면 접속 방식은 사용자 인터뷰에서 SSH 로컬 포트 전달로 결정했다. 운영자 PC의 로컬 포트에서 서버의 `127.0.0.1:${WEB_PORT:-8080}`으로 전달한다. 전용 진입 프록시가 이 포트와 내부 frontend를 잇고, frontend·API·DB·worker는 내부망에만 둔다. 사용자 직접 승인 후 OpenAI relay와 worker proxy·홈 Compose 배선은 저장소에 구현됐다. `ProviderEgress.ps1`은 enabled set과 exact relay/key/proxy/provider/network/dependency 일치를 검사한다. 실제 서버에서 TLS-opaque 목적지, DNS/idle/header/connection 제한, host port 비게시를 실측해야 하며 key·호출·배포는 아직 수행하지 않았다. [Docker 공식 포트 문서](https://docs.docker.com/engine/network/port-publishing/)에 따르면 Engine 28.0.0 이전에는 localhost 게시 포트가 같은 L2 구간에서 접근 가능할 수 있으므로 운영 Engine 버전도 확인한다.
 
-## 데이터베이스, backup과 복구
+## 데이터베이스와 조건부 backup·복구
+
+아래 `[x]`는 배포 패키지의 복구 기능을 검증한 역사적 증거다. 홈 프로필은 backup/PITR를 비활성화하고 데이터 유실 위험을 수용하므로 74~76의 외부 backup 항목은 현재 활성화 게이트가 아니다. backup을 켜거나 표준/공개 프로필로 전환할 때 다시 필수로 적용한다.
 
 - [x] migration은 health한 PostgreSQL 뒤 일회성 service로 실행된다.
 - [x] API/worker는 migration 성공 후에만 시작된다.
@@ -71,9 +78,9 @@
 - [x] duplicate prediction identity/job attempt/published event와 orphan projection이 0임을 확인했다.
 - [x] restore 임시 DB와 dump를 자동 제거했고 종료 후 임시 DB 수가 0이었다.
 - [x] 최신 manifest와 대응하는 로컬 dump의 존재·크기·SHA-256을 health에서 별도로 평가한다. 이 검사는 원격 보관과 PITR 검증을 대체하지 않는다.
-- [ ] 외부 암호화 backup 목적지, 보존, RPO/RTO를 승인했다.
-- [ ] WAL archive/관리형 PITR를 활성화하고 목표 시각 복구를 검증했다.
-- [ ] restore drill 주기와 실패 alert 담당자를 정했다.
+- [ ] 조건부: backup 활성 프로필에서 외부 암호화 목적지, 보존, RPO/RTO를 승인했다.
+- [ ] 조건부: backup 활성 프로필에서 WAL archive/관리형 PITR와 목표 시각 복구를 검증했다.
+- [ ] 조건부: backup 활성 프로필에서 restore drill 주기와 실패 alert 담당자를 정했다.
 
 ## Source, worker와 재시작
 
@@ -83,26 +90,31 @@
 - [x] T-60, 초기 30초, 완료 grace 300초, 경기 시작 이후 거부 계약이 고정됐다.
 - [ ] OP-001 승인 한도로 소량 source sync를 실제 dry-run했다.
 - [ ] 활성 config hash와 일치하고 설정된 유효기간 안에 있는 OP-004 evidence를 생성했으며 worker의 read-only 경로에 마운트했다.
+- [ ] 최종 `config/variants.home.toml` 원문 SHA-256과 `activation.provider_registry_sha256`이 일치하며, registry hash를 포함한 config hash로 evidence를 생성했다.
 - [ ] 운영 host에서 worker 재시작 후 중복 0, lease 회수, coverage 전진을 확인했다.
 
-## Provider, 비용과 알림
+## Provider, 비용과 조건부 알림
 
 - [x] budget reservation/settlement가 DB에 영속되고 unknown timeout은 보수적으로 청구된다.
 - [x] Provider 하나의 timeout/refusal/schema 오류가 다른 Provider 결과를 취소하지 않는다.
 - [x] 예산 초과 시 해당 호출을 fail-closed하는 계약을 검증했다.
-- [ ] GPT·Claude·Gemini의 실제 pinned model/version과 pricing 출처를 기록했다.
-- [ ] 통화, 일/월 금액·호출·token cap을 승인했다.
-- [ ] source/coverage, Provider, budget, deadline, DB/backup/PITR, clock alert 목적지를 실제 시험했다.
-- [ ] API/worker/DB healthcheck 실패와 재기동 alert를 시험했다.
+- [ ] 선택된 OpenAI의 실제 requested/resolved model ID와 검증 가능한 resolved version, 운영 직전 pricing 출처를 기록했다. alias와 응답 ID가 같아 version을 검증하지 못하면 `VERSION_UNVERIFIED`와 strict cohort 보류를 기록했다.
+- [ ] `ai.budget_currency = "KRW"`, 월 10,000원, 호출·token cap, USD 가격을 KRW에 연결하는 양수 `ai.pricing_to_budget_rate`를 기록했다.
+- [ ] source/coverage, OpenAI, budget, deadline, DB와 clock을 실제 시험했다.
+- [ ] Anthropic·Gemini가 비활성이고 해당 key를 요구하지 않는지 확인했다.
+- [ ] 현재 enabled set이 OpenAI 하나이고 `openai_egress`/`openai_access`/OpenAI key·fixed proxy·health dependency만 존재하며 비활성 Provider 흔적이 없는지 확인했다.
+- [ ] 향후 Provider 전환·병행 시 새 사용자 결정, 해당 Provider key·budget·model/version·registry hash·fresh exact-subset evidence와 월 10,000원 합계 cap을 확인했다.
+- [ ] 가격·전역 cap·variant 변경 시 이전 registry/config hash와 dry-run evidence를 폐기하고 모두 다시 생성했다.
+- [ ] 조건부: 알림 활성 프로필에서 healthcheck 실패와 재기동 alert를 시험했다. 홈 프로필에서는 비활성 설정만 확인한다.
 
 ## Release와 rollback
 
-- [ ] 이전/new backend·frontend image digest, Node/Nginx base digest, config hash, migration checksum, backup hash를 release 기록에 남겼다.
+- [ ] 이전/new backend·frontend image digest, Node/Nginx base digest, config hash와 migration checksum을 release 기록에 남겼다. backup 활성 프로필만 backup hash를 추가한다.
 - [ ] preflight가 placeholder, exact dry-run evidence, image, compose, clock을 모두 통과했다.
 - [ ] migration → API → frontend → worker 순서와 각 health를 확인했다.
 - [ ] frontend-only rollback을 이전 digest로 수행하고 SPA 및 same-origin API를 확인했다.
 - [ ] schema 하위 호환 app rollback을 시험했다.
-- [ ] forward-only migration rollback은 전체 restore/PITR로 수행하는 절차를 시험했다.
+- [ ] 조건부: backup 활성 프로필에서 forward-only migration rollback을 전체 restore/PITR로 시험했다. 홈 프로필은 복구 불가·데이터 유실 수용 사실을 릴리스 기록에 남긴다.
 - [ ] `docker compose down -v`를 운영 절차와 자동화에서 배제했다.
 
 ## 2026-09-20 검증 증거
@@ -168,4 +180,4 @@ restore report는 `artifacts/operations/`에 생성되며 Git에서 제외된다
 
 ## 최종 Go/No-Go
 
-운영 패키지 자체는 reviewable하고 restore 가능하다. **실제 활성화는 NO-GO**다. OP-001~004, host NTP, external backup/PITR, alert 목적지, pinned backend/frontend/base images와 운영 host frontend build·compose·same-origin smoke가 모두 완료된 뒤 이 체크리스트를 새 날짜로 다시 실행한다. Market `missing`만은 UC-005 C에 따라 Go 판단을 막지 않는다.
+운영 패키지 자체와 과거 합성 복구 증거는 reviewable하다. 사용자는 선택한 홈 프로필의 배포 시작을 **GO**로 승인했다. 기술 활성화는 OP-001 이용 근거·요청량, 홈 host 시간/Docker/SSH/네트워크, 승인 image digest, 홈 Compose·same-origin smoke, 선택된 OpenAI의 model/가격/환율·예산 cap과 소량 dry-run이 확인될 때 진행한다. 외부 backup/PITR·알림과 Anthropic·Gemini는 홈 프로필의 필수조건이 아니다. 표준/공개 프로필에서는 해당 게이트를 다시 적용한다. Market `missing`은 UC-005 C에 따라 Go 판단을 막지 않는다.

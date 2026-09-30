@@ -85,6 +85,8 @@ jobs:
           VLYTICS_ANTHROPIC_API_KEY: compose-ci-disabled
           VLYTICS_GOOGLE_API_KEY: compose-ci-disabled
         run: docker compose -f ../infra/compose.production.yaml config --quiet
+      - name: Validate home Provider isolation and Compose configuration
+        run: pwsh -NoProfile -File ../infra/scripts/Test-DeploymentPackage.ps1 -Profile personal_home
       - uses: actions/setup-node@v4
         with:
           node-version: "22.23.2"

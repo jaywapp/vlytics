@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import tomllib
 from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
@@ -19,6 +20,8 @@ class VariantRegistry:
     budget_resolved: bool
     daily_budget_amount: Decimal
     monthly_budget_amount: Decimal
+    budget_currency: str = "USD"
+    content_sha256: str | None = None
 
     def __post_init__(self) -> None:
         if self.schema_version != "1":
@@ -30,8 +33,20 @@ class VariantRegistry:
             raise ValueError("provider variant registry must contain exactly three providers")
         if any(variant.prompt_hash != PROMPT_TEMPLATE_HASH for variant in self.variants):
             raise ValueError("provider variant prompt hash does not match the rendered prompt")
-        if self.daily_budget_amount < 0 or self.monthly_budget_amount < 0:
+        if (
+            not self.daily_budget_amount.is_finite()
+            or not self.monthly_budget_amount.is_finite()
+            or self.daily_budget_amount < 0
+            or self.monthly_budget_amount < 0
+        ):
             raise ValueError("provider budgets must not be negative")
+        if (
+            len(self.budget_currency) != 3
+            or not self.budget_currency.isascii()
+            or not self.budget_currency.isalpha()
+            or not self.budget_currency.isupper()
+        ):
+            raise ValueError("provider budget currency must be an uppercase ISO 4217 code")
         if self.budget_resolved and (
             self.daily_budget_amount == 0 or self.monthly_budget_amount == 0
         ):
@@ -39,12 +54,21 @@ class VariantRegistry:
 
     @property
     def live_ready(self) -> bool:
-        return self.budget_resolved and all(variant.operational for variant in self.variants)
+        enabled = tuple(variant for variant in self.variants if variant.enabled)
+        return (
+            self.budget_resolved
+            and bool(enabled)
+            and all(variant.operational for variant in enabled)
+        )
+
+    @property
+    def enabled_variants(self) -> tuple[ProviderVariant, ...]:
+        return tuple(variant for variant in self.variants if variant.enabled)
 
 
 def load_variant_registry(path: Path) -> VariantRegistry:
-    with path.open("rb") as stream:
-        document = tomllib.load(stream)
+    raw = path.read_bytes()
+    document = tomllib.loads(raw.decode("utf-8"))
     raw_variants = document.get("variants")
     if not isinstance(raw_variants, list):
         raise ValueError("provider variant registry requires [[variants]] entries")
@@ -62,6 +86,8 @@ def load_variant_registry(path: Path) -> VariantRegistry:
             budget.get("monthly_amount"),
             "budget.monthly_amount",
         ),
+        budget_currency=_optional_currency(budget.get("currency"), "budget.currency"),
+        content_sha256=hashlib.sha256(raw).hexdigest(),
     )
 
 
@@ -115,6 +141,10 @@ def _parse_variant(value: Any) -> ProviderVariant:
             document.get("op003_resolved"),
             "variant.op003_resolved",
         ),
+        pricing_currency=_optional_currency(
+            document.get("pricing_currency"),
+            "variant.pricing_currency",
+        ),
     )
 
 
@@ -146,6 +176,23 @@ def _decimal(value: Any, name: str) -> Decimal:
     if not isinstance(value, str):
         raise ValueError(f"{name} must be a decimal string")
     try:
-        return Decimal(value)
+        parsed = Decimal(value)
     except InvalidOperation as error:
         raise ValueError(f"{name} must be a decimal string") from error
+    if not parsed.is_finite():
+        raise ValueError(f"{name} must be a finite decimal string")
+    return parsed
+
+
+def _optional_currency(value: Any, name: str) -> str:
+    if value is None:
+        return "USD"
+    currency = _string(value, name)
+    if (
+        len(currency) != 3
+        or not currency.isascii()
+        or not currency.isalpha()
+        or not currency.isupper()
+    ):
+        raise ValueError(f"{name} must be an uppercase ISO 4217 code")
+    return currency

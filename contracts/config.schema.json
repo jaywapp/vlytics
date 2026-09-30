@@ -90,6 +90,40 @@
               }
             }
           },
+          "ai": {
+            "properties": {
+              "live_calls_enabled": {
+                "const": true
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "live_operations_enabled": {
+            "const": true
+          },
+          "deployment": {
+            "properties": {
+              "profile": {
+                "const": "standard"
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "live_operations_enabled",
+          "deployment"
+        ]
+      },
+      "then": {
+        "properties": {
           "backup": {
             "properties": {
               "enabled": {
@@ -103,11 +137,48 @@
                 "const": true
               }
             }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "live_operations_enabled": {
+            "const": true
           },
-          "ai": {
+          "deployment": {
             "properties": {
-              "live_calls_enabled": {
-                "const": true
+              "profile": {
+                "const": "personal_home"
+              }
+            },
+            "required": [
+              "profile"
+            ]
+          }
+        },
+        "required": [
+          "live_operations_enabled",
+          "deployment"
+        ]
+      },
+      "then": {
+        "properties": {
+          "deployment": {
+            "properties": {
+              "host_class": {
+                "const": "dedicated_private_machine"
+              },
+              "monthly_cost_limit": {
+                "type": "number",
+                "minimum": 0
+              },
+              "network_access": {
+                "enum": [
+                  "loopback",
+                  "private_network"
+                ]
               }
             }
           }
@@ -166,6 +237,13 @@
         "clock_sync_required"
       ],
       "properties": {
+        "profile": {
+          "enum": [
+            "standard",
+            "personal_home"
+          ],
+          "default": "standard"
+        },
         "live_enabled": {
           "type": "boolean"
         },
@@ -242,10 +320,6 @@
               "host_region": {
                 "$ref": "#/$defs/configuredString"
               },
-              "monthly_cost_limit": {
-                "type": "number",
-                "exclusiveMinimum": 0
-              },
               "cost_currency": {
                 "$ref": "#/$defs/currencyCode"
               },
@@ -261,6 +335,30 @@
                   "reverse_proxy_oidc",
                   "mutual_tls"
                 ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "live_enabled": {
+                "const": true
+              },
+              "profile": {
+                "const": "standard"
+              }
+            },
+            "required": [
+              "live_enabled",
+              "profile"
+            ]
+          },
+          "then": {
+            "properties": {
+              "monthly_cost_limit": {
+                "type": "number",
+                "exclusiveMinimum": 0
               }
             }
           }
@@ -428,6 +526,10 @@
           "type": "string",
           "minLength": 1
         },
+        "pricing_to_budget_rate": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
         "openai": {
           "$ref": "#/$defs/provider"
         },
@@ -454,27 +556,6 @@
             "properties": {
               "budget_currency": {
                 "$ref": "#/$defs/currencyCode"
-              },
-              "openai": {
-                "properties": {
-                  "enabled": {
-                    "const": true
-                  }
-                }
-              },
-              "anthropic": {
-                "properties": {
-                  "enabled": {
-                    "const": true
-                  }
-                }
-              },
-              "google": {
-                "properties": {
-                  "enabled": {
-                    "const": true
-                  }
-                }
               }
             }
           }
@@ -798,6 +879,10 @@
           "type": "integer",
           "minimum": 1024,
           "maximum": 1048576
+        },
+        "provider_registry_sha256": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{64}$"
         }
       }
     }

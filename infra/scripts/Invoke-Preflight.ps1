@@ -3,14 +3,19 @@ param(
     [Parameter(Mandatory = $true)][string]$EnvironmentFile,
     [Parameter(Mandatory = $true)][string]$OperationalConfig,
     [Parameter(Mandatory = $true)][string]$DryRunEvidence,
-    [string]$ComposeFile
+    [string]$ComposeFile,
+    [ValidateSet("standard", "personal_home")][string]$Profile = "standard"
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
 . (Join-Path $PSScriptRoot "DeploymentPaths.ps1")
+. (Join-Path $PSScriptRoot "ProviderEgress.ps1")
 
-if ([string]::IsNullOrWhiteSpace($ComposeFile)) { $ComposeFile = Join-Path $PSScriptRoot "..\compose.production.yaml" }
+if ([string]::IsNullOrWhiteSpace($ComposeFile)) {
+    $composeName = if ($Profile -eq "personal_home") { "compose.home.yaml" } else { "compose.production.yaml" }
+    $ComposeFile = Join-Path $PSScriptRoot "..\$composeName"
+}
 
 function Read-EnvironmentFile {
     param([string]$Path)
@@ -158,6 +163,13 @@ $required = @(
     "VLYTICS_LIVE_DRY_RUN_EVIDENCE_FILE", "VLYTICS_OPERATIONAL_CONFIG_FILE",
     "VLYTICS_PROVIDER_REGISTRY_FILE", "VLYTICS_SOURCE_REGISTRY_FILE"
 )
+if ($Profile -eq "personal_home") {
+    # The typed validator below must confirm this profile and each enabled feature.
+    $optionalHomeValues = @("VLYTICS_BACKUP_CREDENTIAL", "VLYTICS_ALERT_DESTINATION",
+        "VLYTICS_OPENAI_API_KEY", "VLYTICS_ANTHROPIC_API_KEY", "VLYTICS_GOOGLE_API_KEY")
+    $required = @($required | Where-Object { $_ -notin $optionalHomeValues })
+}
+
 foreach ($name in $required) {
     if (-not $values.ContainsKey($name) -or [string]::IsNullOrWhiteSpace($values[$name])) {
         throw "Required deployment value is missing: $name"
@@ -189,7 +201,7 @@ foreach ($binding in $registryBindings) {
 $configSha256 = (Get-FileHash -LiteralPath $OperationalConfig -Algorithm SHA256).Hash.ToLowerInvariant()
 $evidenceSha256 = (Get-FileHash -LiteralPath $DryRunEvidence -Algorithm SHA256).Hash.ToLowerInvariant()
 $configText = Get-Content -LiteralPath $OperationalConfig -Raw -Encoding UTF8
-if ($configText -match '__(REQUIRED|REQUIRED_BY_OP_[0-9]+)__|=\s*"unconfigured"') {
+if ($Profile -eq "standard" -and $configText -match '__(REQUIRED|REQUIRED_BY_OP_[0-9]+)__|=\s*"unconfigured"') {
     throw "Operational config still contains an activation placeholder."
 }
 
@@ -212,6 +224,7 @@ try {
     $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
     $schemaPath = Join-Path $repositoryRoot "contracts\config.schema.json"
     $pythonProgram = @"
+import json
 import os
 import sys
 from pathlib import Path
@@ -233,15 +246,18 @@ settings = Settings(
     source_registry_path=Path(os.environ["VLYTICS_SOURCE_REGISTRY_FILE"]),
 )
 config = load_operational_config(settings, environ=os.environ)
+if config.values["deployment"]["profile"] != sys.argv[4]:
+    raise ValueError("Preflight profile must match operational deployment profile")
 load_live_dry_run_evidence(config, settings.live_dry_run_evidence_path)
 if config.live_operations_enabled:
     build_live_provider_plan(config, load_variant_registry(settings.provider_registry_path), environ=os.environ)
 if config.values["source"]["bulk_collection_enabled"]:
     load_kovo_parser(settings.source_registry_path, scopes_from_operational_config(config))
+print(json.dumps(list(config.enabled_providers)))
 "@
     Push-Location (Join-Path $repositoryRoot "backend")
     try {
-        & uv run --frozen python -c $pythonProgram ([System.IO.Path]::GetFullPath($OperationalConfig)) $schemaPath ([System.IO.Path]::GetFullPath($DryRunEvidence))
+        $runtimeValidationOutput = & uv run --frozen python -c $pythonProgram ([System.IO.Path]::GetFullPath($OperationalConfig)) $schemaPath ([System.IO.Path]::GetFullPath($DryRunEvidence)) $Profile
         if ($LASTEXITCODE -ne 0) {
             throw "Operational config or exact OP-004 dry-run evidence validation failed."
         }
@@ -261,6 +277,8 @@ if config.values["source"]["bulk_collection_enabled"]:
         throw "docker compose config validation failed."
     }
     $rendered = ($renderedJson -join [Environment]::NewLine) | ConvertFrom-Json
+    [string[]]$enabledProviders = ConvertFrom-Json -InputObject ($runtimeValidationOutput -join "")
+    if ($Profile -eq "personal_home") { Assert-HomeProviderEgress $rendered $enabledProviders }
     foreach ($serviceName in @("api", "worker", "migrate")) {
         $service = $rendered.services.PSObject.Properties[$serviceName].Value
         foreach ($binding in @(

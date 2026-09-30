@@ -11,13 +11,15 @@ POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
 
 
 @pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+@pytest.mark.parametrize("profile", ["standard", "personal_home"])
 @pytest.mark.parametrize("newline", ["\n", "\r\n"], ids=["LF", "CRLF"])
-def test_package_validator_accepts_checkout_newlines(tmp_path, newline):
+def test_package_validator_accepts_checkout_newlines(tmp_path, newline, profile):
     files = [
         "infra/scripts/Test-DeploymentPackage.ps1",
         "infra/scripts/Backup-Database.ps1",
         "infra/scripts/Invoke-RestoreDrill.ps1",
         "infra/scripts/Invoke-Preflight.ps1",
+        "infra/scripts/ProviderEgress.ps1",
         "infra/postgres-init/001-create-migrator.sql",
         "infra/compose.production.yaml",
         "infra/.env.example",
@@ -27,6 +29,9 @@ def test_package_validator_accepts_checkout_newlines(tmp_path, newline):
         "infra/nginx.operator-ingress.conf",
         "frontend/.dockerignore",
         "contracts/config.schema.json",
+        "infra/compose.home.yaml",
+        "infra/.env.home.example",
+        "infra/operational.home.example.toml",
     ]
     for relative in files:
         destination = tmp_path / relative
@@ -40,6 +45,8 @@ def test_package_validator_accepts_checkout_newlines(tmp_path, newline):
             "-NoProfile",
             "-File",
             str(tmp_path / "infra/scripts/Test-DeploymentPackage.ps1"),
+            "-Profile",
+            profile,
         ],
         capture_output=True,
         text=True,
@@ -79,6 +86,129 @@ def test_preflight_rejects_a_different_compose_mount(tmp_path):
         ],
         capture_output=True,
         text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+def test_home_package_rejects_standard_config():
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-File",
+            str(ROOT / "infra/scripts/Test-DeploymentPackage.ps1"),
+            "-Profile",
+            "personal_home",
+            "-OperationalConfig",
+            str(ROOT / "infra/operational.production.example.toml"),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
+        check=False,
+    )
+    assert result.returncode != 0
+    assert "Package profile must match" in result.stderr
+
+
+@pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")
+def test_home_preflight_requires_isolated_reviewed_egress(tmp_path):
+    script = tmp_path / "egress-guard.ps1"
+    script.write_text(
+        "param($Preflight)\n"
+        "Set-StrictMode -Version 2.0\n"
+        "$tokens = $null; $parseErrors = $null\n"
+        "$ast = [System.Management.Automation.Language.Parser]::ParseFile("
+        "$Preflight, [ref]$tokens, [ref]$parseErrors)\n"
+        "if ($parseErrors.Count -ne 0) { throw 'Preflight parse failure' }\n"
+        "$function = $ast.Find({ param($node) "
+        "$node -is [System.Management.Automation.Language.FunctionDefinitionAst] "
+        "-and $node.Name -eq 'Assert-HomeProviderEgress' }, $true)\n"
+        "Invoke-Expression $function.Extent.Text\n"
+        "$json = @'\n"
+        '{"services":{"worker":{"image":"test-backend",'
+        '"environment":{"VLYTICS_OPENAI_PROXY_URL":'
+        '"http://openai_egress:8081","VLYTICS_OPENAI_API_KEY":"synthetic-key"},'
+        '"networks":{"private":{}},'
+        '"depends_on":{"openai_egress":{"condition":"service_healthy"}}},'
+        '"openai_egress":{"image":"test-backend",'
+        '"command":["python","-m","vlytics.ops.provider_egress"],'
+        '"environment":{"VLYTICS_EGRESS_BIND":"0.0.0.0:8081",'
+        '"VLYTICS_EGRESS_PROVIDER":"openai"},'
+        '"networks":{"private":{},"openai_access":{"gw_priority":1}},'
+        '"healthcheck":{"test":["CMD","python","-c","pass"]}}},'
+        '"networks":{"private":{"internal":true},"openai_access":{"driver":"bridge"}}}\n'
+        "'@\n"
+        "Assert-HomeProviderEgress ($json | ConvertFrom-Json)\n"
+        "foreach ($case in @('missing', 'proxy', 'worker_network', 'port', 'wrong_provider', "
+        "'relay_secret', 'disabled_provider', 'missing_key', 'private_egress', "
+        "'dependency', 'health', 'mount', 'gateway', 'private_gateway')) {\n"
+        "  $rendered = $json | ConvertFrom-Json\n"
+        "  switch ($case) {\n"
+        "    'missing' { $rendered.services.PSObject.Properties.Remove('openai_egress') }\n"
+        "    'proxy' { $rendered.services.worker.environment.VLYTICS_OPENAI_PROXY_URL = "
+        "'http://unreviewed:8081' }\n"
+        "    'worker_network' { $rendered.services.worker.networks | "
+        "Add-Member NoteProperty openai_access ([pscustomobject]@{}) }\n"
+        "    'port' { $rendered.services.openai_egress | "
+        "Add-Member NoteProperty ports @('8081:8081') }\n"
+        "    'wrong_provider' { $rendered.services.openai_egress.environment."
+        "VLYTICS_EGRESS_PROVIDER = 'anthropic' }\n"
+        "    'relay_secret' { $rendered.services.openai_egress.environment | "
+        "Add-Member NoteProperty VLYTICS_OPENAI_API_KEY 'synthetic-key' }\n"
+        "    'disabled_provider' { $rendered.services.worker.environment | "
+        "Add-Member NoteProperty VLYTICS_GOOGLE_PROXY_URL 'http://google_egress:8081' }\n"
+        "    'missing_key' { $rendered.services.worker.environment.PSObject.Properties."
+        "Remove('VLYTICS_OPENAI_API_KEY') }\n"
+        "    'private_egress' { $rendered.networks.private.internal = $false }\n"
+        "    'dependency' { $rendered.services.worker.depends_on.openai_egress.condition = "
+        "'service_started' }\n"
+        "    'health' { $rendered.services.openai_egress.healthcheck | "
+        "Add-Member NoteProperty disable $true }\n"
+        "    'mount' { $rendered.services.openai_egress | "
+        "Add-Member NoteProperty volumes @('/private:/run/private:ro') }\n"
+        "    'gateway' {\n"
+        "      $rendered.services.openai_egress.networks.openai_access.gw_priority = 0\n"
+        "    }\n"
+        "    'private_gateway' { $rendered.services.openai_egress.networks.private | "
+        "Add-Member NoteProperty gw_priority 2 }\n"
+        "  }\n"
+        "  $rejected = $false\n"
+        "  try { Assert-HomeProviderEgress $rendered } catch { $rejected = $true }\n"
+        "  if (-not $rejected) { throw ('Unsafe egress accepted: ' + $case) }\n"
+        "}\n"
+        "$multi = $json | ConvertFrom-Json\n"
+        "$other = ($json | ConvertFrom-Json).services.openai_egress\n"
+        "$other.environment.VLYTICS_EGRESS_PROVIDER = 'anthropic'\n"
+        "$other.networks = [pscustomobject]@{ private = [pscustomobject]@{}; "
+        "anthropic_access = [pscustomobject]@{ gw_priority = 1 } }\n"
+        "$multi.services | Add-Member NoteProperty anthropic_egress $other\n"
+        "$multi.services.worker.depends_on | Add-Member NoteProperty anthropic_egress "
+        "([pscustomobject]@{ condition = 'service_healthy' })\n"
+        "$multi.networks | Add-Member NoteProperty anthropic_access "
+        "([pscustomobject]@{ driver = 'bridge' })\n"
+        "$multi.services.worker.environment | Add-Member NoteProperty "
+        "VLYTICS_ANTHROPIC_PROXY_URL 'http://anthropic_egress:8081'\n"
+        "$multi.services.worker.environment | Add-Member NoteProperty "
+        "VLYTICS_ANTHROPIC_API_KEY 'synthetic-key-two'\n"
+        "Assert-HomeProviderEgress $multi @('openai', 'anthropic')\n",
+        encoding="utf-8",
+    )
+    result = subprocess.run(
+        [
+            POWERSHELL,
+            "-NoProfile",
+            "-File",
+            str(script),
+            str(ROOT / "infra/scripts/ProviderEgress.ps1"),
+        ],
+        capture_output=True,
+        text=True,
+        encoding="utf-8",
+        errors="replace",
         check=False,
     )
     assert result.returncode == 0, result.stderr

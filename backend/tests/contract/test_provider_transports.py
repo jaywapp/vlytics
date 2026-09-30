@@ -11,6 +11,7 @@ from typing import Any
 import httpx
 import pytest
 
+import vlytics.engine.providers.transports as transport_module
 from vlytics.engine.providers import (
     AnthropicProviderTransport,
     GoogleProviderTransport,
@@ -291,3 +292,158 @@ def test_production_factory_fails_closed_when_secret_is_missing() -> None:
             environ={},
             prediction_schema={"type": "object"},
         )
+
+
+def _proxy_plan(*names: ProviderName) -> LiveProviderPlan:
+    return LiveProviderPlan(
+        budget_currency="USD",
+        providers=tuple(
+            RuntimeProviderPlan(
+                variant=_variant(name),
+                api_key_env=f"TEST_{name.value.upper()}_KEY",
+                daily_budget=Decimal("1"),
+                monthly_budget=Decimal("10"),
+                max_calls_per_match=1,
+                daily_call_limit=10,
+                monthly_call_limit=100,
+            )
+            for name in names
+        ),
+    )
+
+
+@pytest.fixture
+def recorded_clients(monkeypatch):
+    calls = []
+    clients = []
+    real_client = httpx.Client
+
+    def create(**kwargs):
+        calls.append(kwargs)
+        client = real_client(
+            transport=httpx.MockTransport(lambda _: httpx.Response(200, content=b"{}")),
+            trust_env=False,
+            follow_redirects=False,
+        )
+        clients.append(client)
+        return client
+
+    monkeypatch.setattr(transport_module.httpx, "Client", create)
+    yield calls
+    for client in clients:
+        client.close()
+
+
+@pytest.mark.parametrize("name", list(ProviderName))
+def test_each_provider_uses_its_own_explicit_proxy_without_env_or_tls_overrides(
+    name,
+    recorded_clients,
+):
+    proxy = f"http://{name.value}_egress:8081"
+    providers = build_live_prediction_providers(
+        _proxy_plan(name),
+        environ={
+            f"TEST_{name.value.upper()}_KEY": API_KEY,
+            f"VLYTICS_{name.value.upper()}_PROXY_URL": proxy,
+        },
+        prediction_schema={"type": "object"},
+    )
+    assert recorded_clients == [{"proxy": proxy, "trust_env": False, "follow_redirects": False}]
+    body = {} if name is ProviderName.GOOGLE else {"model": MODEL_IDS[name]}
+    assert providers[0].transport.send(_invocation(name, body)) == b"{}"
+    assert API_KEY not in repr(providers[0].transport)
+    assert proxy not in repr(providers[0].transport)
+
+
+@pytest.mark.parametrize("name", list(ProviderName))
+@pytest.mark.parametrize(
+    "invalid_proxy",
+    [
+        "",
+        "http://external.example:8081",
+        "http://user:proxy-secret@openai_egress:8081",
+        "https://openai_egress:8081",
+        "http://openai_egress:8081/path",
+        "http://openai_egress:9999",
+    ],
+)
+def test_active_provider_rejects_unreviewed_proxy_without_leaking_values(
+    name,
+    invalid_proxy,
+    recorded_clients,
+):
+    with pytest.raises(ValueError, match="invalid internal proxy") as caught:
+        build_live_prediction_providers(
+            _proxy_plan(name),
+            environ={
+                f"TEST_{name.value.upper()}_KEY": API_KEY,
+                f"VLYTICS_{name.value.upper()}_PROXY_URL": invalid_proxy,
+            },
+            prediction_schema={"type": "object"},
+        )
+    assert recorded_clients == []
+    for private_value in (API_KEY, "proxy-secret", "external.example"):
+        assert private_value not in str(caught.value)
+
+
+@pytest.mark.parametrize("name", list(ProviderName))
+def test_provider_cannot_borrow_another_providers_proxy(name, recorded_clients):
+    other = next(value for value in ProviderName if value is not name)
+    with pytest.raises(ValueError, match="invalid internal proxy"):
+        build_live_prediction_providers(
+            _proxy_plan(name),
+            environ={
+                f"TEST_{name.value.upper()}_KEY": API_KEY,
+                f"VLYTICS_{name.value.upper()}_PROXY_URL": f"http://{other.value}_egress:8081",
+            },
+            prediction_schema={"type": "object"},
+        )
+    assert recorded_clients == []
+
+
+def test_disabled_provider_proxy_values_are_ignored_and_client_factory_remains_compatible(
+    recorded_clients,
+):
+    factory_calls = []
+
+    def create(name):
+        factory_calls.append(name)
+        return httpx.Client()
+
+    build_live_prediction_providers(
+        _proxy_plan(ProviderName.OPENAI),
+        environ={
+            "TEST_OPENAI_KEY": API_KEY,
+            "VLYTICS_ANTHROPIC_PROXY_URL": "http://external.example:8081",
+            "VLYTICS_GOOGLE_PROXY_URL": "malformed",
+        },
+        prediction_schema={"type": "object"},
+        client_factory=create,
+    )
+    assert factory_calls == [ProviderName.OPENAI]
+    assert recorded_clients == [{}]
+
+
+def test_direct_clients_ignore_process_proxy_environment(monkeypatch, recorded_clients):
+    monkeypatch.setenv("HTTPS_PROXY", "http://external.example:8081")
+    build_live_prediction_providers(
+        _proxy_plan(ProviderName.OPENAI),
+        environ={"TEST_OPENAI_KEY": API_KEY},
+        prediction_schema={"type": "object"},
+    )
+    assert recorded_clients == [{"trust_env": False, "follow_redirects": False}]
+
+
+def test_invalid_later_provider_is_rejected_before_any_client_is_created(recorded_clients):
+    with pytest.raises(ValueError, match="invalid internal proxy"):
+        build_live_prediction_providers(
+            _proxy_plan(ProviderName.OPENAI, ProviderName.ANTHROPIC),
+            environ={
+                "TEST_OPENAI_KEY": API_KEY,
+                "TEST_ANTHROPIC_KEY": API_KEY,
+                "VLYTICS_OPENAI_PROXY_URL": "http://openai_egress:8081",
+                "VLYTICS_ANTHROPIC_PROXY_URL": "http://external.example:8081",
+            },
+            prediction_schema={"type": "object"},
+        )
+    assert recorded_clients == []

@@ -1,6 +1,6 @@
 # 구현 작업 계획
 
-작성일: 2026-09-20 · 최종 감사일: 2026-09-27 · 상태: 모듈 구현 증거 보존, production 통합 재검증 진행
+작성일: 2026-09-20 · 최종 감사일: 2026-09-27 · 운영 결정 갱신: 2026-09-30 · 상태: 사용자 홈 운영 GO, 실제 host·외부 연동 기술 검증 진행
 
 ## 적용 기준과 시작점
 
@@ -16,6 +16,9 @@
 - OP-001~004·006: 구현 시 근거/값을 채워야 하는 항목. 해당 실데이터·유료 호출·live 작업만 차단한다.
 - OP-005: 실제 Market adapter 연결에만 필요. 기본 missing adapter와 합성 계약은 지금 구현한다.
 - UC-010: 공개 서비스 재개 시에만 검토한다. 개인용 MVP의 선행 조건이 아니다.
+- 2026-09-30 운영 프로필: `personal_home` + `dedicated_private_machine`, LAN/SSH 전용, 유료 host 없음, 데이터 무기한 보관, backup/PITR·외부 알림 없음과 유실 위험 수용.
+- 활성 AI: OpenAI만 월 10,000원(KRW). Anthropic·Gemini는 비활성이고 홈 운영의 key·smoke 필수조건이 아니다. 실제 account/model·가격·`ai.pricing_to_budget_rate`는 기술 검증 대기다.
+- KOVO는 개인 분석 전용이지만 권리·요청량·필드 의미는 미확인이다. 사용자 GO가 source permission이나 worker egress를 해제하지 않는다.
 
 | 결정 | 반영 작업 |
 |---|---|
@@ -89,9 +92,9 @@ flowchart TD
 
 **Dependencies:** 없음; 소스 요청 정책은 TASK-001 결과 반영
 
-**Scope:** 상시 호스트 후보·인증·백업/복구·알림을 정리하고 비용이 드는 선택만 사용자와 확정한다. 각 Provider의 실제 model ID와 버전·일/월 예산·토큰/호출 한도를 기록한다. T-60 기준 짧은 grace, 요청 timeout·재시도·완료 deadline, 최종 결과 안정화와 정정 재조회 기간을 수치화한다. 미설정 값은 실운영 시작 시 fail-fast하며 T-10을 기본값으로 넣지 않는다.
+**Scope:** 선택된 홈 상시 host와 인증을 정리하고 `personal_home` 프로필을 표준/공개 프로필과 분리한다. 홈 프로필에서는 backup/PITR·외부 알림을 비활성 선택으로 허용하고 데이터 유실 수용을 기록한다. 선택된 OpenAI의 실제 model ID와 버전·일/월 KRW 예산·USD 가격 환산 계수·token/호출 한도를 기록하며 비활성 Provider 값을 요구하지 않는다. T-60 기준 짧은 grace, 요청 timeout·재시도·완료 deadline, 최종 결과 안정화와 정정 재조회 기간을 수치화한다. 활성 기능의 미설정 값만 fail-fast하며 T-10을 기본값으로 넣지 않는다.
 
-**Files:** `docs/operations/configuration.md`, `contracts/config.schema.json`, `config/example.toml`
+**Files:** `docs/operations/configuration.md`, `contracts/config.schema.json`, `config/example.toml`, `infra/operational.home.example.toml`, `config/variants.home.toml`
 
 **Validation:** OP-002·003·004별 값·출처·결정일·검증 방법이 존재한다. 예시 설정은 가짜 키만 사용하고 실제 secret은 외부 저장소에서 주입한다. grace가 경기 시작을 넘을 수 없는 검증을 정의한다.
 
@@ -99,7 +102,7 @@ flowchart TD
 
 **Reason:** 운영 비용과 시점 공정성의 영향을 함께 검토해야 한다.
 
-**실행 조건:** 실제 호스트 비용·활성 모델·예산·시간 정책 미설정은 해당 운영 활성화만 차단. UC 선택을 다시 묻지 않음.
+**실행 조건:** 사용자 GO와 홈 프로필 선택은 완료. 실제 host 사실, source permission/egress, OpenAI account/model·가격·양수 `ai.pricing_to_budget_rate`와 dry-run이 해당 기능 활성화만 차단한다. 같은 선택을 다시 묻지 않음.
 
 ## TASK-003 — 정식 프로젝트와 검증 환경 구성
 
@@ -251,11 +254,11 @@ flowchart TD
 
 **Dependencies:** TASK-007, TASK-009; 점수 역량 연결은 TASK-010
 
-**Scope:** 공통 PredictionProvider와 세 adapter, 구조화 출력·요청/응답 원문 해시·모델 버전·사용량·지연을 구현한다. 검색/도구/Market 입력을 차단한다. 소수 고정 variant를 사용하고 AI 확률과 통계 기반 파생분포의 출처를 구분한다. Refusal/timeout/잘못된 합·NaN/alias drift는 별도 실패 상태다.
+**Scope:** 공통 PredictionProvider와 세 adapter를 보존하되 runtime은 설정에서 선택한 Provider만 생성한다. 홈 프로필은 OpenAI만 활성화하며 Anthropic·Gemini key를 요구하지 않는다. 구조화 출력·요청/응답 원문 해시·모델 버전·사용량·지연을 구현하고 USD 가격을 양수 `ai.pricing_to_budget_rate`로 KRW 예산에 환산한다. smoke 전 version/OP-003 unresolved를 fail-closed하고, alias와 응답 ID가 같아 resolved version을 검증하지 못하면 `VERSION_UNVERIFIED`로 strict cohort에서 격리한다. 최종 provider registry 원문 SHA-256을 config와 evidence에 결합한다. 검색/도구/Market 입력을 차단한다. 소수 고정 variant를 사용하고 AI 확률과 통계 기반 파생분포의 출처를 구분한다. Refusal/timeout/잘못된 합·NaN/alias drift는 별도 실패 상태다.
 
-**Files:** `backend/src/vlytics/engine/providers/`, `contracts/prediction-v1.schema.json`, `config/variants.toml`, `backend/tests/contract/test_providers.py`
+**Files:** `backend/src/vlytics/engine/providers/`, `contracts/prediction-v1.schema.json`, `config/variants.toml`, `config/variants.home.toml`, `backend/tests/contract/test_providers.py`
 
-**Validation:** 가짜 세 adapter에 동일 Snapshot/hash 전달, 한 Provider 실패 중 다른 결과 유지, 비용 cap, 무효 JSON 거부. 유효한 실제 설정 후 소량 smoke test의 요청 ID·모델 ID·사용량 기록. 과거 호출 결과를 예측력 증거로 사용하지 않음.
+**Validation:** 가짜 세 adapter에 동일 Snapshot/hash 전달, 한 Provider 실패 중 다른 결과 유지, 비용 cap, 무효 JSON 거부. 홈 live plan은 `pinned_model_version`/OP-003 resolved, raw registry SHA-256과 config hash/evidence 일치를 검사한다. 유효한 실제 설정 후 소량 smoke test의 요청 ID·requested/resolved model ID·검증 가능한 version·사용량을 기록한다. version을 검증하지 못한 결과는 strict cohort에서 제외한다. 과거 호출 결과를 예측력 증거로 사용하지 않음.
 
 **Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
@@ -413,17 +416,17 @@ flowchart TD
 
 **Dependencies:** TASK-002, TASK-017
 
-**Scope:** API/worker/DB 배포 설정·비공개 접근·secret 주입·백업 복구·시계 동기화·예산 초과·업그레이드/롤백 절차를 작성한다. 운영 활성화 전 설정 장부와 완전성 체크를 수행한다. 비용이 드는 리소스 생성이나 실제 배포 승인은 완성된 산출물에 대해 마지막에 받는다.
+**Scope:** 기존 standard 배포의 세 Provider·backup/PITR·alert 요구사항을 보존하고 별도 홈 Compose/env/TOML/variant를 제공한다. `-Profile personal_home`을 명시한 preflight에서만 backup/PITR·alert·비활성 Provider 예외를 적용하고 config profile 일치와 OpenAI-only를 검증한다. API/worker/DB 비공개 접근·역할별 secret·시계 동기화·KRW 예산·업그레이드/제한된 rollback 절차를 작성한다. 사용자 직접 승인에 따라 [Provider egress 구현](../operations/openai-egress-proposal.md)의 generic single-provider relay, Provider별 fixed proxy와 전용 외부망, enabled-set exact-subset 검사를 구현한다. 현재 홈 Compose에는 OpenAI relay/network/key/proxy/dependency만 연결하고 worker는 private-only로 유지한다. 키는 마지막에 넣고 source permission/실서버 egress/host dry-run을 별도 기술 게이트로 유지한다.
 
 **Files:** `infra/`, `docs/operations/runbook.md`, `docs/operations/release-checklist.md`
 
-**Validation:** 같은 이미지 API/worker 기동, DB migration·복구 drill, 재시작 후 중복 없음, 실전 dry-run 시점 검증, 알림 목적지·예산·coverage 확인. 공개 배포나 수익화를 수행하지 않음.
+**Validation:** 홈 Compose에서 같은 이미지 API/worker 기동, DB migration, 재시작 후 중복 없음, LAN/SSH와 외부 비공개, 실전 dry-run 시점, OpenAI KRW 예산·coverage를 확인한다. model smoke 전 placeholder/unresolved 차단, alias-only `VERSION_UNVERIFIED`, raw registry SHA-256 불일치 차단, 가격·전역 cap·variant 변경 뒤 config hash/evidence 재생성을 검증한다. `ProviderEgress.ps1`이 enabled set과 exact relay/key/proxy/provider/network/dependency를 맞추고 비활성 Provider 흔적을 거부하는지 확인한다. 현재 Anthropic·Gemini는 비활성이며, 향후 전환·병행에는 새 사용자 결정과 Provider별 설정·key·budget·model/version·registry hash·fresh evidence가 필요하고 전체 registry budget은 월 10,000원 이하여야 한다. 표준/공개 프로필의 기존 엄격한 복구·알림 게이트는 유지한다. 공개 배포나 수익화를 수행하지 않음.
 
 **Agent:** Codex · **Model:** `gpt-5.6-sol` · **Reasoning Level:** High
 
 **Reason:** 운영 재현성과 복구 검증을 실제 환경에서 수행한다.
 
-**실행 조건:** Blocked By: OP-001~004의 적용 조건과 필요한 실운영 접근 정보. UC-005 C의 missing은 허용.
+**실행 조건:** 사용자 GO 완료. Blocked By: OP-001 이용 근거·요청량, 실제 홈 host/SSH/egress, OP-003 OpenAI 계정·model·가격·환율과 OP-004 dry-run 증거. UC-005 C의 missing은 허용.
 
 ## 최종 인수 조건
 
@@ -435,7 +438,7 @@ flowchart TD
 | 통계와 AI 평가 | 같은 경기 기준선·n·확률 점수·세트 RPS·Calibration·짝비교 |
 | 네 예측 역량 | 공동 점수 분포와 모든 target의 합성 라인 정산 증거 |
 | Market 예외 | 실 schema 없으면 missing, 후행 비교 계약·fixture는 완성 |
-| 개인용 접근과 복구 | 인증·시크릿 외부 주입·백업 복구·상시 worker 재기동 |
+| 개인 홈 운영 | LAN/SSH 전용, 인증·역할별 시크릿 외부 주입, backup/PITR·알림 비활성 확인, 데이터 유실 수용 기록, 상시 worker 재기동 |
 | 변경 검증 | 빌드·계약·DB 통합·시간 재생·브라우저 검증 보고서 |
 
 과거 Elo 점수나 특정 개막일은 고정 합격 기준이 아니다. 실제 모델 성능과 live 가동 성과는 외부 운영 게이트가 해제된 뒤 측정한다. TASK-001~020의 구현 완료는 계약·코드·합성 fixture·clean PostgreSQL 재생·브라우저 흐름·운영 패키지의 검증으로 판정하며 세부 증거는 MVP 보고서와 감사 조치 장부를 함께 확인한다. 모듈 구현, production 연결, 합성 통합, live 검증을 각각 판정한다.
