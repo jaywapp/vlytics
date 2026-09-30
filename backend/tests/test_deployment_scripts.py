@@ -1,13 +1,54 @@
 """Run the package checker against both checkout newline styles."""
 
+import re
 import shutil
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
+from vlytics.config import Settings, load_operational_config
+from vlytics.ops.scheduler import load_live_dry_run_evidence
+
 ROOT = Path(__file__).resolve().parents[2]
 POWERSHELL = shutil.which("pwsh") or shutil.which("powershell")
+
+
+def test_internal_compose_fixture_evidence_matches_worker_configuration(tmp_path):
+    smoke = (ROOT / "infra/scripts/ci-production-internal-smoke.sh").read_text(encoding="utf-8")
+    config_match = re.search(r'cat > "\$operational_config" <<\'TOML\'\n(.*?)\nTOML', smoke, re.S)
+    generator_match = re.search(
+        r'python3 - "\$operational_config" "\$dry_run_evidence" <<\'PY\'\n(.*?)\nPY',
+        smoke,
+        re.S,
+    )
+    assert config_match is not None
+    assert generator_match is not None
+    config_path = tmp_path / "operational.toml"
+    evidence_path = tmp_path / "evidence.json"
+    config_path.write_text(config_match.group(1), encoding="utf-8")
+    subprocess.run(
+        [sys.executable, "-c", generator_match.group(1), str(config_path), str(evidence_path)],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    config = load_operational_config(
+        Settings(
+            operational_config_path=config_path,
+            operational_schema_path=ROOT / "contracts/config.schema.json",
+        ),
+        environ={
+            "VLYTICS_DATABASE_URL": "postgresql://engine@localhost/synthetic",
+            "VLYTICS_OPENAI_API_KEY": "synthetic-openai-never-sent",
+            "VLYTICS_ANTHROPIC_API_KEY": "synthetic-anthropic-never-sent",
+            "VLYTICS_GOOGLE_API_KEY": "synthetic-google-never-sent",
+        },
+        component="worker",
+    )
+    evidence = load_live_dry_run_evidence(config, evidence_path)
+    assert set(evidence.providers_verified) == set(config.enabled_providers)
 
 
 @pytest.mark.skipif(POWERSHELL is None, reason="PowerShell is not installed")

@@ -16,6 +16,7 @@
 - CI에 홈 배포 패키지 검사를 추가했다. 실제 CI 실행 결과는 push 이후 별도 확인 대상이다.
 - relay 전용 외부망에 `gw_priority: 1`을 지정하고 시작 전 검사에서도 요구한다. 홈 host의 Docker Compose 최소 버전은 2.33.1로 기록했다. [Docker 공식 기준](https://docs.docker.com/reference/compose-file/services/#gw_priority)을 확인했다.
 - 사용자 `내 결정` 원문을 보존하고 운영 문서·계획·마지막 설정 체크리스트를 동기화했다.
+- 병합 전 CI에서 발견한 production 합성 설정의 해시 불일치를 수정했다. 합성 TOML에 `deployment.profile = "standard"`를 명시하고, 실제 CI 증거 생성 코드를 실행한 뒤 worker 설정·dry-run 검증 함수로 일치 여부를 확인하는 회귀 검사를 추가했다.
 
 ## 실행한 검증
 
@@ -23,6 +24,7 @@
 | --- | --- |
 | 전체 backend pytest | 510 passed, 56 skipped |
 | 최종 gateway·health dependency·relay mount·StrictMode 보강 뒤 배포 회귀 | 11 passed |
+| CI 합성 설정·증거 해시 보강 뒤 배포 회귀 | 12 passed |
 | Provider transport·relay·배포 격리 대상 검사 | 75 passed, 위 전체 검사에 포함 |
 | Ruff lint / format | 통과 |
 | mypy | 84개 소스 파일 통과 |
