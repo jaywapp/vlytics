@@ -110,6 +110,47 @@ def _activate(values: dict[str, object]) -> dict[str, str]:
     }
 
 
+def _activate_personal_home(values: dict[str, object]) -> dict[str, str]:
+    environ = _activate(values)
+    deployment = values["deployment"]
+    assert isinstance(deployment, dict)
+    deployment.update(
+        {
+            "profile": "personal_home",
+            "host_class": "dedicated_private_machine",
+            "host_provider": "self-hosted",
+            "host_region": "home-lan",
+            "monthly_cost_limit": 0,
+            "network_access": "private_network",
+            "operator_auth_method": "private_network_identity",
+        }
+    )
+    backup = values["backup"]
+    alerting = values["alerting"]
+    ai = values["ai"]
+    assert isinstance(backup, dict)
+    assert isinstance(alerting, dict)
+    assert isinstance(ai, dict)
+    backup["enabled"] = False
+    alerting["enabled"] = False
+    ai["pricing_to_budget_rate"] = 1400
+    for provider_name in ("anthropic", "google"):
+        provider = ai[provider_name]
+        assert isinstance(provider, dict)
+        provider["enabled"] = False
+    return {
+        key: value
+        for key, value in environ.items()
+        if key
+        not in {
+            "VLYTICS_BACKUP_CREDENTIAL",
+            "VLYTICS_ALERT_DESTINATION",
+            "VLYTICS_ANTHROPIC_API_KEY",
+            "VLYTICS_GOOGLE_API_KEY",
+        }
+    }
+
+
 def test_disabled_example_loads_with_draft_2020_12_schema() -> None:
     config = load_operational_config(_settings(), environ={}, component="worker")
 
@@ -123,6 +164,57 @@ def test_complete_synthetic_live_config_passes_without_bulk_source() -> None:
     environ = _activate(values)
 
     validate_operational_config(values, _schema(), environ=environ, component="api")
+    deployment = values["deployment"]
+    assert isinstance(deployment, dict)
+    assert deployment["profile"] == "standard"
+
+
+def test_personal_home_allows_zero_hosting_cost_without_backup_or_alerts() -> None:
+    values = _values()
+    environ = _activate_personal_home(values)
+
+    validate_operational_config(values, _schema(), environ=environ, component="worker")
+
+
+@pytest.mark.parametrize(
+    ("section", "field", "value"),
+    [
+        ("deployment", "monthly_cost_limit", 0),
+        ("backup", "enabled", False),
+        ("alerting", "enabled", False),
+    ],
+)
+def test_standard_profile_preserves_live_safety_gates(
+    section: str,
+    field: str,
+    value: object,
+) -> None:
+    values = _values()
+    environ = _activate(values)
+    target = values[section]
+    assert isinstance(target, dict)
+    target[field] = value
+
+    with pytest.raises(OperationalConfigError, match="schema validation"):
+        validate_operational_config(values, _schema(), environ=environ)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("host_class", "private_single_vm"),
+        ("network_access", "unconfigured"),
+    ],
+)
+def test_personal_home_requires_a_private_dedicated_machine(field: str, value: str) -> None:
+    values = _values()
+    environ = _activate_personal_home(values)
+    deployment = values["deployment"]
+    assert isinstance(deployment, dict)
+    deployment[field] = value
+
+    with pytest.raises(OperationalConfigError, match="schema validation"):
+        validate_operational_config(values, _schema(), environ=environ)
 
 
 def test_api_config_rejects_equal_operator_and_readonly_secrets() -> None:
@@ -165,6 +257,39 @@ def test_live_config_rejects_missing_secret_reference_value() -> None:
     del environ["VLYTICS_GOOGLE_API_KEY"]
 
     with pytest.raises(OperationalConfigError, match="VLYTICS_GOOGLE_API_KEY"):
+        validate_operational_config(values, _schema(), environ=environ, component="worker")
+
+
+def test_live_config_only_requires_enabled_provider_keys() -> None:
+    values = _values()
+    environ = _activate_personal_home(values)
+
+    validate_operational_config(values, _schema(), environ=environ, component="worker")
+
+    del environ["VLYTICS_OPENAI_API_KEY"]
+    with pytest.raises(OperationalConfigError, match="VLYTICS_OPENAI_API_KEY"):
+        validate_operational_config(values, _schema(), environ=environ, component="worker")
+
+
+def test_live_config_rejects_placeholder_active_provider_key() -> None:
+    values = _values()
+    environ = _activate_personal_home(values)
+    environ["VLYTICS_OPENAI_API_KEY"] = "__REQUIRED_SECRET__"
+
+    with pytest.raises(OperationalConfigError, match="VLYTICS_OPENAI_API_KEY"):
+        validate_operational_config(values, _schema(), environ=environ, component="worker")
+
+
+def test_live_ai_requires_at_least_one_enabled_provider() -> None:
+    values = _values()
+    environ = _activate_personal_home(values)
+    ai = values["ai"]
+    assert isinstance(ai, dict)
+    openai = ai["openai"]
+    assert isinstance(openai, dict)
+    openai["enabled"] = False
+
+    with pytest.raises(OperationalConfigError, match="at least one provider"):
         validate_operational_config(values, _schema(), environ=environ, component="worker")
 
 
@@ -280,7 +405,15 @@ def test_api_and_worker_fail_fast_for_live_placeholders(tmp_path: Path) -> None:
 
 def _live_operational_config() -> OperationalConfig:
     values = _values()
-    _activate(values)
+    environ = _activate(values)
+    validate_operational_config(values, _schema(), environ=environ)
+    return OperationalConfig(values, EXAMPLE_CONFIG, CONFIG_SCHEMA)
+
+
+def _personal_home_operational_config() -> OperationalConfig:
+    values = _values()
+    environ = _activate_personal_home(values)
+    validate_operational_config(values, _schema(), environ=environ, component="worker")
     return OperationalConfig(values, EXAMPLE_CONFIG, CONFIG_SCHEMA)
 
 
@@ -290,6 +423,7 @@ def _write_evidence(
     *,
     completed_at: datetime,
     config_sha256: str | None = None,
+    providers_verified: list[str] | None = None,
 ) -> None:
     path.write_text(
         json.dumps(
@@ -299,7 +433,11 @@ def _write_evidence(
                 "completed_at": completed_at.isoformat(),
                 "source_sync_verified": True,
                 "freeze_verified": True,
-                "providers_verified": ["openai", "anthropic", "google"],
+                "providers_verified": (
+                    providers_verified
+                    if providers_verified is not None
+                    else list(config.enabled_providers)
+                ),
             }
         ),
         encoding="utf-8",
@@ -316,6 +454,35 @@ def test_live_dry_run_evidence_loader_accepts_fresh_exact_document(tmp_path: Pat
 
     assert evidence.config_sha256 == operational_config_sha256(config)
     assert evidence.providers_verified == ("openai", "anthropic", "google")
+
+
+@pytest.mark.parametrize(
+    "unexpected_providers",
+    [
+        ["openai", "anthropic"],
+        ["openai", "unknown"],
+    ],
+)
+def test_live_dry_run_evidence_requires_exact_enabled_provider_set(
+    tmp_path: Path,
+    unexpected_providers: list[str],
+) -> None:
+    config = _personal_home_operational_config()
+    now = datetime(2026, 9, 21, 3, tzinfo=UTC)
+    path = tmp_path / "evidence.json"
+    _write_evidence(path, config, completed_at=now - timedelta(hours=1))
+
+    evidence = load_live_dry_run_evidence(config, path, now=now)
+    assert evidence.providers_verified == ("openai",)
+
+    _write_evidence(
+        path,
+        config,
+        completed_at=now - timedelta(hours=1),
+        providers_verified=unexpected_providers,
+    )
+    with pytest.raises(OperationalConfigError, match="does not match"):
+        load_live_dry_run_evidence(config, path, now=now)
 
 
 @pytest.mark.parametrize(

@@ -233,11 +233,12 @@ def validate_live_scheduler_activation(
         raise OperationalConfigError("OP-004 live dry-run evidence is required")
     expected_hash = operational_config_sha256(config)
     providers = set(evidence.providers_verified)
+    expected_providers = set(config.enabled_providers)
     if (
         evidence.config_sha256 != expected_hash
         or not evidence.source_sync_verified
         or not evidence.freeze_verified
-        or providers != {"openai", "anthropic", "google"}
+        or providers != expected_providers
     ):
         raise OperationalConfigError(
             "OP-004 live dry-run evidence does not match the active configuration"

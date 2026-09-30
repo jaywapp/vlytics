@@ -26,6 +26,7 @@ class OpenAIPredictionProvider(PredictionProvider):
     def build_request_document(self, context: PredictionContextV1) -> Mapping[str, Any]:
         return {
             "model": self.variant.requested_model_id,
+            "service_tier": "default",
             "input": [
                 {
                     "role": "system",

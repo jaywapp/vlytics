@@ -6,6 +6,27 @@
 
 자료에 적힌 API·시즌 수·경기 수·일정·성능·약관 설명은 제공 문서의 과거 관측 보고이며 이번 작업에서 재검증하지 않았다. 일정과 성능 숫자를 승인 조건이나 납기 약속으로 사용하지 않는다. 2026-09-20 후속 준비 작업에서 이 결정에 맞춰 design.md·architecture.md·plan.md와 UI 선택 표기를 동기화했다.
 
+## 2026-09-30 개인 홈 운영 결정
+
+아래 결정은 UC-001~010의 역사적 기록을 덮어쓰지 않고 현재 개인 운영 프로필을 구체화한다.
+
+| 항목 | 사용자 결정 | 별도 기술 게이트 |
+|---|---|---|
+| 운영 시작 | **GO** | 실제 홈 host smoke 증거는 아직 대기 |
+| 배포 | `personal_home`, `dedicated_private_machine`, 보유한 집의 상시 서버 | LAN/SSH 전용 접근, Docker/Compose·시계·디스크·재시작·인증 실측 |
+| 유료 host | 사용하지 않음 | 없음 |
+| 데이터 보관 | 삭제 정책 없이 무기한 | backup/PITR 없음에 따른 유실 위험 수용 |
+| backup/PITR·외부 알림 | 사용하지 않음 | 홈 프로필 활성화 필수조건에서 제외. 표준/공개 프로필에서는 재결정 |
+| AI | OpenAI만 활성화, 월 10,000원(KRW); Anthropic·Gemini 비활성 | 실제 계정·resolved model version·공식 가격 재확인, 양수 `ai.pricing_to_budget_rate`, provider registry raw SHA-256와 config/evidence 재생성, 소량 smoke |
+| KOVO | 개인 분석 전용 | 권리·허용 요청량·필드 의미와 공개 시점은 여전히 미확인. 확인 전 대량 수집 금지 |
+| 공개·재배포 | 승인하지 않음 | UC-010 재개 시 별도 결정 |
+
+UC-006의 세 Provider adapter와 비교 구조는 제품 역량으로 보존한다. 이 결정은 홈 운영에서 활성 Provider를 OpenAI 하나로 제한하며, 세 Provider key·smoke를 요구하지 않는다. 사용자 GO와 기술 증거는 별개다. 키 준비는 source 권한, worker egress, 홈 host 검증을 대신하지 않는다.
+
+**후속 직접 승인 (2026-09-30):** 사용자는 OpenAI egress 연결 구현 진행을 승인하고 향후 Claude API와 Gemini API도 고려하도록 요청했다. 이에 따라 [Provider egress 구현](../operations/openai-egress-proposal.md)의 generic relay와 OpenAI worker/Compose 배선을 적용했다. 현재 활성 Provider와 예산 결정은 여전히 OpenAI 하나·월 10,000원(KRW)이다. Anthropic·Gemini는 기능 코드가 준비된 향후 선택지일 뿐이며, 전환·병행과 예산 배분에는 새 사용자 결정이 필요하다. 실제 key·호출·홈 서버 배포 성공은 이 승인 기록에 포함되지 않는다.
+
+홈 프로필의 model version과 registry hash는 사용자에게 다시 선택을 요구하는 항목이 아니라 기술 검증 게이트다. smoke 전 `pinned_model_version = "__REQUIRED_AFTER_MODEL_SMOKE__"`, `registry.openai.op003_resolved = false`를 유지한다. 실제 응답에서 검증 가능한 resolved version을 얻지 못하면 임의 version으로 닫지 않고 strict cohort AI를 보류한다. 최종 variant 원문 SHA-256과 config hash에 묶인 evidence가 일치해야 live plan을 허용한다.
+
 ## UC-001 — MVP 전체 범위와 단계적 제공
 
 **배경:** 원문 MVP는 선수/세트 feature, 네 가지 예측, Multi-AI, 자동 평가와 Web을 포함한다. 검토 의견은 snapshot 수집을 먼저 가동하고 화면·Market·점수 모델을 뒤로 미루자고 제안한다. 후자는 원문 확정 결정을 자동 대체하지 않는다.
@@ -173,8 +194,8 @@
 | ID | 남은 설정·근거 | 해제 작업 | 영향 |
 |---|---|---|---|
 | OP-001 | KOVO 이용 가능 범위·요청 속도·coverage와 명단/세트별 선수 기록 가용성 | TASK-001 | 대량 Backfill 활성화 |
-| OP-002 | 상시 호스트·접근 인증·비용·백업 보관/RPO/RTO·알림 채널 | TASK-002 | 실운영 배포 |
-| OP-003 | 실제 Provider model ID·버전 pinning·일/월 예산·호출/토큰 한도 | TASK-002 | 실제 AI 호출 |
+| OP-002 | 사용자 선택 완료: `personal_home` + `dedicated_private_machine`, LAN/SSH 전용, 유료 host·backup/PITR·외부 알림 없음, 무기한 보관·유실 수용. 실제 host 사실과 smoke는 미확인 | TASK-002·018 | 홈 host 기술 활성화 |
+| OP-003 | 사용자 선택 완료: OpenAI만 월 10,000원(KRW). 실제 account/model·가격·양수 `ai.pricing_to_budget_rate`·호출/token 한도는 미확인 | TASK-002·018 | 실제 OpenAI 호출 |
 | OP-004 | 짧은 grace·요청/응답 마감·재시도·결과 안정화/정정 주기 | TASK-002 | 실시간 운영 활성화 |
 | OP-005 | 외부 Market 실제 schema·source mapping·단위·정산·max_age | TASK-016 | 실 Market 연결. 계약·합성 검증과 missing 운영은 차단하지 않음 |
 | OP-006 | 구단 연속성 근거·시즌 제도·과거 availability policy | TASK-001·005 | 해당 source의 학습·평가 편입 |

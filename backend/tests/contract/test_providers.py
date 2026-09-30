@@ -255,6 +255,7 @@ def test_three_adapters_receive_the_identical_typed_snapshot_and_record_lineage(
         assert not {"tools", "tool_choice", "web_search"} & set(request)
         if provider_name is ProviderName.OPENAI:
             assert request["model"] == _variant(provider_name).requested_model_id
+            assert request["service_tier"] == "default"
             assert request["text"]["format"]["type"] == "json_schema"
             assert request["text"]["format"]["strict"] is True
             assert "response_format" not in request
@@ -580,6 +581,8 @@ def test_caller_controlled_fake_marker_cannot_enable_transport() -> None:
 def test_unresolved_fixed_registry_has_verified_prompt_but_fails_closed() -> None:
     registry = load_variant_registry(ROOT / "config" / "variants.toml")
     assert len(registry.variants) == 3
+    assert registry.budget_currency == "USD"
+    assert {variant.pricing_currency for variant in registry.variants} == {"USD"}
     assert all(variant.prompt_hash == PROMPT_TEMPLATE_HASH for variant in registry.variants)
     assert not registry.live_ready
     variant = registry.variants[0]
@@ -592,6 +595,19 @@ def test_unresolved_fixed_registry_has_verified_prompt_but_fails_closed() -> Non
     assert result.failure_code is FailureCode.CONFIG_UNRESOLVED
     assert result.request_hash
     assert not transport.invocations
+
+
+def test_home_registry_keeps_catalogue_but_blocks_openai_until_model_smoke() -> None:
+    registry = load_variant_registry(ROOT / "config" / "variants.home.toml")
+
+    assert len(registry.variants) == 3
+    assert registry.budget_currency == "KRW"
+    assert not registry.live_ready
+    assert [variant.provider for variant in registry.enabled_variants] == [ProviderName.OPENAI]
+    openai = registry.enabled_variants[0]
+    assert openai.pricing_currency == "USD"
+    assert not openai.op003_resolved
+    assert openai.pinned_model_version == "__REQUIRED_AFTER_MODEL_SMOKE__"
 
 
 def test_live_plan_requires_operational_config_pricing_budgets_limits_and_secrets() -> None:
@@ -675,6 +691,217 @@ def test_live_plan_requires_operational_config_pricing_budgets_limits_and_secret
     del missing["TEST_OPENAI_KEY"]
     with pytest.raises(OperationalConfigError, match="missing environment variable"):
         build_live_provider_plan(config, registry, environ=missing)
+
+
+def _single_provider_live_config(
+    variant: ProviderVariant,
+    *,
+    budget_currency: str,
+    pricing_to_budget_rate: object | None,
+) -> tuple[OperationalConfig, dict[str, str]]:
+    with (ROOT / "config" / "example.toml").open("rb") as stream:
+        values = tomllib.load(stream)
+    values["environment"] = "production"
+    values["live_operations_enabled"] = True
+    deployment = values["deployment"]
+    assert isinstance(deployment, dict)
+    deployment.update(
+        {
+            "live_enabled": True,
+            "host_class": "managed_vm_and_database",
+            "host_provider": "synthetic-provider",
+            "host_region": "synthetic-region",
+            "monthly_cost_limit": 100,
+            "cost_currency": "KRW",
+            "network_access": "private_network",
+            "operator_auth_method": "mutual_tls",
+        }
+    )
+    backup = values["backup"]
+    assert isinstance(backup, dict)
+    backup.update(
+        {
+            "enabled": True,
+            "strategy": "synthetic-backup",
+            "interval_hours": 6,
+            "retention_days": 7,
+            "rpo_minutes": 60,
+            "rto_minutes": 120,
+        }
+    )
+    alerting = values["alerting"]
+    assert isinstance(alerting, dict)
+    alerting.update({"enabled": True, "channel": "synthetic-alert"})
+    ai = values["ai"]
+    assert isinstance(ai, dict)
+    ai.update({"live_calls_enabled": True, "budget_currency": budget_currency})
+    if pricing_to_budget_rate is not None:
+        ai["pricing_to_budget_rate"] = pricing_to_budget_rate
+    secret_name = "TEST_OPENAI_KEY"
+    ai["openai"] = {
+        "enabled": True,
+        "model_id": variant.requested_model_id,
+        "version_policy": variant.version_policy.value,
+        "pinned_model_version": variant.pinned_model_version,
+        "api_key_env": secret_name,
+        "daily_budget_amount": 1_000,
+        "monthly_budget_amount": 10_000,
+        "max_calls_per_match": 1,
+        "daily_call_limit": 10,
+        "monthly_call_limit": 100,
+        "max_input_tokens_per_call": 100_000,
+        "max_output_tokens_per_call": 100,
+    }
+    config = OperationalConfig(
+        values=values,
+        source_path=ROOT / "synthetic.toml",
+        schema_path=ROOT / "contracts" / "config.schema.json",
+    )
+    return config, {
+        "VLYTICS_DATABASE_URL": "synthetic-database-secret",
+        "VLYTICS_BACKUP_CREDENTIAL": "synthetic-backup-secret",
+        "VLYTICS_ALERT_DESTINATION": "synthetic-alert-secret",
+        secret_name: "synthetic-openai-secret",
+    }
+
+
+def _single_provider_registry(
+    openai: ProviderVariant,
+    *,
+    budget_currency: str = "KRW",
+    enable_anthropic: bool = False,
+) -> VariantRegistry:
+    anthropic = replace(
+        _variant(ProviderName.ANTHROPIC),
+        enabled=enable_anthropic,
+        op003_resolved=enable_anthropic,
+    )
+    google = replace(
+        _variant(ProviderName.GOOGLE),
+        enabled=False,
+        op003_resolved=False,
+    )
+    return VariantRegistry(
+        schema_version="1",
+        variants=(openai, anthropic, google),
+        budget_resolved=True,
+        daily_budget_amount=Decimal("1000"),
+        monthly_budget_amount=Decimal("10000"),
+        budget_currency=budget_currency,
+    )
+
+
+def test_live_plan_uses_exact_enabled_subset_and_converts_usd_prices_to_krw() -> None:
+    openai = replace(_variant(ProviderName.OPENAI), pricing_currency="USD")
+    registry = _single_provider_registry(openai)
+    config, secrets = _single_provider_live_config(
+        openai,
+        budget_currency="KRW",
+        pricing_to_budget_rate=1300,
+    )
+
+    plan = build_live_provider_plan(config, registry, environ=secrets)
+
+    assert [item.variant.provider for item in plan.providers] == [ProviderName.OPENAI]
+    assert plan.budget_currency == "KRW"
+    assert plan.pricing_currency == "USD"
+    assert plan.pricing_to_budget_rate == Decimal("1300")
+    assert plan.providers[0].variant.pricing_currency == "KRW"
+    assert plan.providers[0].variant.input_cost_per_million == Decimal("1300")
+    assert plan.providers[0].variant.output_cost_per_million == Decimal("2600")
+    assert "VLYTICS_ANTHROPIC_API_KEY" not in secrets
+    assert "VLYTICS_GOOGLE_API_KEY" not in secrets
+
+
+def test_live_plan_rejects_config_and_registry_active_provider_mismatch() -> None:
+    openai = replace(_variant(ProviderName.OPENAI), pricing_currency="USD")
+    registry = _single_provider_registry(openai, enable_anthropic=True)
+    config, secrets = _single_provider_live_config(
+        openai,
+        budget_currency="KRW",
+        pricing_to_budget_rate=1300,
+    )
+
+    with pytest.raises(OperationalConfigError, match="provider set differs"):
+        build_live_provider_plan(config, registry, environ=secrets)
+
+
+@pytest.mark.parametrize("rate", [None, float("nan")])
+def test_live_plan_rejects_missing_or_non_finite_currency_conversion_rate(
+    rate: object | None,
+) -> None:
+    openai = replace(_variant(ProviderName.OPENAI), pricing_currency="USD")
+    registry = _single_provider_registry(openai)
+    config, secrets = _single_provider_live_config(
+        openai,
+        budget_currency="KRW",
+        pricing_to_budget_rate=rate,
+    )
+
+    with pytest.raises(OperationalConfigError, match="pricing_to_budget_rate|schema validation"):
+        build_live_provider_plan(config, registry, environ=secrets)
+
+
+def test_live_plan_rejects_registry_budget_currency_mismatch() -> None:
+    openai = replace(_variant(ProviderName.OPENAI), pricing_currency="USD")
+    registry = _single_provider_registry(openai, budget_currency="USD")
+    config, secrets = _single_provider_live_config(
+        openai,
+        budget_currency="KRW",
+        pricing_to_budget_rate=1300,
+    )
+
+    with pytest.raises(OperationalConfigError, match="budget currency differs"):
+        build_live_provider_plan(config, registry, environ=secrets)
+
+
+def test_converted_krw_prices_drive_provider_reservation_and_settlement() -> None:
+    openai = replace(_variant(ProviderName.OPENAI), pricing_currency="USD")
+    config, secrets = _single_provider_live_config(
+        openai,
+        budget_currency="KRW",
+        pricing_to_budget_rate=1300,
+    )
+    plan = build_live_provider_plan(
+        config,
+        _single_provider_registry(openai),
+        environ=secrets,
+    )
+    variant = plan.providers[0].variant
+
+    class RecordingBudget:
+        def __init__(self, cap: Decimal) -> None:
+            self.cap = cap
+            self.reserved: list[Decimal] = []
+            self.settled: list[tuple[Decimal, Decimal]] = []
+
+        def reserve(self, amount: Decimal) -> bool:
+            self.reserved.append(amount)
+            return amount <= self.cap
+
+        def settle(self, reserved: Decimal, actual: Decimal) -> None:
+            self.settled.append((reserved, actual))
+
+        def release(self, reserved: Decimal) -> None:
+            raise AssertionError(f"unexpected release: {reserved}")
+
+    provider = OpenAIPredictionProvider(
+        variant,
+        FakeProviderTransport(response_body=_response(ProviderName.OPENAI, variant)),
+        PREDICTION_SCHEMA,
+    )
+    budget = RecordingBudget(Decimal("10000"))
+    result = provider.predict(_context(), timeout_ms=100, budget=budget)
+
+    assert result.status is AttemptStatus.SUCCEEDED
+    assert budget.reserved == [Decimal("130.26")]
+    assert budget.settled == [(Decimal("130.26"), Decimal("0.026"))]
+    assert result.cost == Decimal("0.026")
+
+    capped = RecordingBudget(Decimal("130"))
+    skipped = provider.predict(_context(), timeout_ms=100, budget=capped)
+    assert skipped.failure_code is FailureCode.BUDGET_SKIPPED
+    assert capped.settled == []
 
 
 def test_all_result_classes_map_to_prediction_attempt_rows() -> None:

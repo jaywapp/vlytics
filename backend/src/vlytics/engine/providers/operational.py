@@ -33,6 +33,8 @@ class RuntimeProviderPlan:
 class LiveProviderPlan:
     budget_currency: str
     providers: tuple[RuntimeProviderPlan, ...]
+    pricing_currency: str = "USD"
+    pricing_to_budget_rate: Decimal = Decimal("1")
 
 
 def build_live_provider_plan(
@@ -56,21 +58,65 @@ def build_live_provider_plan(
         component="worker",
     )
     values = config.values
+    if config.deployment_profile == "personal_home":
+        activation = _mapping(values.get("activation"), "activation")
+        reviewed_hash = activation.get("provider_registry_sha256")
+        if not registry.content_sha256 or reviewed_hash != registry.content_sha256:
+            raise OperationalConfigError(
+                "activation.provider_registry_sha256 must match the reviewed provider registry"
+            )
     if values.get("live_operations_enabled") is not True:
         raise OperationalConfigError("live operations are disabled")
     ai = _mapping(values.get("ai"), "ai")
     if ai.get("live_calls_enabled") is not True:
         raise OperationalConfigError("live AI calls are disabled")
     currency = _string(ai.get("budget_currency"), "ai.budget_currency")
+    if registry.budget_currency != currency:
+        raise OperationalConfigError(
+            "configured AI budget currency differs from the variant registry"
+        )
+
+    configured_providers = {
+        provider_name
+        for provider_name in ProviderName
+        if _mapping(ai.get(provider_name.value), f"ai.{provider_name.value}").get("enabled") is True
+    }
+    registry_providers = {variant.provider for variant in registry.enabled_variants}
+    if configured_providers != registry_providers:
+        raise OperationalConfigError(
+            "configured AI provider set differs from the enabled variant registry"
+        )
     if not registry.live_ready:
         raise OperationalConfigError("provider variant registry is not live-ready")
+
+    pricing_currencies = {variant.pricing_currency for variant in registry.enabled_variants}
+    if len(pricing_currencies) != 1:
+        raise OperationalConfigError("enabled provider variants must use one pricing currency")
+    pricing_currency = next(iter(pricing_currencies))
+    raw_rate = ai.get("pricing_to_budget_rate")
+    if pricing_currency != currency:
+        pricing_to_budget_rate = _positive_decimal(
+            raw_rate,
+            "ai.pricing_to_budget_rate",
+        )
+    elif raw_rate is None:
+        pricing_to_budget_rate = Decimal("1")
+    else:
+        pricing_to_budget_rate = _positive_decimal(
+            raw_rate,
+            "ai.pricing_to_budget_rate",
+        )
+        if pricing_to_budget_rate != Decimal("1"):
+            raise OperationalConfigError(
+                "ai.pricing_to_budget_rate must be 1 when pricing and budget currencies match"
+            )
 
     by_provider = {variant.provider: variant for variant in registry.variants}
     plans: list[RuntimeProviderPlan] = []
     for provider_name in ProviderName:
         raw = _mapping(ai.get(provider_name.value), f"ai.{provider_name.value}")
-        if raw.get("enabled") is not True:
-            raise OperationalConfigError(f"ai.{provider_name.value} is disabled")
+        if provider_name not in configured_providers:
+            continue
         variant = by_provider[provider_name]
         model_id = _string(raw.get("model_id"), f"ai.{provider_name.value}.model_id")
         pinned = _string(
@@ -129,6 +175,13 @@ def build_live_provider_plan(
                     variant,
                     max_input_tokens=max_input,
                     max_output_tokens=max_output,
+                    input_cost_per_million=(
+                        variant.input_cost_per_million * pricing_to_budget_rate
+                    ),
+                    output_cost_per_million=(
+                        variant.output_cost_per_million * pricing_to_budget_rate
+                    ),
+                    pricing_currency=currency,
                 ),
                 api_key_env=api_key_env,
                 daily_budget=daily_budget,
@@ -152,7 +205,12 @@ def build_live_provider_plan(
         raise OperationalConfigError("configured daily AI budgets exceed the registry cap")
     if sum((plan.monthly_budget for plan in plans), Decimal("0")) > registry.monthly_budget_amount:
         raise OperationalConfigError("configured monthly AI budgets exceed the registry cap")
-    return LiveProviderPlan(budget_currency=currency, providers=tuple(plans))
+    return LiveProviderPlan(
+        budget_currency=currency,
+        providers=tuple(plans),
+        pricing_currency=pricing_currency,
+        pricing_to_budget_rate=pricing_to_budget_rate,
+    )
 
 
 def _mapping(value: object, name: str) -> dict[str, object]:
@@ -176,4 +234,7 @@ def _positive_int(value: object, name: str) -> int:
 def _positive_decimal(value: object, name: str) -> Decimal:
     if isinstance(value, bool) or not isinstance(value, int | float) or value <= 0:
         raise OperationalConfigError(f"{name} must be positive")
-    return Decimal(str(value))
+    parsed = Decimal(str(value))
+    if not parsed.is_finite():
+        raise OperationalConfigError(f"{name} must be finite")
+    return parsed

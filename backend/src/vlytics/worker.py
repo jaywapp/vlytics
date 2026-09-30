@@ -40,7 +40,6 @@ from vlytics.engine.providers import (
     BudgetLedger,
     LiveProviderPlan,
     ProviderBudgetLimits,
-    ProviderName,
     build_live_prediction_providers,
     build_live_provider_plan,
     load_variant_registry,
@@ -232,6 +231,22 @@ class WorkerRuntimeComponents:
     market_max_age: timedelta | None = None
 
 
+def _durable_provider_budget_limits(
+    live_plan: LiveProviderPlan,
+) -> dict[str, ProviderBudgetLimits]:
+    return {
+        item.variant.variant_id: ProviderBudgetLimits(
+            daily_amount=item.daily_budget,
+            monthly_amount=item.monthly_budget,
+            daily_calls=item.daily_call_limit,
+            monthly_calls=item.monthly_call_limit,
+            currency=live_plan.budget_currency,
+            max_calls_per_match=item.max_calls_per_match,
+        )
+        for item in live_plan.providers
+    }
+
+
 def _collector_database_preflight(engine: Engine) -> None:
     """Verify that source writes use the least-privilege collector login."""
 
@@ -321,17 +336,7 @@ def build_runtime_components(
             prediction_schema=prediction_schema(),
         )
         providers = ensure_provider_bindings(engine, live_plan, live_providers)
-        durable_budget_limits = {
-            item.variant.variant_id: ProviderBudgetLimits(
-                daily_amount=item.daily_budget,
-                monthly_amount=item.monthly_budget,
-                daily_calls=item.daily_call_limit,
-                monthly_calls=item.monthly_call_limit,
-                currency=live_plan.budget_currency,
-                max_calls_per_match=item.max_calls_per_match,
-            )
-            for item in live_plan.providers
-        }
+        durable_budget_limits = _durable_provider_budget_limits(live_plan)
     sync_handlers.update(evaluation_handlers(engine))
     sync_handlers.update(market_handlers(engine))
     return WorkerRuntimeComponents(
@@ -451,11 +456,12 @@ def build_production_worker(
         dispose_engines()
         raise OperationalConfigError("worker pre-cutoff source sync handler is not configured")
     provider_names = {binding.provider.provider_name for binding in components.providers.values()}
-    if live_plan is not None and provider_names != set(ProviderName):
+    expected_provider_names = (
+        {item.variant.provider for item in live_plan.providers} if live_plan is not None else set()
+    )
+    if live_plan is not None and provider_names != expected_provider_names:
         dispose_engines()
-        raise OperationalConfigError(
-            "worker requires independent openai, anthropic, and google providers"
-        )
+        raise OperationalConfigError("worker provider bindings differ from the active provider set")
     if not components.statistical:
         dispose_engines()
         raise OperationalConfigError("worker statistical prediction runner is not configured")
@@ -464,17 +470,7 @@ def build_production_worker(
         if set(components.providers) != expected_keys:
             dispose_engines()
             raise OperationalConfigError("worker provider bindings differ from the live registry")
-        durable_budget_limits = {
-            item.variant.variant_id: ProviderBudgetLimits(
-                daily_amount=item.daily_budget,
-                monthly_amount=item.monthly_budget,
-                daily_calls=item.daily_call_limit,
-                monthly_calls=item.monthly_call_limit,
-                currency=live_plan.budget_currency,
-                max_calls_per_match=item.max_calls_per_match,
-            )
-            for item in live_plan.providers
-        }
+        durable_budget_limits = _durable_provider_budget_limits(live_plan)
     else:
         durable_budget_limits = dict(components.durable_budget_limits)
     variants = tuple(

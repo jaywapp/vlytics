@@ -1,6 +1,6 @@
 # Vlytics 개인용 운영 Runbook
 
-이 문서는 검증된 MVP를 단일 개인용 호스트에서 비공개로 운영하기 위한 절차다. 실제 KOVO 수집, 유료 Provider 호출, 호스트 구매 또는 공개 네트워크 변경은 포함하지 않는다. `infra/compose.production.yaml`은 배포 패키지이며 OP-001~004가 해결되기 전에는 의도적으로 기동 전 검사에서 중단된다.
+이 문서는 검증된 MVP를 보유한 집의 상시 서버에서 `personal_home` 프로필로 비공개 운영하기 위한 절차다. 사용자는 2026-09-30 LAN/SSH 전용 배포 시작을 승인했으며 유료 host 구매와 공개 네트워크 변경은 범위 밖이다. 실제 KOVO 수집은 별도 이용 근거·요청량 검증에, OpenAI 유료 호출은 계정·model·가격·환율·예산 smoke에 각각 묶인다.
 
 ## 배포 경계
 
@@ -22,6 +22,10 @@
 | `infra/.env.example` | 키 이름과 placeholder만 제공하는 예시 |
 | `infra/postgres-init/001-create-migrator.sql` | initdb bootstrap 역할 잠금과 one-time migrator 생성 |
 | `infra/operational.production.example.toml` | OP gate를 드러내는 fail-closed 운영 설정 예시 |
+| `infra/compose.home.yaml` | `personal_home` 전용 Compose와 선택 기능 축소 |
+| `infra/.env.home.example` | 홈 프로필에 필요한 환경변수 이름과 placeholder |
+| `infra/operational.home.example.toml` | 홈 host/OpenAI-only 설정과 검토 전 환산계수 누락으로 fail-closed하는 예시 |
+| `config/variants.home.toml` | 홈 프로필의 OpenAI 활성 variant 선택 |
 | `infra/live-dry-run-evidence.example.json` | 실제 설정 hash에 묶이는 OP-004 증거 형식 |
 | `infra/scripts/Test-DeploymentPackage.ps1` | Docker 없이도 가능한 정적 보안·구문 검사 |
 | `infra/scripts/Invoke-Preflight.ps1` | secret, OP 설정, dry-run hash, image, compose, 시계 활성화 검사 |
@@ -36,11 +40,13 @@ powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Test-DeploymentP
 
 Docker CLI가 없으면 정적 compose·secret 예시·TOML/JSON 구문 검사는 통과하고 Docker parser 검사는 `skipped-no-docker-cli`로 명시된다. 이 결과를 image build 성공으로 해석하지 않는다.
 
+홈 배포는 Docker Compose 2.33.1 이상을 사용한다. Provider relay의 전용 외부망을 `gw_priority: 1`로 기본 gateway로 고정하므로 구버전의 schema 오류를 무시하지 않는다. 실제 host에서 `docker compose version`과 홈 `docker compose config`를 확인하고, 다른 Provider relay를 추가할 때도 해당 전용 외부망에 같은 우선순위를 지정한다. [Docker 공식 설명](https://docs.docker.com/reference/compose-file/services/#gw_priority)을 기준으로 한다.
+
 ## Secret 준비와 회전
 
 실제 값은 Git에 저장하지 않는다. secret manager가 제공한 프로세스 환경 또는 ACL로 제한하고 작업 직후 삭제하는 untracked 임시 env 파일을 사용한다. 콘솔, issue, manifest, restore report에는 값을 출력하지 않는다.
 
-필수 secret은 다섯 DB 역할의 비밀번호/URL, operator와 readonly 인증값, backup credential, alert 목적지, 세 Provider API key다. 최초 initdb에서는 migrator 비밀번호를 bootstrap 과정에도 사용하지만 bootstrap login은 init script가 즉시 비활성화한다. DB URL은 역할별로 분리하며 복구 작업은 호스트별 별도 관리자 절차로 수행한다.
+홈 프로필의 필수 secret은 실제 활성 DB 역할의 서로 다른 비밀번호/URL, 서로 다른 operator·readonly 인증값, `VLYTICS_OPENAI_API_KEY`다. backup credential, alert 목적지, Anthropic·Google key는 비활성 기능에 필요하지 않다. 최초 initdb에서는 migrator 비밀번호를 bootstrap 과정에도 사용하지만 bootstrap login은 init script가 즉시 비활성화한다. DB URL은 역할별로 분리한다. backup이나 restore를 나중에 활성화하면 그때 전용 관리자 자격 증명을 별도로 준비한다.
 
 회전 순서는 다음과 같다.
 
@@ -50,7 +56,21 @@ Docker CLI가 없으면 정적 compose·secret 예시·TOML/JSON 구문 검사�
 4. `/health`, 인증된 schedule/operations 조회, worker lease 진행을 확인한다.
 5. 이전 secret을 폐기하고 감사 시각과 담당자를 secret manager에 기록한다.
 
-Provider key 회전 시 worker를 먼저 정지하고 새 key·model version·budget을 preflight한 뒤 다시 시작한다. operator secret 회전 시 API를 재시작하고 기존 client token을 즉시 폐기한다.
+Provider key 회전 시 worker를 먼저 정지하고 선택 Provider의 새 key·model version·budget과 가격 환산 계수를 preflight한 뒤 다시 시작한다. operator secret 회전 시 API를 재시작하고 기존 client token을 즉시 폐기한다.
+
+### 가장 마지막에 채울 값
+
+다른 검증을 먼저 끝내고 다음 값만 마지막에 주입한다.
+
+1. `VLYTICS_OPENAI_API_KEY`.
+2. 서로 다른 operator·readonly 인증값.
+3. API·worker/engine·collector·migrator 등 홈 Compose에서 실제 사용하는 DB 역할별 자격 증명.
+4. 비밀값이 아닌 SSH host/user/port, 접근자와 키 발급·폐기 담당, Docker/Compose 버전, 시간 동기화 source/offset, 디스크 여유.
+5. 공식 가격과 환율을 확인한 뒤 정한 양수 `ai.pricing_to_budget_rate`. 예시의 주석 처리된 `<reviewed_positive_KRW_per_USD>`를 추정값으로 채우지 않는다.
+6. 실제 model smoke 뒤 검증한 `pinned_model_version`과 `registry.openai.op003_resolved = true`. smoke 전 `__REQUIRED_AFTER_MODEL_SMOKE__`/`false`를 유지하며, alias와 응답 ID가 같아 version을 검증하지 못하면 임의값을 넣지 않는다.
+7. 최종 `config/variants.home.toml` 원문 bytes의 SHA-256과 그 값을 넣은 `activation.provider_registry_sha256`. 예시의 `<reviewed_registry_sha256>`는 실제 파일 hash로만 교체한다.
+
+KOVO 이용 근거·요청량, Provider egress 실측, T-60 dry-run은 키 준비와 독립된 기술 게이트다. 사용자의 직접 승인에 따라 [Provider egress 구현 기록](openai-egress-proposal.md)의 generic relay, OpenAI worker proxy, 홈 Compose `openai_egress`/`openai_access` 배선은 구현됐다. 현재 worker는 private-only이고 OpenAI relay health 뒤에 시작한다. 실제 홈 서버에서 정확한 `api.openai.com:443`, TLS-opaque payload, DNS/idle/header/connection 제한과 host port 비게시를 검증하기 전에는 운영 연결 완료로 표시하지 않는다. KOVO egress와 실제 key·호출·배포는 여전히 없다.
 
 ## Web image와 same-origin 배선
 
@@ -70,33 +90,35 @@ build arg와 Vite 환경에는 token, operator secret, API key, DB URL을 넣지
 운영 host에서는 `/healthz` 200, `/` SPA 응답, 인증 없는 `/api/v1/schedule` 401, 인증된 동일 URL 200을 같은 origin으로 확인한다. 개발 Vite proxy와 Playwright route interception은 client의 상대 `/api` 계약을 검증하지만 Nginx image 자체의 성공 증거가 아니므로 Docker build와 compose smoke를 별도로 수행한다.
 ## 운영 활성화 절차
 
-1. `release-checklist.md`의 OP-001~004와 시계, backup, alert 항목을 모두 채운다. Market OP-005는 `missing` 상태로 시작할 수 있다.
+1. `release-checklist.md`의 홈 프로필 필수 항목인 OP-001~004, 운영 host 시계·LAN/SSH·Docker/Compose·디스크·인증 경계를 채운다. backup/PITR·외부 alert는 비활성으로 확인하며 시험을 요구하지 않는다. Market OP-005는 `missing` 상태로 시작할 수 있다.
 2. backend와 frontend image를 빌드·검증한 뒤 tag가 아닌 digest(`...@sha256:...`)로 `VLYTICS_BACKEND_IMAGE`를 고정한다.
-3. `operational.production.example.toml`을 저장소 밖의 운영 경로로 복사하고 placeholder, `unconfigured`, 0인 비용·보존·한도 값을 실제 승인값으로 바꾼다. source bulk collection은 OP-001 근거와 한도가 확정될 때만 켠다.
-4. 승인된 소량 source와 실제 세 Provider로 T-60 dry-run을 수행한다. 동일 설정의 canonical SHA-256, 완료 시각, source sync/freeze 성공, 세 Provider 확인을 evidence JSON에 기록한다. 설정을 바꾸거나 `[activation].dry_run_evidence_max_age_hours`가 지나면 dry-run을 다시 수행한다. worker는 `VLYTICS_LIVE_DRY_RUN_EVIDENCE_PATH`의 파일을 크기 제한 내에서 직접 검증한다.
-5. 외부 secret을 임시 env 파일 또는 현재 프로세스 환경에 주입하고 preflight를 실행한다.
+3. `infra/operational.home.example.toml`, `infra/.env.home.example`, `config/variants.home.toml`, `infra/compose.home.yaml`을 홈 배포 기준으로 사용한다. 예시의 `deployment.profile = "personal_home"`, `host_class = "dedicated_private_machine"`, `ai.budget_currency = "KRW"`, 일 1,000원·월 10,000원, 경기당 최대 3회·일 100회·월 1,000회, 입력 4,000·출력 1,000 token 상한을 검토한다. `ai.pricing_to_budget_rate`와 `activation.provider_registry_sha256`은 의도적으로 누락되고, `pinned_model_version = "__REQUIRED_AFTER_MODEL_SMOKE__"`, `registry.openai.op003_resolved = false`이므로 live plan은 차단된다. backup/PITR·alert와 Anthropic·Google은 비활성으로 둔다. source bulk collection은 OP-001 근거와 한도가 확정될 때만 켠다.
+4. 홈 서버에서 `ProviderEgress.ps1`이 config enabled set과 `openai_egress` service, `VLYTICS_EGRESS_PROVIDER=openai`, OpenAI key/proxy, `openai_access`, worker health dependency의 exact subset을 통과하고 비활성 Provider service/key/proxy가 없는지 확인한다. 그 뒤 선택된 OpenAI로 model smoke를 수행한다. requested/resolved model ID가 동일한 alias뿐이면 `VERSION_UNVERIFIED`를 유지하며 임의 version을 고정하지 않는다. 검증 가능한 resolved version이 없으면 strict cohort AI는 계속 보류한다.
+5. model/version·공식 가격·환율·cap 검토를 반영한 최종 `config/variants.home.toml` 원문 SHA-256을 계산해 `activation.provider_registry_sha256`에 넣는다. 그 뒤 계산된 config hash와 승인된 소량 source/OpenAI로 T-60 dry-run을 수행하고 source sync/freeze, model ID/version, token, USD 비용과 KRW 환산을 evidence JSON에 기록한다. registry의 가격·전역 cap·variant 또는 운영 설정을 바꾸면 registry hash, config hash와 evidence를 모두 새로 만든다. worker는 `VLYTICS_LIVE_DRY_RUN_EVIDENCE_PATH`의 파일을 크기 제한 내에서 직접 검증한다.
+6. 외부 secret을 임시 env 파일 또는 현재 프로세스 환경에 주입하고 preflight를 실행한다.
 
 ```powershell
 powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Invoke-Preflight.ps1 `
-  -EnvironmentFile D:\private\vlytics.env `
-  -OperationalConfig D:\private\vlytics.production.toml `
+  -Profile personal_home `
+  -EnvironmentFile D:\private\vlytics.home.env `
+  -OperationalConfig D:\private\vlytics.home.toml `
   -DryRunEvidence D:\private\vlytics-live-dry-run.json
 ```
 
-6. backup과 restore drill이 통과한 뒤 migration을 일회 실행한다.
+7. 홈 프로필에서는 backup/PITR·restore drill 없이 migration을 일회 실행한다. 이 단계는 사용자가 장비 장애 시 복구할 수 없고 데이터가 유실될 수 있음을 수용한 결정에 따른다. backup 활성 프로필은 아래 조건부 복구 절차를 먼저 통과한다.
 
 ```powershell
-$env:VLYTICS_BACKUP_DATABASE_URL = '<injected externally>'
-$env:VLYTICS_RESTORE_ADMIN_DATABASE_URL = '<dedicated recovery administrator injected externally>'
-powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Invoke-RestoreDrill.ps1
-
-docker compose --env-file D:\private\vlytics.env -f .\infra\compose.production.yaml run --rm migrate
-docker compose --env-file D:\private\vlytics.env -f .\infra\compose.production.yaml up -d postgres api worker frontend
+docker compose --env-file D:\private\vlytics.home.env -f .\infra\compose.home.yaml run --rm migrate
+docker compose --env-file D:\private\vlytics.home.env -f .\infra\compose.home.yaml up -d postgres api worker frontend operator_ingress
 ```
 
-7. `docker compose ps`, API health, 인증 401/200 경계, operations coverage, worker job lease를 확인한다. 첫 실제 경기 전까지 source 요청량과 Provider 비용을 낮은 승인값으로 유지한다.
+8. `docker compose ps`, API health, 인증 401/200 경계, operations coverage, worker job lease를 확인한다. 첫 실제 경기 전까지 source 요청량과 Provider 비용을 낮은 승인값으로 유지한다.
 
-## Backup, PITR와 복구
+향후 Anthropic·Gemini로 전환하거나 병행하려면 새 사용자 결정을 먼저 기록한다. 선택 Provider의 설정·key·budget·model/version·최종 registry hash와 fresh exact-subset evidence를 만든 뒤, 각각 `anthropic_egress`/`anthropic_access`/`http://anthropic_egress:8081` 또는 `google_egress`/`google_access`/`http://google_egress:8081`을 추가한다. worker는 계속 private-only로 두며 모든 활성 Provider의 registry 총예산은 월 10,000원(KRW)을 넘지 않는다.
+
+## 조건부 Backup, PITR와 복구
+
+이 절은 backup을 활성화하거나 표준/공개 프로필로 전환할 때 적용한다. 선택된 홈 프로필에서는 실행하지 않으며 활성화 게이트가 아니다. 운영 데이터는 삭제 정책 없이 무기한 보관하지만 단일 장비 장애 시 유실될 수 있다.
 
 `Backup-Database.ps1`은 `VLYTICS_BACKUP_DATABASE_URL`에서 URL을 읽고 custom-format dump, SHA-256, PostgreSQL 버전·크기·동일 exported snapshot의 table count와 migration checksum을 담은 manifest를 만든다. URL과 비밀번호는 artifact에 기록하지 않는다.
 
@@ -106,7 +128,7 @@ $env:VLYTICS_BACKUP_DATABASE_URL = '<injected externally>'
 powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Backup-Database.ps1 -OutputDirectory D:\private\backups
 ```
 
-운영 host의 단일 volume은 backup이 아니다. OP-002에서 암호화된 외부 목적지, 보존 기간, RPO/RTO와 알림을 정한다. PostgreSQL WAL archive 또는 관리형 PITR를 켜고 복구 시각을 정기 검증한다. logical dump는 migration 전과 정기 검증용이며 PITR를 대체하지 않는다.
+운영 host의 단일 volume은 backup이 아니다. backup 활성 프로필에서는 OP-002에 암호화된 외부 목적지, 보존 기간, RPO/RTO와 알림을 정한다. PostgreSQL WAL archive 또는 관리형 PITR를 켜고 복구 시각을 정기 검증한다. logical dump는 migration 전과 정기 검증용이며 PITR를 대체하지 않는다.
 
 분기마다 restore drill을 원본과 다른 PostgreSQL cluster의 별도 DB에서 수행한다. 실행 host에는 uv와 backend 의존성이 필요하다. 복구용 URL은 NOCREATEDB migrator와 분리한 `VLYTICS_RESTORE_ADMIN_DATABASE_URL`로 공급한다. 원본 backup 역할에는 cluster 식별자 확인용 `pg_control_system()` EXECUTE 권한이 필요하다. 원본과 대상의 system identifier가 같거나 확인할 수 없으면 어떤 역할도 변경하기 전에 중단한다. 복구 관리자는 CREATEDB 및 복구할 owner/role을 생성·설정하고 세션의 비밀번호 관련 로깅을 억제할 권한이 필요하며, 일반 API/worker에 이 URL을 전달하지 않는다. 새 cluster의 로그인 비밀번호는 네 `VLYTICS_*_DATABASE_PASSWORD`와 `VLYTICS_RESTORE_MIGRATOR_PASSWORD` 환경변수로 외부 주입한다. 이미 존재하는 대상 역할의 비밀번호는 자동 변경하지 않는다. dump는 owner/ACL을 보존하고 복구 후 네 실제 서비스 로그인으로 SELECT·허용 INSERT·금지 UPDATE/DELETE를 검사한다. database-level owner/GRANT를 manifest에서 별도로 복원·검증하고(Compose의 `vlytics_bootstrap_admin` 소유권 또는 `vlytics_migrator` 소유권을 그대로 보존), migrator 로그인과 migration_owner의 schema CREATE를 rollback transaction에서 확인한다. TLS URL 옵션을 보존하며 비교 행 수는 dump와 같은 snapshot에서 생성하므로 이후 원본 쓰기와 비교하지 않는다. 스크립트는 migration checksum, 네 domain schema, table set, 모든 table row count, prediction/job/published-event 중복 및 orphan projection을 비교하고 임시 DB를 삭제한다. 실패한 dump나 DB는 민감 자료로 취급하고 즉시 격리·삭제한다.
 
@@ -116,19 +138,19 @@ powershell.exe -NoProfile -NonInteractive -File .\infra\scripts\Backup-Database.
 
 API/worker는 `restart: unless-stopped`이고 migration 완료 후 시작한다. worker job은 semantic key와 unique index로 중복 enqueue를 막고, lease 만료 작업만 회수하며 이미 성공한 Provider를 다시 호출하지 않는다. 재시작 후 operations 화면에서 running lease, abandoned attempt, 동일 job key, 성공 prediction 수를 확인한다.
 
-Upgrade 전 현재 image digest, config hash, migration checksum, backup hash를 기록하고 restore drill을 실행한다. 새 backend image의 migration을 한 번 실행한 뒤 API, frontend, worker 순으로 교체한다. frontend-only 결함은 이전 frontend digest로 즉시 되돌리고 `/healthz`와 same-origin `/api`를 다시 확인한다. app-only 결함이고 schema가 하위 호환이면 이전 digest로 되돌린다. forward-only migration 이후 schema rollback이 필요하면 worker/API를 정지하고 검증된 backup/PITR로 전체 DB를 복구한다. `docker compose down -v`는 운영 절차에서 사용하지 않는다.
+Upgrade 전 현재 image digest, config hash와 migration checksum을 기록한다. backup 활성 프로필은 backup hash와 restore drill도 기록한다. 새 backend image의 migration을 한 번 실행한 뒤 API, frontend, worker 순으로 교체한다. frontend-only 결함은 이전 frontend digest로 즉시 되돌리고 `/healthz`와 same-origin `/api`를 다시 확인한다. app-only 결함이고 schema가 하위 호환이면 이전 digest로 되돌린다. 홈 프로필에서 forward-only migration 뒤 schema rollback이 필요하면 복구본이 없으므로 worker/API를 정지하고 데이터 유실 가능성을 명시한 수동 복구 또는 재초기화를 결정한다. `docker compose down -v`는 운영 절차에서 사용하지 않는다.
 
 ## 감시와 장애 대응
 
-- **시계:** NTP 동기화가 아니면 worker를 시작하지 않는다. 시작 후 offset/동기화 상태를 경보에 연결한다. 시간 이상 동안 생성된 prediction은 검토 전 평가에 포함하지 않는다.
+- **시계:** NTP 동기화가 아니면 worker를 시작하지 않는다. 홈 프로필은 operations 화면과 로그에서 offset/동기화 상태를 직접 확인한다. 시간 이상 동안 생성된 prediction은 검토 전 평가에 포함하지 않는다.
 - **source/coverage:** sync 시각, expected/loaded/missing/unsupported와 429/5xx를 본다. OP-001 한도를 넘기지 말고 반복 오류 시 bulk collection을 끈다.
 - **Provider/예산:** 일/월 호출·금액 reservation을 감시한다. 한도 초과 또는 통화/model alias 불일치는 해당 Provider를 fail-closed로 두며 다른 결과를 삭제하지 않는다.
 - **deadline:** T-60 시작 허용 30초, 완료 grace 300초, 경기 시작 이후 완료 거부를 유지한다. late 결과를 수동 publish하지 않는다.
-- **DB:** health, volume 여유, backup age, restore drill age, replication/WAL archive 상태를 경보에 연결한다.
+- **DB:** 홈 프로필은 health와 volume 여유를 직접 확인한다. backup 활성 프로필은 backup age, restore drill age, replication/WAL archive 상태도 경보에 연결한다.
 - **Web:** frontend `/healthz`, SPA root, internal API proxy 오류율을 감시한다. 번들 또는 image에 token이 포함되면 즉시 폐기하고 재빌드한다.
 - **Market:** 실제 adapter 전 `missing`은 정상 운영 상태다. 0 또는 임의 quote로 대체하지 않는다.
 
-중대한 장애에서는 worker를 먼저 정지해 외부 비용과 오염을 막고 API를 read-only 조회용으로 유지한다. correlation ID, job/prediction ID, config hash, image digest와 시각만 사건 기록에 남기며 secret·Raw·Provider 원문은 복사하지 않는다. 원인 제거 후 preflight와 필요한 restore/replay 검증을 다시 통과하고 worker 한 인스턴스부터 재개한다.
+중대한 장애에서는 worker를 먼저 정지해 외부 비용과 오염을 막고 API를 read-only 조회용으로 유지한다. correlation ID, job/prediction ID, config hash, image digest와 시각만 사건 기록에 남기며 secret·Raw·Provider 원문은 복사하지 않는다. 원인 제거 후 `-Profile personal_home` preflight와 필요한 replay 검증을 다시 통과하고 worker 한 인스턴스부터 재개한다. 디스크·DB 손상 시 backup이 없어 복구하지 못할 수 있다.
 
 ## Image 및 릴리스 증거
 
@@ -149,7 +171,7 @@ HIGH/CRITICAL 발견, scanner 오류, 비어 있거나 불완전한 보고서, i
 
 개발/CI Python 기본은 `python:3.12.14-alpine3.24`다. FastAPI 0.141.1/Starlette 1.3.1 및 lock의 musllinux wheel을 사용하며 전체 image 실행 검증은 CI 결과를 따른다. 운영은 계속 검증·게시한 digest를 외부 주입한다.
 
-`infra/images/node.Dockerfile`은 digest로 전달한 Node 22 위에서 npm 12.1.0을 설치하고 cache를 제거한다. `infra/images/nginx.Dockerfile`은 digest로 전달한 stable Nginx 위에서 libexpat 2.8.5-r0을 설치한다. CI는 이 파생 기반 image와 최종 frontend를 모두 검사하고 원본 digest를 build input 증거로 남긴다. 이 후보의 실제 scan 결과를 확인하기 전에는 운영용으로 승인하지 않는다.
+`infra/images/node.Dockerfile`은 digest로 전달한 Node 22 위에서 npm 12.1.0을 설치하고 번들의 `brace-expansion` 5.0.11·`undici` 6.28.1 보안 수정판만 교체한 뒤 임시 파일과 cache를 제거한다. 교체 스크립트는 npm 본체·패키지 버전·기존 major와 의존성 호환성을 확인하며 불일치하면 빌드를 중단한다. `infra/images/nginx.Dockerfile`은 digest로 전달한 stable Nginx 위에서 libexpat 2.8.5-r0을 설치한다. CI는 이 파생 기반 image와 최종 frontend를 모두 검사하고 원본 digest를 build input 증거로 남긴다. 이 후보의 실제 scan 결과를 확인하기 전에는 운영용으로 승인하지 않는다.
 
 릴리스 담당자는 동일 Dockerfile과 upstream digest로 파생 base를 빌드·검증하고, 게시된 파생 digest를 frontend의 `NODE_IMAGE`/`NGINX_IMAGE`와 release 검사에 전달한다. private registry의 base repository는 `.../node@sha256:...`, `.../nginx@sha256:...`처럼 family를 식별할 수 있어야 한다. upstream image의 취약 패키지를 그대로 둔 채 이름만 바꾸거나 보고서에서 제외하지 않는다. [실제 검사 기록](../verification/image-security-evidence.md)을 함께 확인한다.
 

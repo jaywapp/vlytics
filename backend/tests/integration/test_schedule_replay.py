@@ -1632,6 +1632,8 @@ def test_durable_provider_budget_is_atomic_across_workers_and_restart(
         max_calls_per_match=1,
     )
     provider_key = f"synthetic-budget-{uuid4()}"
+    reservation_amount = Decimal("1.000000001")
+    actual_amount = Decimal("0.123456781")
     ledgers = [
         PostgresBudgetLedger(
             engine,
@@ -1647,13 +1649,13 @@ def test_durable_provider_budget_is_atomic_across_workers_and_restart(
 
     def reserve(ledger: PostgresBudgetLedger) -> bool:
         barrier.wait(timeout=2)
-        return ledger.reserve(Decimal("1"))
+        return ledger.reserve(reservation_amount)
 
     with ThreadPoolExecutor(max_workers=2) as executor:
         results = list(executor.map(reserve, ledgers))
     assert sorted(results) == [False, True]
     winner = results.index(True)
-    ledgers[winner].settle(Decimal("1"), Decimal("1"))
+    ledgers[winner].settle(reservation_amount, actual_amount)
     restarted = PostgresBudgetLedger(
         engine,
         reservation_key=f"budget-reservation:{jobs[winner]['id']}",
@@ -1662,20 +1664,91 @@ def test_durable_provider_budget_is_atomic_across_workers_and_restart(
         limits=limits,
         reserved_at=NOW,
     )
-    assert restarted.reserve(Decimal("1"))
-    restarted.settle(Decimal("1"), Decimal("1"))
+    assert restarted.reserve(reservation_amount)
+    restarted.settle(reservation_amount, actual_amount)
     with engine.begin() as connection:
         row = connection.execute(
             text(
                 """
-                SELECT count(*), sum(settled_amount), bool_and(conservative_charge)
+                SELECT count(*), sum(reserved_amount), sum(settled_amount),
+                       bool_and(conservative_charge)
                 FROM ops.provider_budget_reservations
                 WHERE provider = :provider AND budget_day = :budget_day
                 """
             ),
             {"provider": provider_key, "budget_day": NOW.date()},
         ).one()
-        assert tuple(row) == (1, Decimal("1.00000000"), True)
+        assert tuple(row) == (
+            1,
+            Decimal("1.00000001"),
+            Decimal("0.12345679"),
+            False,
+        )
+
+
+def test_durable_provider_budget_rejects_mixed_currency_in_current_month(
+    postgres_role_urls: PostgresRoleUrls,
+) -> None:
+    match_id, revision_id = _insert_match(
+        postgres_role_urls,
+        scheduled_start_at=NOW + timedelta(days=30),
+    )
+    engine = create_engine(postgres_role_urls.engine)
+    provider_key = f"synthetic-budget-currency-{uuid4()}"
+    with engine.begin() as connection:
+        jobs = [
+            JobRepository(connection).enqueue(
+                job_key=f"budget-currency:{uuid4()}",
+                job_type="synthetic.budget",
+                payload={},
+                due_at=NOW + timedelta(days=30),
+                deadline_at=NOW + timedelta(days=31),
+                match_id=match_id,
+                schedule_revision_id=revision_id,
+                stage="pregame",
+            )
+            for _ in range(2)
+        ]
+        connection.execute(
+            text(
+                """
+                INSERT INTO ops.provider_budget_reservations (
+                    reservation_key, provider, job_id, reserved_at, budget_day,
+                    budget_month, reserved_amount, currency
+                ) VALUES (
+                    :reservation_key, :provider, :job_id, :reserved_at, :budget_day,
+                    :budget_month, :reserved_amount, 'USD'
+                )
+                """
+            ),
+            {
+                "reservation_key": f"budget-currency-existing:{jobs[0]['id']}",
+                "provider": provider_key,
+                "job_id": jobs[0]["id"],
+                "reserved_at": NOW,
+                "budget_day": NOW.date(),
+                "budget_month": NOW.date().replace(day=1),
+                "reserved_amount": Decimal("1"),
+            },
+        )
+    ledger = PostgresBudgetLedger(
+        engine,
+        reservation_key=f"budget-currency-new:{jobs[1]['id']}",
+        provider=provider_key,
+        job_id=jobs[1]["id"],
+        limits=ProviderBudgetLimits(
+            daily_amount=Decimal("1000"),
+            monthly_amount=Decimal("10000"),
+            daily_calls=10,
+            monthly_calls=100,
+            max_calls_per_match=2,
+            currency="KRW",
+        ),
+        reserved_at=NOW,
+    )
+
+    with pytest.raises(ValueError, match="mixed currencies"):
+        ledger.reserve(Decimal("100"))
 
 
 def test_parallel_dispatch_uses_separate_connections_before_start_tolerance(

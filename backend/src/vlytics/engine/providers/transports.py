@@ -23,6 +23,11 @@ if TYPE_CHECKING:
 OPENAI_ENDPOINT = "https://api.openai.com/v1/responses"
 ANTHROPIC_ENDPOINT = "https://api.anthropic.com/v1/messages"
 GOOGLE_ENDPOINT_PREFIX = "https://generativelanguage.googleapis.com/v1beta/models/"
+_PROVIDER_PROXIES = {
+    ProviderName.OPENAI: ("VLYTICS_OPENAI_PROXY_URL", "http://openai_egress:8081"),
+    ProviderName.ANTHROPIC: ("VLYTICS_ANTHROPIC_PROXY_URL", "http://anthropic_egress:8081"),
+    ProviderName.GOOGLE: ("VLYTICS_GOOGLE_PROXY_URL", "http://google_egress:8081"),
+}
 _SAFE_VALUE = re.compile(r"^[A-Za-z0-9_.:/-]{1,128}$")
 
 
@@ -211,7 +216,7 @@ def build_live_prediction_providers(
     client_factory: LiveClientFactory | None = None,
     limits: ProviderTransportLimits | None = None,
 ) -> tuple[PredictionProvider, ...]:
-    """Build production adapters exclusively with the three pinned live transports."""
+    """Build selected adapters with pinned endpoints and optional reviewed relays."""
 
     from .adapters import (
         AnthropicPredictionProvider,
@@ -224,12 +229,29 @@ def build_live_prediction_providers(
         ProviderName.ANTHROPIC: AnthropicProviderTransport,
         ProviderName.GOOGLE: GoogleProviderTransport,
     }
-    providers: list[PredictionProvider] = []
+    # Validate all active routes before creating any clients for a multi-provider plan.
     for item in plan.providers:
         api_key = environ.get(item.api_key_env)
         if not api_key:
             raise ValueError(f"missing provider secret environment variable: {item.api_key_env}")
-        client = client_factory(item.variant.provider) if client_factory is not None else None
+        _validate_model_id(item.variant.requested_model_id)
+        proxy_env, approved_proxy = _PROVIDER_PROXIES[item.variant.provider]
+        if proxy_env in environ and environ[proxy_env] != approved_proxy:
+            raise ValueError(f"invalid internal proxy for {item.variant.provider.value}")
+
+    providers: list[PredictionProvider] = []
+    for item in plan.providers:
+        api_key = environ[item.api_key_env]
+        proxy_env, approved_proxy = _PROVIDER_PROXIES[item.variant.provider]
+        client: httpx.Client | None
+        if proxy_env in environ:
+            client = httpx.Client(
+                proxy=approved_proxy,
+                trust_env=False,
+                follow_redirects=False,
+            )
+        else:
+            client = client_factory(item.variant.provider) if client_factory is not None else None
         transport = transport_types[item.variant.provider](
             api_key=api_key,
             model_id=item.variant.requested_model_id,

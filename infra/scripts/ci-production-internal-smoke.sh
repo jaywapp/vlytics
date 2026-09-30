@@ -37,6 +37,7 @@ environment = "production"
 live_operations_enabled = true
 
 [deployment]
+profile = "standard"
 live_enabled = true
 host_class = "private_single_vm"
 host_provider = "synthetic-ci-only"

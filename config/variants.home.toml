@@ -1,0 +1,58 @@
+schema_version = "1"
+# Prices are USD per 1M tokens; verify before activation.
+# https://developers.openai.com/api/docs/models/gpt-6-sol (2026-09-30)
+[budget]
+resolved = true
+currency = "KRW"
+daily_amount = "1000"
+monthly_amount = "10000"
+
+[[variants]]
+id = "openai-gpt-6-sol-home-v1"
+provider = "openai"
+enabled = true
+op003_resolved = false
+requested_model_id = "gpt-6-sol"
+pinned_model_version = "__REQUIRED_AFTER_MODEL_SMOKE__"
+version_policy = "verify_resolved_model_id"
+prompt_version = "independent-volleyball-v1"
+prompt_hash = "167c7845bf81d4da3dde37e5f53620d99428fa725b72713c578bb1ec41e219db"
+distribution_version = "ai-direct-set-v1"
+max_input_tokens = 4000
+max_output_tokens = 1000
+# Reserve the cache-write upper rate (ordinary uncached input is USD 2.00).
+input_cost_per_million = "2.50"
+output_cost_per_million = "10"
+pricing_currency = "USD"
+
+[[variants]]
+id = "anthropic-claude-independent-v1"
+provider = "anthropic"
+enabled = false
+op003_resolved = false
+requested_model_id = "__UNRESOLVED_OP_003__"
+pinned_model_version = "__UNRESOLVED_OP_003__"
+version_policy = "unconfigured"
+prompt_version = "independent-volleyball-v1"
+prompt_hash = "167c7845bf81d4da3dde37e5f53620d99428fa725b72713c578bb1ec41e219db"
+distribution_version = "ai-direct-set-v1"
+max_input_tokens = 0
+max_output_tokens = 0
+input_cost_per_million = "0"
+output_cost_per_million = "0"
+
+[[variants]]
+id = "google-gemini-independent-v1"
+provider = "google"
+enabled = false
+op003_resolved = false
+requested_model_id = "__UNRESOLVED_OP_003__"
+pinned_model_version = "__UNRESOLVED_OP_003__"
+version_policy = "unconfigured"
+prompt_version = "independent-volleyball-v1"
+prompt_hash = "167c7845bf81d4da3dde37e5f53620d99428fa725b72713c578bb1ec41e219db"
+distribution_version = "ai-direct-set-v1"
+max_input_tokens = 0
+max_output_tokens = 0
+input_cost_per_million = "0"
+output_cost_per_million = "0"

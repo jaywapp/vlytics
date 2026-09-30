@@ -2,15 +2,24 @@
 param(
     [string]$ComposeFile,
     [string]$EnvironmentExample,
-    [string]$OperationalConfig
+    [string]$OperationalConfig,
+    [ValidateSet("standard", "personal_home")][string]$Profile = "standard"
 )
 
 Set-StrictMode -Version 2.0
 $ErrorActionPreference = "Stop"
+. (Join-Path $PSScriptRoot "ProviderEgress.ps1")
 
-if ([string]::IsNullOrWhiteSpace($ComposeFile)) { $ComposeFile = Join-Path $PSScriptRoot "..\compose.production.yaml" }
-if ([string]::IsNullOrWhiteSpace($EnvironmentExample)) { $EnvironmentExample = Join-Path $PSScriptRoot "..\.env.example" }
-if ([string]::IsNullOrWhiteSpace($OperationalConfig)) { $OperationalConfig = Join-Path $PSScriptRoot "..\operational.production.example.toml" }
+if ($Profile -eq "personal_home") {
+    if ([string]::IsNullOrWhiteSpace($ComposeFile)) { $ComposeFile = Join-Path $PSScriptRoot "..\compose.home.yaml" }
+    if ([string]::IsNullOrWhiteSpace($EnvironmentExample)) { $EnvironmentExample = Join-Path $PSScriptRoot "..\.env.home.example" }
+    if ([string]::IsNullOrWhiteSpace($OperationalConfig)) { $OperationalConfig = Join-Path $PSScriptRoot "..\operational.home.example.toml" }
+}
+else {
+    if ([string]::IsNullOrWhiteSpace($ComposeFile)) { $ComposeFile = Join-Path $PSScriptRoot "..\compose.production.yaml" }
+    if ([string]::IsNullOrWhiteSpace($EnvironmentExample)) { $EnvironmentExample = Join-Path $PSScriptRoot "..\.env.example" }
+    if ([string]::IsNullOrWhiteSpace($OperationalConfig)) { $OperationalConfig = Join-Path $PSScriptRoot "..\operational.production.example.toml" }
+}
 $repositoryRoot = [System.IO.Path]::GetFullPath((Join-Path $PSScriptRoot "..\.."))
 $frontendDockerfile = Join-Path $repositoryRoot "frontend\Dockerfile"
 $frontendProxyConfig = Join-Path $repositoryRoot "frontend\nginx.production.conf"
@@ -24,7 +33,7 @@ function Assert-Contains {
 
 function Get-ServiceBlock {
     param([string]$Content, [string]$Service, [string]$NextSectionPattern)
-    $match = [regex]::Match($Content, "(?ms)^  $Service`:\r?\n(?<block>.*?)(?=^  $NextSectionPattern`:\r?`n|^volumes`:\r?`n)")
+    $match = [regex]::Match($Content, "(?ms)^  $Service`:\r?\n(?<block>.*?)(?=^  [A-Za-z0-9_]+`:\r?`n|^volumes`:\r?`n)")
     if (-not $match.Success) { throw "Compose service block is missing: $Service" }
     return $match.Groups["block"].Value
 }
@@ -35,6 +44,7 @@ $requiredFiles = @(
     (Join-Path $PSScriptRoot "Backup-Database.ps1"),
     (Join-Path $PSScriptRoot "Invoke-RestoreDrill.ps1"),
     (Join-Path $PSScriptRoot "Invoke-Preflight.ps1"),
+    (Join-Path $PSScriptRoot "ProviderEgress.ps1"),
     (Join-Path $PSScriptRoot "..\postgres-init\001-create-migrator.sql")
 )
 foreach ($file in $requiredFiles) {
@@ -115,22 +125,84 @@ $requiredPlaceholderKeys = @(
     "VLYTICS_GOOGLE_API_KEY"
 )
 foreach ($key in $requiredPlaceholderKeys) {
+    if ($Profile -eq "personal_home" -and $key -in @("VLYTICS_OPENAI_API_KEY", "VLYTICS_ANTHROPIC_API_KEY", "VLYTICS_GOOGLE_API_KEY")) { continue }
     Assert-Contains $environmentText ("(?m)^" + [regex]::Escape($key) + "=__REQUIRED__\r?$") "Placeholder is missing for $key."
 }
 
 $python = Get-Command python -ErrorAction SilentlyContinue
 if ($null -ne $python) {
-    $syntaxCheck = "import json,pathlib,sys,tomllib; tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8-sig')); json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8-sig'))"
+    $syntaxCheck = @"
+import json, pathlib, sys, tomllib
+config = tomllib.loads(pathlib.Path(sys.argv[1]).read_text(encoding='utf-8-sig'))
+json.loads(pathlib.Path(sys.argv[2]).read_text(encoding='utf-8-sig'))
+profile = config.get('deployment', {}).get('profile', 'standard')
+if profile != sys.argv[3]:
+    raise ValueError('Package profile must match operational deployment profile')
+if profile == 'personal_home':
+    enabled = {name for name in ('openai', 'anthropic', 'google') if config['ai'][name]['enabled']}
+    if not enabled:
+        raise ValueError('Home package requires an enabled Provider')
+    env = dict(line.split('=', 1) for line in pathlib.Path(sys.argv[4]).read_text(encoding='utf-8-sig').splitlines() if line and not line.startswith('#'))
+    for name in enabled:
+        if env.get(config['ai'][name]['api_key_env']) != '__REQUIRED__':
+            raise ValueError('Enabled Provider example requires a key placeholder')
+    if config['backup']['enabled'] or config['alerting']['enabled']:
+        raise ValueError('Home package template requires backup and alerting disabled')
+else:
+    enabled = {name for name in ('openai', 'anthropic', 'google') if config['ai'][name]['enabled']}
+print(json.dumps(sorted(enabled)))
+"@
     $schemaPath = Join-Path $repositoryRoot "contracts\config.schema.json"
-    & $python.Source -c $syntaxCheck ([System.IO.Path]::GetFullPath($OperationalConfig)) $schemaPath
+    $activeOutput = & $python.Source -c $syntaxCheck ([System.IO.Path]::GetFullPath($OperationalConfig)) $schemaPath $Profile ([System.IO.Path]::GetFullPath($EnvironmentExample))
     if ($LASTEXITCODE -ne 0) { throw "Operational TOML or JSON schema syntax validation failed." }
+    [string[]]$enabledProviders = ConvertFrom-Json -InputObject ($activeOutput -join "")
 }
-else { Write-Warning "Python was not found; TOML/JSON syntax validation was skipped." }
+else {
+    if ($Profile -eq "personal_home") { throw "Python is required to validate home Provider selection." }
+    Write-Warning "Python was not found; TOML/JSON syntax validation was skipped."
+}
+
+if ($Profile -eq "personal_home") {
+    Assert-Contains $workerBlock '<<:\s+\*backend-service' "Home worker must inherit the private backend network."
+    if ($workerBlock -match '(?m)^    networks:') { throw "Home worker must not override the private network." }
+    foreach ($provider in @("openai", "anthropic", "google")) {
+        $serviceName = $provider + "_egress"
+        $networkName = $provider + "_access"
+        $keyPrefix = if ($provider -eq "google") { "GOOGLE" } else { $provider.ToUpperInvariant() }
+        if ($provider -notin $enabledProviders) {
+            if ($compose -match ("(?m)^  " + $serviceName + ":") -or
+                $workerBlock -match ("VLYTICS_" + $keyPrefix + "_(API_KEY|PROXY_URL):")) {
+                throw "Disabled home Provider must not have a relay, worker key or proxy."
+            }
+            continue
+        }
+        $relayBlock = Get-ServiceBlock $compose $serviceName "__never__"
+        Assert-Contains $relayBlock '<<:\s+\*backend-service' "Home relay must inherit backend hardening."
+        Assert-Contains $relayBlock 'command:\s*\["python", "-m", "vlytics.ops.provider_egress"\]' "Home relay module is invalid."
+        Assert-Contains $relayBlock ('(?m)VLYTICS_EGRESS_PROVIDER:\s+' + $provider + '\r?$') "Home relay Provider is invalid."
+        Assert-Contains $relayBlock 'VLYTICS_EGRESS_BIND:\s+0\.0\.0\.0:8081' "Home relay bind is invalid."
+        Assert-Contains $relayBlock ('networks:\s*\r?\n      private: \{\}\s*\r?\n      ' + $networkName + ':\s*\r?\n        gw_priority: 1\s*\r?\n') "Home relay network isolation or default gateway is invalid (Compose 2.33.1+ required)."
+        Assert-Contains $workerBlock ('(?m)VLYTICS_' + $keyPrefix + '_PROXY_URL:\s+http://' + $serviceName + ':8081\r?$') "Home worker proxy is invalid."
+        Assert-Contains $workerBlock ('VLYTICS_' + $keyPrefix + '_API_KEY:') "Home worker Provider key is missing."
+        Assert-Contains $compose ($networkName + ':\s*\r?\n\s+driver:\s+bridge') "Home Provider access network is missing."
+        if ($relayBlock -match '(?m)^    (ports|volumes):' -or
+            $relayBlock -match 'VLYTICS_.*(API_KEY|AUTH_SECRET|DATABASE_URL)' -or
+            ($compose | Select-String -Pattern ('(?m)^      ' + $networkName + ':\s*$') -AllMatches).Matches.Count -ne 1) {
+            throw "Home relay must not receive secrets or expose its network or host port."
+        }
+    }
+}
 
 $docker = Get-Command docker -ErrorAction SilentlyContinue
 if ($null -ne $docker) {
     & $docker.Source compose --env-file $EnvironmentExample --file $ComposeFile config --quiet
     if ($LASTEXITCODE -ne 0) { throw "docker compose config validation failed." }
+    if ($Profile -eq "personal_home") {
+        $renderedJson = & $docker.Source compose --env-file $EnvironmentExample --file $ComposeFile config --format json
+        if ($LASTEXITCODE -ne 0) { throw "docker compose JSON validation failed." }
+        $rendered = ($renderedJson -join [Environment]::NewLine) | ConvertFrom-Json
+        Assert-HomeProviderEgress $rendered $enabledProviders -AllowExampleKeys
+    }
     $composeValidation = "passed"
 }
 else { $composeValidation = "skipped-no-docker-cli" }
