@@ -36,6 +36,6 @@
 
 Docker Desktop·uv/Python·고정 이미지·확인한 모델/가격/환율·동일 설정의 최신 dry-run과 키를 준비해야 서비스를 시작할 수 있다. 소스 수집은 기존 미해결 권리 검증 상태를 유지한다. 설치 파일은 현재 코드 서명하지 않는다.
 
-GitHub Actions의 최초 실행·Release 게시 결과는 원격 실행에서 추가 확인한다. 사용법과 자동 릴리즈 정책은 [Windows 안내](../../desktop/README.md)를 따른다.
+원격 [Windows Installer 실행 36777002838](https://github.com/jaywapp/vlytics/actions/runs/36777002838)이 build·release 모두 성공했다. 커밋 `682f6db`의 [시험 릴리즈 v1.0.3](https://github.com/jaywapp/vlytics/releases/tag/v1.0.3)에 MSI·ZIP·SHA256 3개 파일이 실제 게시됐으며 릴리즈 job에서 SHA256을 검증했다. PR의 설치 빌드도 성공했고 게시 단계는 예정대로 제외됐다. 사용법과 자동 릴리즈 정책은 [Windows 안내](../../desktop/README.md)를 따른다.
 
 첫 원격 Windows 설치 빌드는 `actions/setup-python`에 Windows용 3.12.14 파일이 없어 중단됐다. uv 관리 Python 3.12.14 설치로 변경했으며 버전과 검증 기준을 유지했다. 관리 Python 설치 방식은 [uv 공식 GitHub Actions 안내](https://docs.astral.sh/uv/guides/integration/github/)를 따른다.
