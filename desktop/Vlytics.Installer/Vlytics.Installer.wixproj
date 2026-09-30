@@ -1,0 +1,19 @@
+<Project Sdk="WixToolset.Sdk/5.0.2">
+  <PropertyGroup>
+    <OutputType>Package</OutputType>
+    <Platform>x64</Platform>
+    <ProductVersion Condition="'$(ProductVersion)' == ''">1.0.0</ProductVersion>
+    <GeneratedPayloadPath Condition="'$(GeneratedPayloadPath)' == ''">$(MSBuildProjectDirectory)\obj\GeneratedPayload.wxs</GeneratedPayloadPath>
+    <DefineConstants>ProductVersion=$(ProductVersion)</DefineConstants>
+    <OutputName>Vlytics-Settings-$(ProductVersion)-win-x64</OutputName>
+    <TargetName>Vlytics-Settings-$(ProductVersion)-win-x64</TargetName>
+    <SuppressValidation>false</SuppressValidation>
+    <!-- ICE91 assumes a package might switch to per-machine scope. This package is fixed to per-user. -->
+    <SuppressIces>ICE91</SuppressIces>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="$(GeneratedPayloadPath)" Link="GeneratedPayload.wxs" />
+  </ItemGroup>
+</Project>

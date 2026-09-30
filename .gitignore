@@ -50,3 +50,12 @@ db-dumps/
 *.sqlite
 *.sqlite3
 *.db
+
+# Windows application build output
+**/bin/
+**/obj/
+desktop/.packages/
+desktop/.dotnet-home/
+artifacts/windows-installer/
+artifacts/.windows-installer-work/
+.packages/

@@ -4,7 +4,8 @@ param(
     [Parameter(Mandatory = $true)][string]$OperationalConfig,
     [Parameter(Mandatory = $true)][string]$DryRunEvidence,
     [string]$ComposeFile,
-    [ValidateSet("standard", "personal_home")][string]$Profile = "standard"
+    [ValidateSet("standard", "personal_home")][string]$Profile = "standard",
+    [switch]$UseProcessSecrets
 )
 
 Set-StrictMode -Version 2.0
@@ -153,6 +154,18 @@ $EnvironmentFile = Resolve-DeploymentFile $EnvironmentFile (Get-Location).Provid
 $ComposeFile = Resolve-DeploymentFile $ComposeFile (Get-Location).ProviderPath
 $composeDirectory = Split-Path -Parent $ComposeFile
 $values = Read-EnvironmentFile $EnvironmentFile
+if ($UseProcessSecrets) {
+    # The desktop application supplies secrets only through its child process environment.
+    $secretNames = @("VLYTICS_OPERATOR_AUTH_SECRET", "VLYTICS_READONLY_AUTH_SECRET",
+        "VLYTICS_OPENAI_API_KEY", "VLYTICS_ANTHROPIC_API_KEY", "VLYTICS_GOOGLE_API_KEY",
+        "MIGRATOR_DATABASE_PASSWORD", "COLLECTOR_DATABASE_PASSWORD", "ENGINE_DATABASE_PASSWORD",
+        "MARKET_INGEST_DATABASE_PASSWORD", "READ_API_DATABASE_PASSWORD", "MIGRATOR_DATABASE_URL",
+        "COLLECTOR_DATABASE_URL", "ENGINE_DATABASE_URL", "MARKET_INGEST_DATABASE_URL", "READ_API_DATABASE_URL")
+    foreach ($secretName in $secretNames) {
+        $secretValue = [Environment]::GetEnvironmentVariable($secretName, "Process")
+        if (-not [string]::IsNullOrWhiteSpace($secretValue)) { $values[$secretName] = $secretValue }
+    }
+}
 $required = @(
     "VLYTICS_BACKEND_IMAGE", "VLYTICS_FRONTEND_IMAGE", "VLYTICS_NODE_BUILD_IMAGE", "VLYTICS_NGINX_RUNTIME_IMAGE", "VLYTICS_POSTGRES_IMAGE", "VLYTICS_PYTHON_BUILD_IMAGE", "VLYTICS_UV_BUILD_IMAGE", "MIGRATOR_DATABASE_PASSWORD", "COLLECTOR_DATABASE_PASSWORD",
     "ENGINE_DATABASE_PASSWORD", "MARKET_INGEST_DATABASE_PASSWORD", "READ_API_DATABASE_PASSWORD",

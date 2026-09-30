@@ -1,0 +1,454 @@
+<Window x:Class="Vlytics.Settings.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:automation="clr-namespace:System.Windows.Automation;assembly=PresentationCore"
+        Title="Vlytics 설정"
+        Width="1180" Height="820" MinWidth="960" MinHeight="680"
+        WindowStartupLocation="CenterScreen" Background="#111827"
+        Closing="Window_Closing">
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <TabControl x:Name="MainTabs" Grid.Row="0" TabStripPlacement="Left" Background="Transparent" BorderThickness="0">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="Foreground" Value="#BFC8D7" />
+                    <Setter Property="FontSize" Value="15" />
+                    <Setter Property="FontWeight" Value="SemiBold" />
+                    <Setter Property="Margin" Value="12,3" />
+                    <Setter Property="Padding" Value="16,13" />
+                    <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="TabItem">
+                                <Border x:Name="NavItem" Background="Transparent" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter ContentSource="Header" RecognizesAccessKey="True"
+                                                      TextElement.Foreground="{TemplateBinding Foreground}" />
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="NavItem" Property="Background" Value="#26354E" />
+                                        <Setter Property="Foreground" Value="White" />
+                                    </Trigger>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="NavItem" Property="Background" Value="#1E2B41" />
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </TabControl.Resources>
+            <TabControl.Template>
+                <ControlTemplate TargetType="TabControl">
+                    <Grid KeyboardNavigation.TabNavigation="Local">
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="230" />
+                            <ColumnDefinition Width="*" />
+                        </Grid.ColumnDefinitions>
+                        <Border Grid.Column="0" Background="#111827">
+                            <Grid Margin="0,20,0,0">
+                                <Grid.RowDefinitions>
+                                    <RowDefinition Height="Auto" />
+                                    <RowDefinition Height="*" />
+                                    <RowDefinition Height="Auto" />
+                                </Grid.RowDefinitions>
+                                <StackPanel Margin="28,6,20,24">
+                                    <TextBlock Text="VLYTICS" Foreground="White" FontSize="20" FontWeight="Bold" />
+                                    <TextBlock Text="Windows 설정" Foreground="#8FA1BA" Margin="0,4,0,0" />
+                                </StackPanel>
+                                <TabPanel x:Name="HeaderPanel" Grid.Row="1" IsItemsHost="True" />
+                                <TextBlock Grid.Row="2" Text="로컬 운영 도구" Foreground="#718096" Margin="28,12,20,24" />
+                            </Grid>
+                        </Border>
+                        <Border Grid.Column="1" Background="{StaticResource CanvasBrush}">
+                            <ContentPresenter x:Name="PART_SelectedContentHost"
+                                              ContentSource="SelectedContent"
+                                              Margin="0" />
+                        </Border>
+                    </Grid>
+                </ControlTemplate>
+            </TabControl.Template>
+
+            <TabItem Header="_연결 및 공급자" automation:AutomationProperties.Name="연결 및 공급자">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="38,32,42,40" MaxWidth="900" HorizontalAlignment="Left">
+                        <TextBlock Text="연결 및 공급자" FontSize="28" FontWeight="SemiBold" />
+                        <TextBlock Text="AI 공급자와 브라우저 인증 값을 안전하게 저장합니다. 저장만으로 외부 API가 호출되지는 않습니다."
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,7,0,24" TextWrapping="Wrap" />
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="AI 공급자" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="24" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <Label Content="_공급자" Target="{Binding ElementName=ProviderBox}" />
+                                        <ComboBox x:Name="ProviderBox" SelectionChanged="ProviderBox_SelectionChanged"
+                                                  automation:AutomationProperties.Name="AI 공급자">
+                                            <ComboBoxItem Content="OpenAI" Tag="openai" />
+                                            <ComboBoxItem Content="Anthropic" Tag="anthropic" />
+                                            <ComboBoxItem Content="Google Gemini" Tag="google" />
+                                        </ComboBox>
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <Label Content="_모델 ID" Target="{Binding ElementName=ModelIdBox}" />
+                                        <TextBox x:Name="ModelIdBox" automation:AutomationProperties.Name="모델 ID" />
+                                    </StackPanel>
+                                </Grid>
+                                <Label Content="새 _API 키" Target="{Binding ElementName=ProviderKeyBox}" Margin="0,18,0,0" />
+                                <PasswordBox x:Name="ProviderKeyBox" PasswordChanged="SecretBox_PasswordChanged"
+                                             automation:AutomationProperties.Name="새 공급자 API 키" />
+                                <Grid Margin="0,9,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ProviderKeyStatusText" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
+                                               Text="저장된 키 상태를 확인하는 중입니다." />
+                                    <Button x:Name="DeleteProviderKeyButton" Grid.Column="1" Content="저장된 키 삭제" Click="DeleteProviderKeyButton_Click"
+                                            Style="{StaticResource DangerButtonStyle}" Padding="12,7" MinHeight="34"
+                                            automation:AutomationProperties.Name="선택한 공급자의 저장된 API 키 삭제" />
+                                </Grid>
+                                <TextBlock Text="빈 칸으로 저장하면 기존 키가 유지됩니다. 키는 Windows 보호 저장소에 보관되며 화면에 다시 표시되지 않습니다."
+                                           Foreground="{StaticResource MutedBrush}" Margin="0,9,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="브라우저 인증" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18" />
+                                <Label Content="새 _운영자 비밀번호" Target="{Binding ElementName=OperatorSecretBox}" />
+                                <PasswordBox x:Name="OperatorSecretBox" PasswordChanged="SecretBox_PasswordChanged"
+                                             automation:AutomationProperties.Name="새 운영자 비밀번호" />
+                                <TextBlock x:Name="OperatorSecretStatusText" Foreground="{StaticResource MutedBrush}" Margin="0,7,0,14" />
+                                <Label Content="새 _읽기 전용 비밀번호 (선택)" Target="{Binding ElementName=ReadonlySecretBox}" />
+                                <PasswordBox x:Name="ReadonlySecretBox" PasswordChanged="SecretBox_PasswordChanged"
+                                             automation:AutomationProperties.Name="새 읽기 전용 비밀번호" />
+                                <TextBlock x:Name="ReadonlySecretStatusText" Foreground="{StaticResource MutedBrush}" Margin="0,7,0,0" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <Expander Header="고급 · 기존 데이터베이스 자격 증명" FontWeight="SemiBold"
+                                      automation:AutomationProperties.Name="기존 데이터베이스 역할 비밀번호 입력">
+                                <StackPanel Margin="0,18,0,0" TextElement.FontWeight="Normal">
+                                    <TextBlock Text="새 DB 비밀번호는 자동 생성됩니다. 기존 DB를 연결할 때만 입력하세요."
+                                               Foreground="{StaticResource MutedBrush}" Margin="0,0,0,16" TextWrapping="Wrap" />
+                                    <Label Content="새 _Migrator 비밀번호" Target="{Binding ElementName=MigratorPasswordBox}" />
+                                    <PasswordBox x:Name="MigratorPasswordBox" PasswordChanged="SecretBox_PasswordChanged"
+                                                 automation:AutomationProperties.Name="새 Migrator 데이터베이스 비밀번호" />
+                                    <Label Content="새 _Collector 비밀번호" Target="{Binding ElementName=CollectorPasswordBox}" Margin="0,12,0,0" />
+                                    <PasswordBox x:Name="CollectorPasswordBox" PasswordChanged="SecretBox_PasswordChanged"
+                                                 automation:AutomationProperties.Name="새 Collector 데이터베이스 비밀번호" />
+                                    <Label Content="새 _Engine 비밀번호" Target="{Binding ElementName=EnginePasswordBox}" Margin="0,12,0,0" />
+                                    <PasswordBox x:Name="EnginePasswordBox" PasswordChanged="SecretBox_PasswordChanged"
+                                                 automation:AutomationProperties.Name="새 Engine 데이터베이스 비밀번호" />
+                                    <Label Content="새 Mar_ket ingest 비밀번호" Target="{Binding ElementName=MarketIngestPasswordBox}" Margin="0,12,0,0" />
+                                    <PasswordBox x:Name="MarketIngestPasswordBox" PasswordChanged="SecretBox_PasswordChanged"
+                                                 automation:AutomationProperties.Name="새 Market ingest 데이터베이스 비밀번호" />
+                                    <Label Content="새 _Read API 비밀번호" Target="{Binding ElementName=ReadApiPasswordBox}" Margin="0,12,0,0" />
+                                    <PasswordBox x:Name="ReadApiPasswordBox" PasswordChanged="SecretBox_PasswordChanged"
+                                                 automation:AutomationProperties.Name="새 Read API 데이터베이스 비밀번호" />
+                                    <TextBlock Text="빈 칸으로 저장하면 현재 보호 저장소의 비밀번호가 유지됩니다. 저장된 값은 화면에 표시되지 않습니다."
+                                               Foreground="{StaticResource MutedBrush}" Margin="0,12,0,0" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Expander>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="예산" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="*" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <Label Content="_일일 예산 (원)" Target="{Binding ElementName=DailyBudgetBox}" />
+                                        <TextBox x:Name="DailyBudgetBox" automation:AutomationProperties.Name="일일 예산 원" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <Label Content="_월간 예산 (원)" Target="{Binding ElementName=MonthlyBudgetBox}" />
+                                        <TextBox x:Name="MonthlyBudgetBox" automation:AutomationProperties.Name="월간 예산 원" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4">
+                                        <Label Content="USD→KRW _환산율" Target="{Binding ElementName=PricingRateBox}" />
+                                        <TextBox x:Name="PricingRateBox" automation:AutomationProperties.Name="가격 원화 환산율" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="_모델 및 제한" automation:AutomationProperties.Name="모델 및 제한">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="38,32,42,40" MaxWidth="900" HorizontalAlignment="Left">
+                        <TextBlock Text="모델 검증 및 사용 제한" FontSize="28" FontWeight="SemiBold" />
+                        <TextBlock Text="실제 운영 승인 근거와 호출 한도를 기록합니다. 이 앱의 검증 버튼은 유료 AI 요청을 보내지 않습니다."
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,7,0,24" TextWrapping="Wrap" />
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="모델 검증 근거" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18" />
+                                <Label Content="고정 모델 _버전" Target="{Binding ElementName=PinnedModelVersionBox}" />
+                                <TextBox x:Name="PinnedModelVersionBox" automation:AutomationProperties.Name="고정 모델 버전" />
+                                <Grid Margin="0,16,0,0">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                        <ColumnDefinition Width="10" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <Label Content="현재 설정의 dry-run _증거 (JSON)" Target="{Binding ElementName=EvidencePathBox}" />
+                                        <TextBox x:Name="EvidencePathBox" automation:AutomationProperties.Name="수동 검증 근거 파일 경로" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" Content="파일 선택" Click="BrowseEvidenceButton_Click" VerticalAlignment="Bottom"
+                                            Style="{StaticResource SecondaryButtonStyle}" Margin="10,0,0,0"
+                                            automation:AutomationProperties.Name="dry-run JSON 증거 파일 선택" />
+                                </Grid>
+                                <CheckBox x:Name="ModelVerifiedBox" Margin="0,18,0,0" FontWeight="SemiBold"
+                                          Content="실제 유료 스모크 테스트를 완료했고 모델·가격·응답을 확인했습니다"
+                                          automation:AutomationProperties.Name="실제 유료 스모크 테스트 후 모델 검증 완료" />
+                                <TextBlock Text="체크하기 전에 근거 파일과 고정 모델 버전을 기록하세요. 공급자를 바꾸면 이 확인은 자동으로 해제됩니다."
+                                           Foreground="#8A5A00" Background="#FFF8E7" Padding="12" Margin="0,10,0,0" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="가격 및 호출 제한" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18" />
+                                <UniformGrid Columns="2" Rows="3">
+                                    <StackPanel Margin="0,0,10,14">
+                                        <Label Content="입력 100만 토큰당 _USD" Target="{Binding ElementName=InputPriceBox}" />
+                                        <TextBox x:Name="InputPriceBox" automation:AutomationProperties.Name="입력 백만 토큰당 달러 가격" />
+                                    </StackPanel>
+                                    <StackPanel Margin="10,0,0,14">
+                                        <Label Content="출력 100만 토큰당 U_SD" Target="{Binding ElementName=OutputPriceBox}" />
+                                        <TextBox x:Name="OutputPriceBox" automation:AutomationProperties.Name="출력 백만 토큰당 달러 가격" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,10,14">
+                                        <Label Content="경기당 최대 _호출" Target="{Binding ElementName=MaxCallsBox}" />
+                                        <TextBox x:Name="MaxCallsBox" automation:AutomationProperties.Name="경기당 최대 호출 수" />
+                                    </StackPanel>
+                                    <StackPanel Margin="10,0,0,14">
+                                        <Label Content="_일일 호출 한도" Target="{Binding ElementName=DailyCallsBox}" />
+                                        <TextBox x:Name="DailyCallsBox" automation:AutomationProperties.Name="일일 호출 한도" />
+                                    </StackPanel>
+                                    <StackPanel Margin="0,0,10,0">
+                                        <Label Content="_월간 호출 한도" Target="{Binding ElementName=MonthlyCallsBox}" />
+                                        <TextBox x:Name="MonthlyCallsBox" automation:AutomationProperties.Name="월간 호출 한도" />
+                                    </StackPanel>
+                                    <Grid Margin="10,0,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" />
+                                            <ColumnDefinition Width="14" />
+                                            <ColumnDefinition Width="*" />
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel Grid.Column="0">
+                                            <Label Content="최대 _입력 토큰" Target="{Binding ElementName=MaxInputTokensBox}" />
+                                            <TextBox x:Name="MaxInputTokensBox" automation:AutomationProperties.Name="최대 입력 토큰" />
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="2">
+                                            <Label Content="최대 _출력 토큰" Target="{Binding ElementName=MaxOutputTokensBox}" />
+                                            <TextBox x:Name="MaxOutputTokensBox" automation:AutomationProperties.Name="최대 출력 토큰" />
+                                        </StackPanel>
+                                    </Grid>
+                                </UniformGrid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="_런타임 및 이미지" automation:AutomationProperties.Name="런타임 및 이미지">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="38,32,42,40" MaxWidth="900" HorizontalAlignment="Left">
+                        <TextBlock Text="런타임 및 이미지" FontSize="28" FontWeight="SemiBold" />
+                        <TextBlock Text="Docker 런타임 위치와 승인된 이미지 digest를 지정합니다. 운영 이미지에는 변경 가능한 latest 태그를 사용하지 마세요."
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,7,0,24" TextWrapping="Wrap" />
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="로컬 런타임" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,18" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="140" />
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <Label Content="웹 _포트" Target="{Binding ElementName=WebPortBox}" />
+                                        <TextBox x:Name="WebPortBox" automation:AutomationProperties.Name="로컬 웹 포트" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <Label Content="_런타임 폴더" Target="{Binding ElementName=RuntimeRootBox}" />
+                                        <TextBox x:Name="RuntimeRootBox" automation:AutomationProperties.Name="런타임 폴더" />
+                                    </StackPanel>
+                                    <Button Grid.Column="3" Content="폴더 선택" Click="BrowseRuntimeButton_Click" VerticalAlignment="Bottom"
+                                            Style="{StaticResource SecondaryButtonStyle}" Margin="10,0,0,0"
+                                            automation:AutomationProperties.Name="Vlytics 런타임 폴더 선택" />
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="고정 이미지" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Text="각 값은 배포에서 검증한 registry 경로와 sha256 digest를 포함해야 합니다."
+                                           Foreground="{StaticResource MutedBrush}" Margin="0,5,0,18" />
+                                <Label Content="_Backend 이미지" Target="{Binding ElementName=BackendImageBox}" />
+                                <TextBox x:Name="BackendImageBox" automation:AutomationProperties.Name="Backend 이미지" />
+                                <Label Content="_Frontend 이미지" Target="{Binding ElementName=FrontendImageBox}" Margin="0,12,0,0" />
+                                <TextBox x:Name="FrontendImageBox" automation:AutomationProperties.Name="Frontend 이미지" />
+                                <Label Content="_Node 빌드 이미지" Target="{Binding ElementName=NodeImageBox}" Margin="0,12,0,0" />
+                                <TextBox x:Name="NodeImageBox" automation:AutomationProperties.Name="Node 빌드 이미지" />
+                                <Label Content="N_ginx 런타임 이미지" Target="{Binding ElementName=NginxImageBox}" Margin="0,12,0,0" />
+                                <TextBox x:Name="NginxImageBox" automation:AutomationProperties.Name="Nginx 런타임 이미지" />
+                                <Label Content="_PostgreSQL 이미지" Target="{Binding ElementName=PostgresImageBox}" Margin="0,12,0,0" />
+                                <TextBox x:Name="PostgresImageBox" automation:AutomationProperties.Name="PostgreSQL 이미지" />
+                                <Label Content="P_ython 빌드 이미지" Target="{Binding ElementName=PythonImageBox}" Margin="0,12,0,0" />
+                                <TextBox x:Name="PythonImageBox" automation:AutomationProperties.Name="Python 빌드 이미지" />
+                                <Label Content="_uv 빌드 이미지" Target="{Binding ElementName=UvImageBox}" Margin="0,12,0,0" />
+                                <TextBox x:Name="UvImageBox" automation:AutomationProperties.Name="uv 빌드 이미지" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="원격 호스트 메모" FontSize="18" FontWeight="SemiBold" />
+                                <TextBlock Text="이 값은 운영 문서용 메타데이터입니다. 앱은 SSH 연결이나 원격 명령을 실행하지 않습니다. 웹 화면은 localhost에만 열립니다."
+                                           Foreground="{StaticResource MutedBrush}" Margin="0,5,0,18" TextWrapping="Wrap" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="18" />
+                                        <ColumnDefinition Width="140" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel Grid.Column="0">
+                                        <Label Content="SSH _호스트" Target="{Binding ElementName=SshHostBox}" />
+                                        <TextBox x:Name="SshHostBox" automation:AutomationProperties.Name="SSH 호스트 메모" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="2">
+                                        <Label Content="SSH _사용자" Target="{Binding ElementName=SshUserBox}" />
+                                        <TextBox x:Name="SshUserBox" automation:AutomationProperties.Name="SSH 사용자 메모" />
+                                    </StackPanel>
+                                    <StackPanel Grid.Column="4">
+                                        <Label Content="SSH _포트" Target="{Binding ElementName=SshPortBox}" />
+                                        <TextBox x:Name="SshPortBox" automation:AutomationProperties.Name="SSH 포트 메모" />
+                                    </StackPanel>
+                                </Grid>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
+            <TabItem Header="_운영" automation:AutomationProperties.Name="운영">
+                <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="38,32,42,40" MaxWidth="900" HorizontalAlignment="Left">
+                        <TextBlock Text="운영" FontSize="28" FontWeight="SemiBold" />
+                        <TextBlock Text="저장된 설정을 검증하고 런타임에 반영한 뒤 서비스를 제어합니다."
+                                   Foreground="{StaticResource MutedBrush}" Margin="0,7,0,24" />
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*" />
+                                        <ColumnDefinition Width="Auto" />
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Text="현재 상태" FontSize="18" FontWeight="SemiBold" />
+                                        <TextBlock x:Name="RuntimeStateText" Text="아직 상태를 조회하지 않았습니다." Foreground="{StaticResource MutedBrush}" Margin="0,7,0,0" />
+                                    </StackPanel>
+                                    <Button Grid.Column="1" x:Name="OpenBrowserButton" Content="브라우저 열기" Click="OpenBrowserButton_Click"
+                                            Style="{StaticResource SecondaryButtonStyle}" automation:AutomationProperties.Name="로컬 Vlytics 브라우저 열기" />
+                                </Grid>
+                                <Border Background="#EEF4FF" CornerRadius="7" Padding="14" Margin="0,18,0,0">
+                                    <TextBlock x:Name="ApplyStateText" Text="저장 후 검증과 적용을 차례로 실행하세요. 적용한 설정은 다음 시작부터 사용됩니다."
+                                               Foreground="#274B86" TextWrapping="Wrap" />
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="설정 준비" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <WrapPanel>
+                                    <Button x:Name="ValidateButton" Content="설정 검증" Click="ValidateButton_Click" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,10,10"
+                                            automation:AutomationProperties.Name="저장된 설정 검증" />
+                                    <Button x:Name="ApplyButton" Content="설정 적용" Click="ApplyButton_Click" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,10,10"
+                                            automation:AutomationProperties.Name="저장된 설정을 런타임에 적용" />
+                                </WrapPanel>
+                                <TextBlock Text="검증은 형식·필수 파일·Docker 구성만 확인하며 AI 공급자에게 요청을 보내지 않습니다."
+                                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="서비스 제어" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,16" />
+                                <WrapPanel>
+                                    <Button x:Name="StartButton" Content="서비스 시작" Click="StartButton_Click" Style="{StaticResource PrimaryButtonStyle}" Margin="0,0,10,10"
+                                            automation:AutomationProperties.Name="Vlytics 서비스 시작" />
+                                    <Button x:Name="StopButton" Content="서비스 중지" Click="StopButton_Click" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,10,10"
+                                            automation:AutomationProperties.Name="Vlytics 서비스 중지" />
+                                    <Button x:Name="StatusButton" Content="상태 조회" Click="StatusButton_Click" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,10,10"
+                                            automation:AutomationProperties.Name="Vlytics 서비스 상태 조회" />
+                                    <Button x:Name="UpdateButton" Content="이미지 업데이트" Click="UpdateButton_Click" Style="{StaticResource SecondaryButtonStyle}" Margin="0,0,10,10"
+                                            automation:AutomationProperties.Name="고정 이미지 업데이트" />
+                                    <Button x:Name="CancelButton" Content="작업 취소" Click="CancelButton_Click" Style="{StaticResource DangerButtonStyle}" Margin="0,0,10,10" IsEnabled="False"
+                                            automation:AutomationProperties.Name="진행 중인 운영 작업 취소" />
+                                </WrapPanel>
+                                <TextBlock Text="업데이트와 시작은 저장·적용된 값만 사용합니다. 앱을 열었다고 서비스가 자동으로 시작되지는 않습니다."
+                                           Foreground="{StaticResource MutedBrush}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="최근 작업" FontSize="18" FontWeight="SemiBold" Margin="0,0,0,12" />
+                                <TextBox x:Name="OperationLogBox" IsReadOnly="True" AcceptsReturn="True" TextWrapping="Wrap"
+                                         MinHeight="140" MaxHeight="260" VerticalScrollBarVisibility="Auto"
+                                         automation:AutomationProperties.Name="최근 작업 결과" />
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+        </TabControl>
+
+        <Border Grid.Row="1" Grid.ColumnSpan="2" Background="White" BorderBrush="{StaticResource LineBrush}" BorderThickness="0,1,0,0" Padding="18,12">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="230" />
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                    <ProgressBar x:Name="BusyProgress" Width="90" Height="5" IsIndeterminate="True" Visibility="Collapsed" Margin="0,0,12,0" />
+                    <TextBlock x:Name="SaveStateText" Text="설정을 불러오는 중입니다." Foreground="{StaticResource MutedBrush}" VerticalAlignment="Center" />
+                </StackPanel>
+                <Button x:Name="SaveButton" Grid.Column="2" Content="설정 저장" Click="SaveButton_Click"
+                        Style="{StaticResource PrimaryButtonStyle}" MinWidth="112" automation:AutomationProperties.Name="설정과 입력한 새 비밀번호 저장" />
+            </Grid>
+        </Border>
+    </Grid>
+</Window>
