@@ -33,13 +33,13 @@ jobs:
           if ($buildNumber -gt 65535) { throw 'MSI build counter exhausted; increment the version series.' }
           $version = "1.0.$buildNumber"
           "version=$version" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
-      - uses: actions/setup-python@v5
-        with:
-          python-version: '3.12.14'
       - uses: astral-sh/setup-uv@v6
         with:
           version: '0.12.5'
+          python-version: '3.12.14'
           enable-cache: true
+      - name: Install the pinned managed Python runtime
+        run: uv python install 3.12.14
       - name: Test generated deployment settings and preflight contracts
         working-directory: backend
         run: uv run --frozen pytest tests/test_desktop_settings.py tests/test_deployment_scripts.py
