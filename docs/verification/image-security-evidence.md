@@ -1,5 +1,13 @@
 # 실제 이미지 보안 검사 증거
 
+## 2026-09-30 홈 운영 PR 후속 보완
+
+[PR #15의 CI 36687388114](https://github.com/jaywapp/vlytics/actions/runs/36687388114)는 Docker 기동·복구·실제 브라우저 검사를 통과했지만 Node 파생 빌드 이미지의 HIGH 3행 때문에 실패했다. 나머지 7개 이미지는 해당 gate를 통과했다. 다운로드한 `ci-image-evidence`의 발견은 npm 번들의 `brace-expansion` 5.0.9에 CVE-2026-102276·CVE-2026-102278, `undici` 6.28.0에 CVE-2026-19534다.
+
+공식 registry에서 npm 최신 배포도 12.1.0임을 확인해 본체는 유지하고, `infra/images/patch-npm-bundle.cjs`로 같은 major의 수정판 두 개만 교체한다. `brace-expansion` 5.0.11·`undici` 6.28.1의 버전과 의존성 호환성을 확인한 뒤 npm bundle의 해당 패키지 경로를 교체한다. 애플리케이션 lock과 runtime 이미지는 변경하지 않는다. 임시 npm 번들에서 교체·모듈 로딩·npm 실행·registry 조회를 확인했으며 이미지 재검사는 수정 커밋의 CI 결과로 판단한다. 취약점 제외나 gate 완화는 추가하지 않았다.
+
+공식 근거: [brace-expansion 수정판](https://github.com/juliangruber/brace-expansion/security/advisories/GHSA-qhr7-859c-m2p7), [undici 수정판](https://github.com/nodejs/undici/security/advisories/GHSA-rfgv-xxqx-mfg5).
+
 ## 최신 후속 검사
 
 [CI 36291809544](https://github.com/jaywapp/vlytics/actions/runs/36291809544), 코드 후보 `7fa9a6d`도 전체 성공했다. 실제 merge revision `cef852c0d45c9ff32dd7b990b71c7d3e1f355931`의 부모 `69585df`/`7fa9a6d`를 확인했다. Trivy 0.74.0, DB 갱신 `2026-09-27T00:40:58.172367669Z`, 이미지 8개 HIGH/CRITICAL 0건과 다운로드한 보고서 hash 16개를 검증했다. scope는 `built-ci-images-not-published-release`다.

@@ -171,7 +171,7 @@ HIGH/CRITICAL 발견, scanner 오류, 비어 있거나 불완전한 보고서, i
 
 개발/CI Python 기본은 `python:3.12.14-alpine3.24`다. FastAPI 0.141.1/Starlette 1.3.1 및 lock의 musllinux wheel을 사용하며 전체 image 실행 검증은 CI 결과를 따른다. 운영은 계속 검증·게시한 digest를 외부 주입한다.
 
-`infra/images/node.Dockerfile`은 digest로 전달한 Node 22 위에서 npm 12.1.0을 설치하고 cache를 제거한다. `infra/images/nginx.Dockerfile`은 digest로 전달한 stable Nginx 위에서 libexpat 2.8.5-r0을 설치한다. CI는 이 파생 기반 image와 최종 frontend를 모두 검사하고 원본 digest를 build input 증거로 남긴다. 이 후보의 실제 scan 결과를 확인하기 전에는 운영용으로 승인하지 않는다.
+`infra/images/node.Dockerfile`은 digest로 전달한 Node 22 위에서 npm 12.1.0을 설치하고 번들의 `brace-expansion` 5.0.11·`undici` 6.28.1 보안 수정판만 교체한 뒤 임시 파일과 cache를 제거한다. 교체 스크립트는 npm 본체·패키지 버전·기존 major와 의존성 호환성을 확인하며 불일치하면 빌드를 중단한다. `infra/images/nginx.Dockerfile`은 digest로 전달한 stable Nginx 위에서 libexpat 2.8.5-r0을 설치한다. CI는 이 파생 기반 image와 최종 frontend를 모두 검사하고 원본 digest를 build input 증거로 남긴다. 이 후보의 실제 scan 결과를 확인하기 전에는 운영용으로 승인하지 않는다.
 
 릴리스 담당자는 동일 Dockerfile과 upstream digest로 파생 base를 빌드·검증하고, 게시된 파생 digest를 frontend의 `NODE_IMAGE`/`NGINX_IMAGE`와 release 검사에 전달한다. private registry의 base repository는 `.../node@sha256:...`, `.../nginx@sha256:...`처럼 family를 식별할 수 있어야 한다. upstream image의 취약 패키지를 그대로 둔 채 이름만 바꾸거나 보고서에서 제외하지 않는다. [실제 검사 기록](../verification/image-security-evidence.md)을 함께 확인한다.
 
