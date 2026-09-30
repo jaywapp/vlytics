@@ -9,6 +9,12 @@ Vlytics는 V리그 관측 데이터, 경기 전 예측, 사후 평가를 한 흐
 - Node.js 22.23.2 LTS와 npm 10.9.8
 - Docker Engine과 Compose v2 (로컬 PostgreSQL 및 전체 스택 실행 시)
 
+## Windows 설치와 설정 앱
+
+[GitHub Releases](https://github.com/jaywapp/vlytics/releases)에서 MSI 또는 무설치 ZIP을 받는다. 설정 앱에서 OpenAI·Claude·Gemini, API 키, 예산과 서비스 시작·중지를 관리한다. 키는 Windows 현재 사용자 DPAPI로 보호한다. 설치·업그레이드·앱 제거는 사용자 설정과 DB 볼륨을 삭제하지 않는다.
+
+모든 브랜치 푸시는 GitHub Actions에서 새 버전의 설치 파일을 생성한다. `main`은 정식 릴리즈, 작업 브랜치는 시험 릴리즈다. 실행 전 도구와 운영 검증 값은 [Windows 사용·빌드 안내](desktop/README.md)를 따른다.
+
 ## 백엔드
 
 ```powershell

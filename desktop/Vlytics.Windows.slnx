@@ -1,0 +1,5 @@
+<Solution>
+  <Project Path="Vlytics.Settings.Core/Vlytics.Settings.Core.csproj" />
+  <Project Path="Vlytics.Settings.App/Vlytics.Settings.App.csproj" />
+  <Project Path="Vlytics.Settings.Tests/Vlytics.Settings.Tests.csproj" />
+</Solution>

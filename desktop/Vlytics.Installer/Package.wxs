@@ -1,0 +1,54 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package
+    Name="Vlytics Settings"
+    Manufacturer="Vlytics"
+    Version="$(var.ProductVersion)"
+    Language="1033"
+    Scope="perUser"
+    InstallerVersion="500"
+    UpgradeCode="D316E531-DB26-49B3-A89D-94A2E8F6E7E4"
+    Compressed="yes">
+
+    <SummaryInformation
+      Description="Vlytics local settings application"
+      Manufacturer="Vlytics" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Vlytics Settings is already installed." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="LocalProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Vlytics">
+          <Directory Id="APPFOLDER" Name="app" />
+          <Directory Id="RUNTIMEFOLDER" Name="runtime" />
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Vlytics" />
+    </StandardDirectory>
+
+    <Component Id="StartMenuShortcutComponent" Directory="ApplicationProgramsFolder" Guid="6B9C674E-E126-4930-AAD9-239827DB2C94" Bitness="always64">
+      <Shortcut
+        Id="StartMenuShortcut"
+        Name="Vlytics Settings"
+        Description="Configure the local Vlytics deployment"
+        Target="[APPFOLDER]Vlytics.Settings.exe"
+        WorkingDirectory="APPFOLDER" />
+      <RemoveFolder Id="RemoveApplicationProgramsFolder" Directory="ApplicationProgramsFolder" On="uninstall" />
+      <RegistryValue
+        Root="HKCU"
+        Key="Software\Vlytics\Installer\Components"
+        Name="StartMenuShortcut"
+        Type="integer"
+        Value="1"
+        KeyPath="yes" />
+    </Component>
+
+    <Feature Id="MainFeature" Title="Vlytics Settings" Level="1">
+      <ComponentGroupRef Id="PayloadComponents" />
+      <ComponentRef Id="StartMenuShortcutComponent" />
+    </Feature>
+  </Package>
+</Wix>
